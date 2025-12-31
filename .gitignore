@@ -1,0 +1,32 @@
+# Build directories
+build/
+*/build/
+*/*/build/
+
+# Compiled files
+*.o
+*.so
+*.a
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ROS2 workspaces (large, managed separately)
+workspaces/
+
+# Temporary files
+*.tmp
+*~
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log

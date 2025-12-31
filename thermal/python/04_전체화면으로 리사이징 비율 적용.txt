@@ -1,0 +1,173 @@
+import cv2
+import numpy as np
+import wiringpi as GPIO
+from screeninfo import get_monitors
+
+monitor = get_monitors()[0]
+screen_width = monitor.width
+screen_height = monitor.height
+
+# 창 이름을 설정하고 전체화면으로 설정
+cv2.namedWindow('Overlay', cv2.WND_PROP_FULLSCREEN)
+cv2.setWindowProperty('Overlay', cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
+INPUT = 0
+OUTPUT = 1
+OUTPUT_PIN = 15
+INPUT_PIN = 16
+OUTPUT_HIGH = 1
+OUTPUT_LOW = 0
+
+GPIO.wiringPiSetup()
+# wiringpi.wiringPiSetupSys()
+# wiringpi.wiringPiSetupGpio()
+
+GPIO.pinMode(OUTPUT_PIN, OUTPUT)
+
+
+
+def draw_marker(frame, center, radius_outer, radius_inner, color):
+    frame = cv2.circle(frame, center, 10, color, 1)
+    frame = cv2.circle(frame, center, radius_outer, color, 1)
+    frame = cv2.circle(frame, center, radius_inner, color, 1)
+
+    extend_radius = radius_outer + 20
+    # frame = cv2.line(frame, (center[0] - extend_radius, center[1]),
+    #                  (center[0] + extend_radius, center[1]), color, 2)
+    # frame = cv2.line(frame, (center[0], center[1] - extend_radius),
+    #                  (center[0], center[1] + extend_radius), color, 2)
+
+    frame = cv2.line(frame, (center[0]+10, center[1]),
+                     (center[0] + extend_radius, center[1]), color, 2)
+    frame = cv2.line(frame, (center[0] - extend_radius, center[1]),
+                     (center[0]-10, center[1]), color, 2)
+
+    frame = cv2.line(frame, (center[0], center[1] + 10),
+                     (center[0], center[1] + extend_radius), color, 2)
+    frame = cv2.line(frame, (center[0], center[1]-10),
+                     (center[0], center[1] - extend_radius), color, 2)
+
+    return frame
+
+desired_rgb_width = 640  # 원하는 폭 설정
+desired_rgb_height = 480   # 원하는 높이 설정
+
+cap1 = cv2.VideoCapture(2)  #Thermal
+cap2 = cv2.VideoCapture(0)  #RGB
+
+cap2.set(cv2.CAP_PROP_FRAME_WIDTH, desired_rgb_width)
+cap2.set(cv2.CAP_PROP_FRAME_HEIGHT, desired_rgb_height)
+
+if not cap1.isOpened() or not cap2.isOpened():
+    print("Cannot open one or both cameras")
+    exit()
+
+scale = 0.75
+thermal_width, thermal_height = int(640*scale), int(480*scale)
+thermal_dx, thermal_dy = 0, -10
+
+rgb_width, rgb_height = 640, 480
+cut_pixels = 30
+
+x_pos, y_pos = int(((rgb_width - thermal_width) / 2)+thermal_dx), int(
+    min((rgb_height - thermal_height) / 2 + thermal_dy, rgb_height - thermal_height+cut_pixels))
+
+
+alpha_thermal_layer = 0.6
+alpha_marker_layer = 0.0
+
+center = (thermal_width // 2, thermal_height // 2)
+radius_outer = 100
+radius_inner = 50
+
+while True:
+    ret1, frame1 = cap1.read()
+    ret2, frame2 = cap2.read()
+
+    if not ret1 or not ret2:
+        print("Can't receive frame (stream end?). Exiting ...")
+        break
+
+    frame1_resized = cv2.resize(frame1, (thermal_width, thermal_height))
+
+    frame1_cropped = frame1_resized[:-cut_pixels, :]
+
+    green = frame1_cropped[:, :, 1]
+
+    kernel = np.ones((1, 1), dtype=np.float32) / 1
+    green_avg = cv2.filter2D(green, -1, kernel)
+
+    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(green)
+
+    distance_to_max = np.sqrt(
+        (center[0] - max_loc[0])**2 + (center[1] - max_loc[1])**2)
+    if distance_to_max < radius_inner:
+        color = (0, 255, 0)
+        max_loc_color = (0, 255, 0)
+        GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_HIGH)
+    elif distance_to_max < radius_outer:
+        color = (0, 255, 255)
+        max_loc_color = (0, 255, 255)
+        GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_LOW)
+    else:
+        color = (255, 255, 255)
+        max_loc_color = (0, 0, 255)
+        GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_LOW)
+    overlay_marker = draw_marker(
+        np.zeros_like(frame1_cropped), center, radius_outer, radius_inner, color)
+    overlay_marker = cv2.circle(overlay_marker, max_loc, 20, max_loc_color, 2)
+
+    # Crop RGB image to match thermal image size
+    frame2_cropped = frame2[y_pos:y_pos+thermal_height -
+                            cut_pixels, x_pos:x_pos+thermal_width]
+
+    overlay_area = cv2.addWeighted(
+        frame2_cropped, alpha_thermal_layer, frame1_cropped, 1 - alpha_thermal_layer, 0)
+
+    # Create mask
+    mask = overlay_marker.any(axis=2)
+
+    # Adjust transparency of marker line
+    overlay_area = \
+        np.where(mask[:, :, np.newaxis],
+                 np.float32(overlay_area)*alpha_marker_layer +
+                 np.float32(overlay_marker)*(1 - alpha_marker_layer),
+                 overlay_area).astype(np.uint8)
+
+    # Add max_loc text
+    # Compute relative position to the center
+    relative_loc = (max_loc[0] - center[0], max_loc[1] - center[1])
+    relative_loc_str = "(dx, dy): ({}, {})".format(
+        relative_loc[0], relative_loc[1])
+    cv2.putText(overlay_area, relative_loc_str, (11, 21),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+    cv2.putText(overlay_area, relative_loc_str, (10, 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+# Add max_val text
+    max_val_str = "Max raw value: {:.1f}".format(max_val)
+    cv2.putText(overlay_area, max_val_str, (11, 41),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+    cv2.putText(overlay_area, max_val_str, (10, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+    # 원본 영상의 비율 계산
+    original_aspect = overlay_area.shape[1] / overlay_area.shape[0]
+    
+    # 화면 크기를 기반으로 새로운 크기를 계산
+    new_width = screen_width
+    new_height = int(screen_width / original_aspect)
+
+    if new_height > screen_height:
+        new_height = screen_height
+        new_width = int(screen_height * original_aspect)
+
+    overlay_area_resized = cv2.resize(overlay_area, (new_width, new_height))
+    cv2.imshow('Overlay', overlay_area_resized)
+
+
+    if cv2.waitKey(1) == ord('q'):
+        break
+
+cap1.release()
+cap2.release()
+cv2.destroyAllWindows()

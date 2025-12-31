@@ -1,0 +1,39 @@
+import wiringpi as GPIO
+import atexit  # 추가
+INPUT = 0
+OUTPUT = 1
+INPUT_PIN = 16
+OUTPUT_PIN = 17
+OUTPUT_HIGH = 1
+OUTPUT_LOW = 0
+pinstatus_list = ['LOW','HIGH']
+ 
+# GPIO.wiringPiSetupSys()
+# GPIO.wiringPiSetupGpio()
+GPIO.wiringPiSetup()
+GPIO.pinMode(INPUT_PIN, INPUT)
+GPIO.pinMode(OUTPUT_PIN, OUTPUT)
+# GPIO를 초기화하는 부분 아래에 이 함수를 추가합니다.
+def cleanup_gpio():
+    GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_LOW)  # OUTPUT_PIN을 low로 설정
+
+atexit.register(cleanup_gpio)  # 프로그램 종료 시 cleanup_gpio 함수 호출
+
+ 
+
+
+while True:
+    # print("LOW")
+    GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_LOW)
+    print(GPIO.digitalRead(INPUT_PIN))
+
+    
+    GPIO.delay(500)
+    
+    # print("High")
+    
+    GPIO.digitalWrite(OUTPUT_PIN, OUTPUT_HIGH)
+    
+    GPIO.delay(500)
+
+
