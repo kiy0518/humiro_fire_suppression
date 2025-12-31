@@ -387,6 +387,28 @@ void FrameCompositor::overlay_lidar_radar(cv::Mat& frame) {
         return;
     }
     
+    // 디버깅: 각도별 포인트 개수 카운트
+    static int frame_count = 0;
+    frame_count++;
+    if (frame_count % 30 == 0) {  // 1초에 한 번 출력 (30fps 기준)
+        int quadrant[4] = {0};  // 0~90, 90~180, 180~270, 270~360
+        for (const auto& point : points) {
+            float angle = point.angle;
+            while (angle >= 360.0f) angle -= 360.0f;
+            while (angle < 0.0f) angle += 360.0f;
+            
+            if (angle < 90.0f) quadrant[0]++;
+            else if (angle < 180.0f) quadrant[1]++;
+            else if (angle < 270.0f) quadrant[2]++;
+            else quadrant[3]++;
+        }
+        std::cout << "[LiDAR Debug] 각도별 포인트: 0-90도:" << quadrant[0] 
+                  << " | 90-180도:" << quadrant[1]
+                  << " | 180-270도:" << quadrant[2]
+                  << " | 270-360도:" << quadrant[3]
+                  << " | 전체:" << points.size() << std::endl;
+    }
+    
     try {
         // 실제 프레임 크기에 맞춰 중심 좌표 계산
         int center_x = frame.cols / 2;
@@ -442,10 +464,10 @@ void FrameCompositor::overlay_lidar_radar(cv::Mat& frame) {
                     while (adjusted_angle >= 360.0f) adjusted_angle -= 360.0f;
                     while (adjusted_angle < 0.0f) adjusted_angle += 360.0f;
 
-                    // 180도 회전 보정
-                    float screen_angle = (90.0f - adjusted_angle) * PI / 180.0f;
-                    int end_x = center_x + static_cast<int>(radius_pixels * std::cos(screen_angle));
-                    int end_y = center_y - static_cast<int>(radius_pixels * std::sin(screen_angle));
+                    // LD19 시계방향 회전 보정
+                    float screen_angle = (adjusted_angle - 90.0f) * PI / 180.0f;
+                    int end_x = center_x + static_cast<int>(std::round(radius_pixels * std::cos(screen_angle)));
+                    int end_y = center_y + static_cast<int>(std::round(radius_pixels * std::sin(screen_angle)));
 
                     cv::Scalar line_color = (base_angle == 0) ? cv::Scalar(150, 150, 150) : cv::Scalar(100, 100, 100);
                     int line_thickness = (base_angle == 0) ? 2 : 1;
@@ -460,10 +482,10 @@ void FrameCompositor::overlay_lidar_radar(cv::Mat& frame) {
                     while (adjusted_angle >= 360.0f) adjusted_angle -= 360.0f;
                     while (adjusted_angle < 0.0f) adjusted_angle += 360.0f;
 
-                    // 180도 회전 보정
-                    float screen_angle = (90.0f - adjusted_angle) * PI / 180.0f;
-                    int end_x = center_x + static_cast<int>(radius_pixels * std::cos(screen_angle));
-                    int end_y = center_y - static_cast<int>(radius_pixels * std::sin(screen_angle));
+                    // LD19 시계방향 회전 보정
+                    float screen_angle = (adjusted_angle - 90.0f) * PI / 180.0f;
+                    int end_x = center_x + static_cast<int>(std::round(radius_pixels * std::cos(screen_angle)));
+                    int end_y = center_y + static_cast<int>(std::round(radius_pixels * std::sin(screen_angle)));
 
                     cv::Scalar line_color = (base_angle == 0) ? cv::Scalar(150, 150, 150) : cv::Scalar(100, 100, 100);
                     int line_thickness = (base_angle == 0) ? 2 : 1;
@@ -563,14 +585,14 @@ void FrameCompositor::overlay_lidar_radar(cv::Mat& frame) {
                     while (display_angle >= 360.0f) display_angle -= 360.0f;
                     while (display_angle < 0.0f) display_angle += 360.0f;
 
-                    // 180도 회전 보정: 270 - angle → 90 - angle
-                    // LiDAR 0도(전방) → 화면 상단(90도)
-                    // LiDAR 90도(우측) → 화면 우측(0도)
-                    // LiDAR 180도(후방) → 화면 하단(270도)
-                    // LiDAR 270도(좌측) → 화면 좌측(180도)
-                    float angle_rad = (90.0f - display_angle) * PI / 180.0f;
-                    int x = center_x + static_cast<int>(pixel_radius * std::cos(angle_rad));
-                    int y = center_y - static_cast<int>(pixel_radius * std::sin(angle_rad));
+                    // LD19 시계방향 회전 보정
+                    // LiDAR 0도(전방) → 화면 상단
+                    // LiDAR 90도(우측) → 화면 우측
+                    // LiDAR 180도(후방) → 화면 하단
+                    // LiDAR 270도(좌측) → 화면 좌측
+                    float angle_rad = (display_angle - 90.0f) * PI / 180.0f;
+                    int x = center_x + static_cast<int>(std::round(pixel_radius * std::cos(angle_rad)));
+                    int y = center_y + static_cast<int>(std::round(pixel_radius * std::sin(angle_rad)));
 
                     // 경계 체크
                     if (x >= 0 && x < frame.cols && y >= 0 && y < frame.rows) {
@@ -610,32 +632,35 @@ void FrameCompositor::overlay_lidar_radar(cv::Mat& frame) {
                     }
                 }
                 // FULL_360 모드는 모든 각도 표시 (필터링 없음)
-            
-            // 거리를 픽셀 반경으로 변환 (12m = 200픽셀)
-            float normalized_dist = std::min(point.distance / max_range, 1.0f);
-            int pixel_radius = static_cast<int>(normalized_dist * radius_pixels);
-            
-            // 각도를 라디안으로 변환 (180도 회전 보정)
-            // LiDAR: 0도=전방, 90도=우측, 180도=후방, 270도=좌측
-            // 화면: 90도=상단, 0도=우측, 270도=하단, 180도=좌측
-            // 변환: 90 - adjusted_angle
-            // 검증:
-            //   0도 → 90도 → cos(90°)=0, sin(90°)=1 → (0, -1*radius) = 상단 ✓
-            //   90도 → 0도 → cos(0°)=1, sin(0°)=0 → (radius, 0) = 우측 ✓
-            //   180도 → -90°=270도 → cos(270°)=0, sin(270°)=-1 → (0, +radius) = 하단 ✓
-            //   270도 → -180°=180도 → cos(180°)=-1, sin(180°)=0 → (-radius, 0) = 좌측 ✓
-            float angle_rad = (90.0f - adjusted_angle) * PI / 180.0f;
-            int x = center_x + static_cast<int>(pixel_radius * std::cos(angle_rad));
-            int y = center_y - static_cast<int>(pixel_radius * std::sin(angle_rad));  // Y축 반전
-            
-            // 경계 체크
-            if (x >= 0 && x < frame.cols && y >= 0 && y < frame.rows) {
-                // 거리에 따른 색상 (그라데이션)
-                cv::Scalar color = getLidarColor(point.distance);
+
+                // 거리를 픽셀 반경으로 변환 (12m = 200픽셀)
+                float normalized_dist = std::min(point.distance / max_range, 1.0f);
+                float pixel_radius_float = normalized_dist * radius_pixels;
+
+                // 각도를 라디안으로 변환 (LD19 시계방향 회전 보정)
+                // LiDAR LD19: 0도=전방, 90도=우측, 180도=후방, 270도=좌측 (시계방향 증가)
+                // 화면 좌표: 상단=전방, 우측=우측, 하단=후방, 좌측=좌측
+                // 수학 좌표계는 반시계방향 양수이므로, LD19의 시계방향을 보정
+                // 변환 공식: screen_angle = adjusted_angle - 90
+                // 검증 (시계방향):
+                //   LD19 0도 (전방) → -90도 → cos(-90)=0, sin(-90)=-1 → (0, -radius) = 상단 ✓
+                //   LD19 90도 (우측) → 0도 → cos(0)=1, sin(0)=0 → (radius, 0) = 우측 ✓
+                //   LD19 180도 (후방) → 90도 → cos(90)=0, sin(90)=1 → (0, +radius) = 하단 ✓
+                //   LD19 270도 (좌측) → 180도 → cos(180)=-1, sin(180)=0 → (-radius, 0) = 좌측 ✓
+                float angle_rad = (adjusted_angle - 90.0f) * PI / 180.0f;
                 
-                // 포인트 그리기 (작은 원)
-                cv::circle(frame, cv::Point(x, y), 2, color, -1, cv::LINE_AA);
-            }
+                // 반올림을 사용하여 원형 정밀도 향상
+                int x = center_x + static_cast<int>(std::round(pixel_radius_float * std::cos(angle_rad)));
+                int y = center_y + static_cast<int>(std::round(pixel_radius_float * std::sin(angle_rad)));
+
+                // 경계 체크
+                if (x >= 0 && x < frame.cols && y >= 0 && y < frame.rows) {
+                    // 거리에 따른 색상 (그라데이션)
+                    cv::Scalar color = getLidarColor(point.distance);
+
+                    // 포인트 그리기 (작은 원)
+                    cv::circle(frame, cv::Point(x, y), 2, color, -1, cv::LINE_AA);
+                }
             }  // for loop 끝
         }  // else 블록 끝
 
