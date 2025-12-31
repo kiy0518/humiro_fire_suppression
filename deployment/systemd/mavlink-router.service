@@ -1,0 +1,14 @@
+[Unit]
+Description=MAVLink Router for PX4 Communication
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/mavlink-routerd -c /etc/mavlink-router/main.conf
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

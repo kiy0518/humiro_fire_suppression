@@ -1,0 +1,675 @@
+<p data-ke-size="size16">&nbsp;</p>
+<div>
+    <style>
+        /* 티스토리 충돌 방지를 위해 body 대신 wrapper 클래스 사용 */
+        .post-install-wrapper {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .post-install-wrapper .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        .post-install-wrapper .header-box {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .post-install-wrapper .header-box h1 {
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+        
+        .post-install-wrapper .header-box p {
+            opacity: 0.9;
+        }
+        
+        .post-install-wrapper .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin: 4px;
+        }
+        
+        .post-install-wrapper .card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .post-install-wrapper .card h2 {
+            color: #2563eb;
+            font-size: 1.3rem;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .post-install-wrapper .step-number {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            background: #2563eb;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .post-install-wrapper table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        
+        .post-install-wrapper th, .post-install-wrapper td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .post-install-wrapper th {
+            background: #f8fafc;
+            font-weight: 600;
+        }
+        
+        .post-install-wrapper tr:hover {
+            background: #f1f5f9;
+        }
+        
+        .post-install-wrapper code {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+        
+        .post-install-wrapper pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+        
+        .post-install-wrapper pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .post-install-wrapper .highlight {
+            color: #fbbf24;
+        }
+        
+        .post-install-wrapper .comment {
+            color: #6b7280;
+        }
+        
+        .post-install-wrapper .alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+        
+        .post-install-wrapper .alert-warning {
+            background: #fef3c7;
+            border-left: 4px solid #d97706;
+            color: #92400e;
+        }
+        
+        .post-install-wrapper .alert-success {
+            background: #dcfce7;
+            border-left: 4px solid #16a34a;
+            color: #166534;
+        }
+        
+        .post-install-wrapper .alert-danger {
+            background: #fee2e2;
+            border-left: 4px solid #dc2626;
+            color: #991b1b;
+        }
+        
+        .post-install-wrapper .quick-ref {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            color: white;
+            padding: 24px;
+            border-radius: 12px;
+            margin: 20px 0;
+        }
+        
+        .post-install-wrapper .quick-ref h3 {
+            color: #fbbf24;
+            margin-bottom: 16px;
+        }
+        
+        .post-install-wrapper .checklist {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .post-install-wrapper .checklist li {
+            padding: 8px 0;
+            padding-left: 28px;
+            position: relative;
+        }
+        
+        .post-install-wrapper .checklist li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #16a34a;
+            font-weight: bold;
+        }
+        
+        .post-install-wrapper .file-tree {
+            background: #f1f5f9;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+        
+        .post-install-wrapper .file-tree .folder {
+            color: #2563eb;
+        }
+        
+        .post-install-wrapper .file-tree .important {
+            color: #dc2626;
+            font-weight: bold;
+        }
+        
+        .post-install-wrapper .footer-text {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+            font-size: 0.9em;
+        }
+        
+        @media (max-width: 600px) {
+            .post-install-wrapper {
+                padding: 10px;
+            }
+            
+            .post-install-wrapper .header-box {
+                padding: 20px;
+            }
+            
+            .post-install-wrapper .header-box h1 {
+                font-size: 1.4rem;
+            }
+            
+            .post-install-wrapper .card {
+                padding: 16px;
+            }
+            
+            .post-install-wrapper table {
+                font-size: 0.85em;
+            }
+            
+            .post-install-wrapper th, .post-install-wrapper td {
+                padding: 8px;
+            }
+        }
+    </style>
+</div>
+
+<div class="post-install-wrapper">
+    <div class="container">
+        <div class="header-box">
+            <h1>🚁 VIM4 Cluster Drone</h1>
+            <p>커스텀 이미지 설치 후 조치 사항</p>
+            <div style="margin-top: 16px;">
+                <span class="badge" style="background: #2563eb; color: white;">Ubuntu 22.04</span>
+                <span class="badge" style="background: #16a34a; color: white;">ROS2 Humble</span>
+                <span class="badge" style="background: #7c3aed; color: white;">PX4 v1.16.0</span>
+                <span class="badge" style="background: #059669; color: white;">QGC v5.0.8</span>
+            </div>
+        </div>
+
+        <!-- 빠른 참조 -->
+        <div class="quick-ref">
+            <h3>⚡ 복원 후 필수 명령어</h3>
+            <pre><code>cd ~/projects/Cluster_Drone
+nano device_config.env         <span class="comment"># 1. 기체 정보 수정</span>
+sudo ./003-apply_config.sh     <span class="comment"># 2. 설정 적용</span>
+bash 103-verify_installation.sh <span class="comment"># 3. 검증 (sudo 없이!)</span>
+sudo reboot                    <span class="comment"># 4. 재부팅</span></code></pre>
+        </div>
+
+        <!-- 1단계 -->
+        <div class="card">
+            <h2><span class="step-number">1</span>기체 정보 확인</h2>
+            <p>새 드론의 번호에 맞는 설정값을 확인합니다:</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>드론</th>
+                        <th>DRONE_ID</th>
+                        <th>ETH0_IP</th>
+                        <th>FC_IP</th>
+                        <th>WIFI_IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>#1</strong></td>
+                        <td>1</td>
+                        <td>10.0.0.11</td>
+                        <td>10.0.0.12</td>
+                        <td>192.168.100.11</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#2</strong></td>
+                        <td>2</td>
+                        <td>10.0.0.21</td>
+                        <td>10.0.0.22</td>
+                        <td>192.168.100.21</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#3</strong></td>
+                        <td>3</td>
+                        <td>10.0.0.31</td>
+                        <td>10.0.0.32</td>
+                        <td>192.168.100.31</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 2단계 -->
+        <div class="card">
+            <h2><span class="step-number">2</span>device_config.env 수정</h2>
+            <pre><code>cd ~/projects/Cluster_Drone
+nano device_config.env</code></pre>
+            
+            <h4 style="margin-top: 16px; color: #dc2626;">수정할 항목 (기체별로 다름):</h4>
+            <pre><code><span class="comment"># 기체 식별</span>
+DRONE_ID=<span class="highlight">1</span>                    <span class="comment"># ← 드론 번호 (1, 2, 3)</span>
+ROS_NAMESPACE=<span class="highlight">drone1</span>          <span class="comment"># ← ROS 네임스페이스</span>
+
+<span class="comment"># 네트워크: eth0 (VIM4 ↔ FC)</span>
+ETH0_IP=<span class="highlight">10.0.0.11</span>             <span class="comment"># ← VIM4 eth0 IP</span>
+FC_IP=<span class="highlight">10.0.0.12</span>               <span class="comment"># ← FC IP (DHCP 범위 제한으로 항상 동일 IP 할당)</span>
+
+<span class="comment"># 네트워크: WiFi (VIM4 ↔ QGC)</span>
+WIFI_IP=<span class="highlight">192.168.100.11</span>        <span class="comment"># ← VIM4 WiFi IP</span></code></pre>
+
+            <h4 style="margin-top: 16px; color: #64748b;">수정하지 않는 항목 (모든 기체 동일):</h4>
+            <ul style="margin-left: 20px; color: #64748b;">
+                <li>FC_IP - DHCP 범위가 하나로 제한되어 자동 할당 (수정 불필요)</li>
+                <li>WIFI_SSID_*, WIFI_PASSWORD_* - WiFi 정보</li>
+                <li>ROS_DOMAIN_ID=0 - 군집 통신용</li>
+                <li>XRCE_DDS_PORT=8888</li>
+                <li>FC_MAVLINK_PORT=14540</li>
+                <li>QGC_UDP_PORT=14550 - 브로드캐스트 방식 (QGC IP 설정 불필요)</li>
+            </ul>
+        </div>
+
+        <!-- 3단계 -->
+        <div class="card">
+            <h2><span class="step-number">3</span>설정 적용</h2>
+            <pre><code>sudo ./003-apply_config.sh</code></pre>
+            
+            <h4 style="margin-top: 16px;">003이 자동으로 처리하는 작업:</h4>
+            <ul class="checklist">
+                <li>eth0 네트워크 설정 (netplan)</li>
+                <li>WiFi 네트워크 설정 (netplan)</li>
+                <li>dnsmasq DHCP 서버 설정</li>
+                <li>mavlink-router 설정 (FC: Server 모드, GCS: 브로드캐스트)</li>
+                <li>micro-ROS Agent wrapper 설정</li>
+                <li>.bashrc 환경변수 설정 (ROS_NAMESPACE 등)</li>
+                <li>워크스페이스 소유권 변경 (root → khadas)</li>
+                <li>nmtui WiFi 연결 정리 (충돌 방지)</li>
+                <li>서비스 활성화 및 재시작</li>
+            </ul>
+        </div>
+
+        <!-- 4단계 -->
+        <div class="card">
+            <h2><span class="step-number">4</span>검증</h2>
+            
+            <div class="alert alert-warning">
+                <strong>⚠️ 중요:</strong> <code>sudo</code> 없이 실행해야 ROS2 CLI가 정상 작동합니다!
+            </div>
+            
+            <pre><code>bash 103-verify_installation.sh</code></pre>
+            
+            <div class="alert alert-success">
+                <strong>예상 결과:</strong><br>
+                총 검증 항목: 64<br>
+                통과: 64 | 경고: 0 | 실패: 0<br>
+                ✓ 모든 검증 통과!
+            </div>
+        </div>
+
+        <!-- 5단계 -->
+        <div class="card">
+            <h2><span class="step-number">5</span>재부팅</h2>
+            
+            <div class="alert alert-danger" style="margin-bottom: 16px;">
+                <strong>⚠️ 필수:</strong> VIM4와 <strong>FC(Pixhawk) 모두 재부팅</strong>해야 합니다!
+            </div>
+            
+            <h4 style="margin-top: 16px;">재부팅 순서:</h4>
+            <ol style="margin-left: 20px; line-height: 1.8;">
+                <li><strong>VIM4 재부팅:</strong>
+                    <pre style="margin-top: 8px;"><code>sudo reboot</code></pre>
+                </li>
+                <li><strong>FC(Pixhawk) 재부팅:</strong>
+                    <ul style="margin-left: 20px; margin-top: 8px; color: #64748b;">
+                        <li>FC 전원을 물리적으로 껐다 켜기</li>
+                    </ul>
+                </li>
+            </ol>
+            
+            <div class="alert alert-warning" style="margin-top: 16px;">
+                <strong>재부팅이 필요한 이유:</strong>
+                <ul style="margin-left: 20px; margin-top: 8px;">
+                    <li>VIM4의 네트워크 설정(eth0/WiFi)이 변경되었으므로 FC가 새로운 DHCP lease를 받아야 함</li>
+                    <li>micro-ROS Agent 및 mavlink-router 설정이 적용되려면 재부팅 필요</li>
+                    <li>FC가 새로운 네트워크 환경을 인식하고 연결을 재설정해야 함</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 6단계 -->
+        <div class="card">
+            <h2><span class="step-number">6</span>PX4 파라미터 설정 (QGroundControl)</h2>
+            <p>FC(Pixhawk)에서 QGroundControl을 통해 다음 파라미터를 설정합니다.</p>
+            
+            <!-- MAV_SYS_ID -->
+            <h4 style="margin-top: 20px; color: #2563eb;">🔹 MAV_SYS_ID (MAVLink System ID)</h4>
+            <p style="color: #64748b; margin-bottom: 8px;">QGC에서 "mav_sys" 검색</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>파라미터</th>
+                        <th>드론 #1</th>
+                        <th>드론 #2</th>
+                        <th>드론 #3</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>MAV_SYS_ID</strong></td>
+                        <td style="color: #dc2626; font-weight: bold;">1</td>
+                        <td style="color: #dc2626; font-weight: bold;">2</td>
+                        <td style="color: #dc2626; font-weight: bold;">3</td>
+                        <td>MAVLink system ID</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- UXRCE_DDS -->
+            <h4 style="margin-top: 24px; color: #2563eb;">🔹 UXRCE_DDS (uXRCE-DDS / ROS2 연결)</h4>
+            <p style="color: #64748b; margin-bottom: 8px;">QGC에서 "dds" 검색</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>파라미터</th>
+                        <th>드론 #1</th>
+                        <th>드론 #2</th>
+                        <th>드론 #3</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>UXRCE_DDS_AG_IP</strong></td>
+                        <td style="color: #dc2626; font-weight: bold;">167772171</td>
+                        <td style="color: #dc2626; font-weight: bold;">167772181</td>
+                        <td style="color: #dc2626; font-weight: bold;">167772191</td>
+                        <td>Agent IP (VIM4 eth0)</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_CFG</td>
+                        <td colspan="3" style="text-align: center;">Ethernet</td>
+                        <td>Serial Configuration</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_DOM_ID</td>
+                        <td colspan="3" style="text-align: center;">0</td>
+                        <td>Domain ID (군집 통신)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>UXRCE_DDS_KEY</strong></td>
+                        <td style="color: #dc2626; font-weight: bold;">1</td>
+                        <td style="color: #dc2626; font-weight: bold;">2</td>
+                        <td style="color: #dc2626; font-weight: bold;">3</td>
+                        <td>Session key</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_PRT</td>
+                        <td colspan="3" style="text-align: center;">8888</td>
+                        <td>UDP port</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_PTCFG</td>
+                        <td colspan="3" style="text-align: center;">Default</td>
+                        <td>Participant configuration</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_RX_TO</td>
+                        <td colspan="3" style="text-align: center;">-1 s</td>
+                        <td>RX rate timeout</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_SYNCC</td>
+                        <td colspan="3" style="text-align: center;">Disabled</td>
+                        <td>System clock sync</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_SYNCT</td>
+                        <td colspan="3" style="text-align: center;">Enabled</td>
+                        <td>Timestamp sync</td>
+                    </tr>
+                    <tr>
+                        <td>UXRCE_DDS_TX_TO</td>
+                        <td colspan="3" style="text-align: center;">3 s</td>
+                        <td>TX rate timeout</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- MAV_2 (Ethernet MAVLink) -->
+            <h4 style="margin-top: 24px; color: #2563eb;">🔹 MAV_2 (MAVLink Instance 2 - Ethernet)</h4>
+            <p style="color: #64748b; margin-bottom: 8px;">QGC에서 "mav_2" 검색</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>파라미터</th>
+                        <th>값</th>
+                        <th>설명</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>MAV_2_BROADCAST</td>
+                        <td style="color: #16a34a; font-weight: bold;">Always broadcast (1)</td>
+                        <td>브로드캐스트 heartbeat</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_CONFIG</td>
+                        <td>Ethernet</td>
+                        <td>Serial Configuration</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_FLOW_CTRL</td>
+                        <td>Auto-detected</td>
+                        <td>Flow control</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_FORWARD</td>
+                        <td>Disabled</td>
+                        <td>Message forwarding</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_MODE</td>
+                        <td style="color: #16a34a; font-weight: bold;">Normal</td>
+                        <td>Offboard 제어용</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_RADIO_CTL</td>
+                        <td>Disabled</td>
+                        <td>Software throttling</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_RATE</td>
+                        <td>0 B/s</td>
+                        <td>Max sending rate</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_REMOTE_PRT</td>
+                        <td style="color: #2563eb; font-weight: bold;">14540</td>
+                        <td>Remote Port</td>
+                    </tr>
+                    <tr>
+                        <td>MAV_2_UDP_PRT</td>
+                        <td style="color: #2563eb; font-weight: bold;">14550</td>
+                        <td>Network Port</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- IP Decimal 변환표 -->
+            <div class="alert alert-warning" style="margin-top: 20px;">
+                <strong>📌 IP → Decimal 변환표</strong><br>
+                <table style="margin-top: 8px; background: transparent; border: none;">
+                    <tr style="background: transparent;">
+                        <td style="border: none; padding: 4px 16px 4px 0;"><strong>드론 #1:</strong></td>
+                        <td style="border: none; padding: 4px;">10.0.0.11</td>
+                        <td style="border: none; padding: 4px;">→</td>
+                        <td style="border: none; padding: 4px; font-weight: bold;">167772171</td>
+                    </tr>
+                    <tr style="background: transparent;">
+                        <td style="border: none; padding: 4px 16px 4px 0;"><strong>드론 #2:</strong></td>
+                        <td style="border: none; padding: 4px;">10.0.0.21</td>
+                        <td style="border: none; padding: 4px;">→</td>
+                        <td style="border: none; padding: 4px; font-weight: bold;">167772181</td>
+                    </tr>
+                    <tr style="background: transparent;">
+                        <td style="border: none; padding: 4px 16px 4px 0;"><strong>드론 #3:</strong></td>
+                        <td style="border: none; padding: 4px;">10.0.0.31</td>
+                        <td style="border: none; padding: 4px;">→</td>
+                        <td style="border: none; padding: 4px; font-weight: bold;">167772191</td>
+                    </tr>
+                </table>
+                <p style="margin-top: 8px; font-size: 0.9em;">
+                    변환 공식: (10×256³) + (0×256²) + (0×256) + <strong>X</strong> = 167772160 + <strong>X</strong>
+                </p>
+            </div>
+
+            <!-- 기체별 변경 요약 -->
+            <div style="margin-top: 20px; padding: 16px; background: #f1f5f9; border-radius: 8px;">
+                <h4 style="color: #dc2626; margin-bottom: 12px;">⚠️ 기체별로 변경해야 하는 파라미터 (빨간색)</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>MAV_SYS_ID</strong> - 드론 번호 (1, 2, 3)</li>
+                    <li><strong>UXRCE_DDS_AG_IP</strong> - VIM4 eth0 IP (Decimal)</li>
+                    <li><strong>UXRCE_DDS_KEY</strong> - Session key (드론 번호와 동일)</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 7단계 -->
+        <div class="card">
+            <h2><span class="step-number">7</span>연결 확인</h2>
+            <pre><code><span class="comment"># PX4 토픽 확인</span>
+ros2 topic list | grep fmu
+
+<span class="comment"># 자세 데이터 확인</span>
+ros2 topic echo /fmu/out/vehicle_attitude --once
+
+<span class="comment"># QGC 연결</span>
+<span class="comment"># → mavlink-router가 브로드캐스트(192.168.100.255:14550)로 전송</span>
+<span class="comment"># → QGC에서 UDP 링크 추가 시 자동으로 모든 드론 수신 가능</span></code></pre>
+        </div>
+
+        <!-- 문제 해결 -->
+        <div class="card">
+            <h2>🔧 문제 해결</h2>
+            
+            <h4 style="margin-top: 16px;">ROS2 CLI "명령어를 찾을 수 없음"</h4>
+            <div class="alert alert-danger">
+                <strong>원인:</strong> <code>sudo</code>로 검증 스크립트 실행<br>
+                <strong>해결:</strong> <code>bash 103-verify_installation.sh</code> (sudo 없이!)
+            </div>
+            
+            <h4 style="margin-top: 16px;">WiFi IP가 변경되지 않음</h4>
+            <div class="alert alert-warning">
+                <strong>원인:</strong> nmtui로 수동 설정한 연결이 남아있음<br>
+                <strong>해결:</strong> 003이 자동 정리 (netplan- 제외)
+            </div>
+            <pre><code><span class="comment"># 수동 확인</span>
+nmcli connection show | grep wifi | grep -v netplan</code></pre>
+            
+            <h4 style="margin-top: 16px;">QGC 연결 안 됨</h4>
+            <pre><code><span class="comment"># mavlink-router 상태 확인</span>
+sudo systemctl status mavlink-router
+
+<span class="comment"># 설정 확인 (FC: Server, GCS: 브로드캐스트)</span>
+cat /etc/mavlink-router/main.conf
+
+<span class="comment"># QGC에서 UDP 링크 추가 확인</span>
+<span class="comment"># → QGC: Application Settings → Comm Links → Add → UDP</span>
+<span class="comment"># → Listen Port: 14550 (또는 자동 탐색)</span></code></pre>
+        </div>
+
+        <!-- 파일 구조 -->
+        <div class="card">
+            <h2>📁 파일 구조</h2>
+            <div class="file-tree">
+                <span class="folder">~/projects/Cluster_Drone/</span><br>
+                ├── <span class="important">device_config.env</span> &nbsp;&nbsp;<span class="comment"># ★ 기체별 설정 (이것만 수정)</span><br>
+                ├── 000-install_all.sh<br>
+                ├── 001-install_px4_ros2_complete.sh<br>
+                ├── 002-install_mavlink_router.sh<br>
+                ├── <span class="important">003-apply_config.sh</span> &nbsp;&nbsp;<span class="comment"># ★ 설정 적용 (복원 후 실행)</span><br>
+                ├── 101-check_px4_connection.sh<br>
+                ├── 102-ip_to_decimal.sh<br>
+                ├── <span class="important">103-verify_installation.sh</span> &nbsp;&nbsp;<span class="comment"># ★ 검증 (sudo 없이!)</span><br>
+                ├── 104-save_versions.sh<br>
+                ├── 201-update_github.sh<br>
+                ├── <span class="folder">micro_ros_ws/</span><br>
+                ├── <span class="folder">px4_ros2_ws/</span><br>
+                ├── <span class="folder">mavlink-router/</span><br>
+                └── versions.env
+            </div>
+        </div>
+
+        <!-- 서비스 확인 -->
+        <div class="card">
+            <h2>🔍 서비스 확인 명령어</h2>
+            <pre><code><span class="comment"># 서비스 상태</span>
+sudo systemctl status dnsmasq-px4
+sudo systemctl status mavlink-router
+sudo systemctl status micro-ros-agent
+
+<span class="comment"># 로그 확인</span>
+sudo journalctl -u mavlink-router -f
+sudo journalctl -u micro-ros-agent -f</code></pre>
+        </div>
+
+        <div class="footer-text">
+            <p>문서 작성일: 2025-12-19 | PX4 v1.16.0 | ROS2 Humble | Ubuntu 22.04</p>
+        </div>
+    </div>
+</div>

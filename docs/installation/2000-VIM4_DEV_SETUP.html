@@ -1,0 +1,674 @@
+<p data-ke-size="size16">&nbsp;</p>
+<div>
+    <style>
+        /* 티스토리 충돌 방지를 위해 body 대신 wrapper 클래스 사용 */
+        .dev-setup-wrapper {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .dev-setup-wrapper .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .dev-setup-wrapper .header-box {
+            background: linear-gradient(135deg, #0f766e, #14b8a6);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .dev-setup-wrapper .header-box h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .dev-setup-wrapper .header-box p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .dev-setup-wrapper .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin: 4px;
+        }
+        
+        .dev-setup-wrapper .card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .dev-setup-wrapper .card h2 {
+            color: #0d9488;
+            font-size: 1.4rem;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .dev-setup-wrapper .card h3 {
+            color: #1e293b;
+            font-size: 1.1rem;
+            margin: 20px 0 12px 0;
+        }
+        
+        .dev-setup-wrapper table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        
+        .dev-setup-wrapper th, .dev-setup-wrapper td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .dev-setup-wrapper th {
+            background: #f8fafc;
+            font-weight: 600;
+        }
+        
+        .dev-setup-wrapper tr:hover {
+            background: #f1f5f9;
+        }
+        
+        .dev-setup-wrapper code {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9em;
+        }
+        
+        .dev-setup-wrapper pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 12px 0;
+        }
+        
+        .dev-setup-wrapper pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .dev-setup-wrapper .highlight { color: #fbbf24; }
+        .dev-setup-wrapper .comment { color: #6b7280; }
+        .dev-setup-wrapper .string { color: #a5f3fc; }
+        
+        .dev-setup-wrapper .alert {
+            padding: 16px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+        
+        .dev-setup-wrapper .alert-info {
+            background: #dbeafe;
+            border-left: 4px solid #2563eb;
+            color: #1e40af;
+        }
+        
+        .dev-setup-wrapper .alert-warning {
+            background: #fef3c7;
+            border-left: 4px solid #d97706;
+            color: #92400e;
+        }
+        
+        .dev-setup-wrapper .alert-success {
+            background: #dcfce7;
+            border-left: 4px solid #16a34a;
+            color: #166534;
+        }
+        
+        .dev-setup-wrapper .alert-teal {
+            background: linear-gradient(135deg, #ccfbf1, #99f6e4);
+            border-left: 4px solid #0d9488;
+            color: #134e4a;
+        }
+        
+        .dev-setup-wrapper .alert-danger {
+            background: linear-gradient(135deg, #fef2f2, #fee2e2);
+            border-left: 4px solid #dc2626;
+            color: #991b1b;
+        }
+        
+        .dev-setup-wrapper .step-number {
+            display: inline-block;
+            width: 36px;
+            height: 36px;
+            background: #0d9488;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 36px;
+            font-weight: bold;
+            margin-right: 12px;
+            font-size: 1.1rem;
+        }
+        
+        .dev-setup-wrapper .spec-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin: 16px 0;
+        }
+        
+        .dev-setup-wrapper .spec-item {
+            background: linear-gradient(135deg, #f0fdfa, #ccfbf1);
+            border-radius: 8px;
+            padding: 16px;
+            border-left: 4px solid #0d9488;
+        }
+        
+        .dev-setup-wrapper .spec-item .label {
+            color: #0d9488;
+            font-weight: bold;
+            font-size: 0.9rem;
+            margin-bottom: 6px;
+        }
+        
+        .dev-setup-wrapper .spec-item .value {
+            color: #1e293b;
+            font-size: 0.95rem;
+        }
+        
+        .dev-setup-wrapper .nmtui-box {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            margin: 16px 0;
+        }
+        
+        .dev-setup-wrapper .nmtui-box .title {
+            color: #60a5fa;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        
+        .dev-setup-wrapper .nmtui-box .field {
+            color: #94a3b8;
+        }
+        
+        .dev-setup-wrapper .nmtui-box .value {
+            color: #4ade80;
+        }
+        
+        .dev-setup-wrapper .nmtui-box .highlight {
+            color: #fbbf24;
+        }
+        
+        .dev-setup-wrapper .checklist {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .dev-setup-wrapper .checklist li {
+            padding: 8px 0;
+            padding-left: 28px;
+            position: relative;
+        }
+        
+        .dev-setup-wrapper .checklist li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #16a34a;
+            font-weight: bold;
+        }
+        
+        .dev-setup-wrapper .footer-text {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+            font-size: 0.9em;
+        }
+        
+        .dev-setup-wrapper .product-image {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            margin: 16px 0;
+        }
+        
+        .dev-setup-wrapper .product-image .emoji {
+            font-size: 4rem;
+            margin-bottom: 12px;
+        }
+        
+        .dev-setup-wrapper .product-image .name {
+            color: #fbbf24;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        
+        .dev-setup-wrapper .product-image .subtitle {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        
+        .dev-setup-wrapper .quick-ref-card {
+            background: linear-gradient(135deg, #1e293b, #334155);
+            color: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        
+        .dev-setup-wrapper .quick-ref-card h2 {
+            color: #fbbf24;
+            border-color: #475569;
+        }
+        
+        .dev-setup-wrapper a {
+            color: #0d9488;
+            text-decoration: none;
+        }
+        
+        .dev-setup-wrapper a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .dev-setup-wrapper .spec-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</div>
+
+<div class="dev-setup-wrapper">
+    <div class="container">
+        <div class="header-box">
+            <h1>🔧 VIM4 Cluster Drone</h1>
+            <p>컴패니언 컴퓨터 개발 환경 준비</p>
+            <div style="margin-top: 16px;">
+                <span class="badge" style="background: #2563eb; color: white;">Ubuntu 22.04</span>
+                <span class="badge" style="background: #16a34a; color: white;">SSH</span>
+                <span class="badge" style="background: #7c3aed; color: white;">VS Code</span>
+                <span class="badge" style="background: #059669; color: white;">Khadas VIM4</span>
+            </div>
+        </div>
+
+        <!-- OOWOW 시스템 구축 방법 -->
+        <div class="card" style="background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 2px solid #22c55e;">
+            <h2 style="color: #166534; border-bottom-color: #22c55e;">🔧 VIM4 시스템 구축 방법 (OOWOW)</h2>
+            
+            <div class="alert alert-info" style="background: #eff6ff; border-left-color: #3b82f6;">
+                <strong>💡 OOWOW란?</strong><br>
+                Khadas VIM4에 내장된 복구 시스템으로, OS 설치 및 이미지 백업/복원을 GUI로 쉽게 수행할 수 있습니다.
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin: 20px 0;">
+                <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #3b82f6; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; color: #1e40af; margin-bottom: 12px; font-size: 1.1rem;">📦 방법 1: 신규 설치</div>
+                    <ol style="margin: 0; padding-left: 20px; line-height: 2;">
+                        <li>OOWOW에서 <strong>Ubuntu 22.04 Server</strong> 설치</li>
+                        <li>이 문서로 <strong>SSH 환경 구성</strong></li>
+                        <li><a href="3000-INSTALLATION_GUIDE.html" style="color: #2563eb;">3000-INSTALLATION_GUIDE</a>로 PX4+ROS2 설치</li>
+                        <li>device_config.env 수정 후 설치 스크립트 실행</li>
+                    </ol>
+                </div>
+                <div style="background: white; padding: 20px; border-radius: 10px; border-left: 4px solid #22c55e; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; color: #166534; margin-bottom: 12px; font-size: 1.1rem;">💾 방법 2: 이미지 복원 ⭐ 권장</div>
+                    <ol style="margin: 0; padding-left: 20px; line-height: 2;">
+                        <li>OOWOW에서 <strong>커스텀 이미지(.img.zst)</strong> 복원</li>
+                        <li><a href="5000-IMAGE_BACKUP_RESTORE.html" style="color: #2563eb;">5000-IMAGE_BACKUP_RESTORE</a> 참조</li>
+                        <li><a href="4000-POST_INSTALL_GUIDE.html" style="color: #2563eb;">4000-POST_INSTALL_GUIDE</a>로 기체별 설정</li>
+                        <li>device_config.env 수정 → 003-apply_config.sh 실행</li>
+                    </ol>
+                </div>
+            </div>
+            
+            <div style="background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; margin-top: 16px;">
+                <div style="font-weight: bold; color: #fbbf24; margin-bottom: 8px;">⌨️ OOWOW 진입 방법</div>
+                <div style="font-size: 0.95rem;">
+                    VIM4에서 <span style="background: #374151; color: #fbbf24; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Function</span> 버튼을 <strong>누른 상태</strong>로 
+                    <span style="background: #dc2626; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold;">Reset</span> 버튼 클릭<br>
+                    → HDMI 모니터에서 OOWOW 메뉴가 표시됩니다.
+                </div>
+            </div>
+        </div>
+
+        <!-- 1. 컴패니언 컴퓨터 선정 -->
+        <div class="card">
+            <h2>1. 컴패니언 컴퓨터 선정</h2>
+            
+            <div class="product-image">
+                <div class="emoji">🖥️</div>
+                <div class="name">Khadas VIM4</div>
+                <div class="subtitle">High-Performance ARM64 SBC for Drone Applications</div>
+            </div>
+            
+            <h3>📋 하드웨어 사양</h3>
+            <div class="spec-grid">
+                <div class="spec-item">
+                    <div class="label">🔹 CPU</div>
+                    <div class="value">
+                        2.2GHz A73 ×4<br>
+                        2.0GHz A53 ×4<br>
+                        <span style="color: #0d9488; font-size: 0.85rem;">3.2 TOPS NPU 내장</span>
+                    </div>
+                </div>
+                <div class="spec-item">
+                    <div class="label">🔹 GPU & VPU</div>
+                    <div class="value">
+                        800Hz Mali-G52 MP8<br>
+                        8K 24fps 디코더<br>
+                        4K H.265 50fps 인코더
+                    </div>
+                </div>
+                <div class="spec-item">
+                    <div class="label">🔹 Memory</div>
+                    <div class="value">
+                        8GB LPDDR4X<br>
+                        64-bit 2016MHz
+                    </div>
+                </div>
+                <div class="spec-item">
+                    <div class="label">🔹 Storage</div>
+                    <div class="value">
+                        32GB eMMC 5.1<br>
+                        (64-bit)
+                    </div>
+                </div>
+            </div>
+            
+            <h3>🔌 인터페이스</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>인터페이스</th>
+                        <th>사양</th>
+                        <th>용도</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Ethernet</strong></td>
+                        <td>1Gbit LAN (WoL 지원)</td>
+                        <td>FC ↔ VIM4 통신</td>
+                    </tr>
+                    <tr>
+                        <td><strong>WiFi</strong></td>
+                        <td>Wi-Fi 6, 2T2R MIMO (AP6275S)</td>
+                        <td>QGC 연결</td>
+                    </tr>
+                    <tr>
+                        <td><strong>HDMI OUT</strong></td>
+                        <td>Type-A, HDMI 2.1 4Kp60 HDR</td>
+                        <td>모니터 연결</td>
+                    </tr>
+                    <tr>
+                        <td><strong>MIPI-CSI</strong></td>
+                        <td>×2, 최대 16MP</td>
+                        <td>카메라 연결</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="alert alert-teal">
+                <strong>💡 선정 이유</strong><br>
+                강력한 CPU/GPU, NPU 내장, 기가빗 이더넷, WiFi 6 지원으로 드론 컴패니언 컴퓨터로 최적
+            </div>
+        </div>
+
+        <!-- 2. Ubuntu 설치 -->
+        <div class="card">
+            <h2>2. Ubuntu 22.04 SERVER 설치</h2>
+            
+            <div class="alert alert-info">
+                <strong>📌 사전 준비</strong><br>
+                • HDMI 모니터 + USB 키보드 연결<br>
+                • OOWOW를 통해 Ubuntu 22.04 Server 설치 (별도 문서 참조)
+            </div>
+            
+            <h3><span class="step-number">1</span>sudo 타임아웃 설정</h3>
+            <p>비밀번호 한 번 입력으로 2시간 유지되도록 설정합니다.</p>
+            <pre><code>sudo visudo</code></pre>
+            
+            <p>아래 내용 추가:</p>
+            <pre><code><span class="comment"># 비밀번호 입력 후 120분간 유지</span>
+Defaults timestamp_timeout=<span class="highlight">120</span>
+
+<span class="comment"># khadas 사용자 sudo 비밀번호 생략 (선택사항)</span>
+khadas ALL=(ALL) NOPASSWD: ALL</code></pre>
+
+            <div class="alert alert-warning">
+                <strong>⚠️ 주의:</strong> <code>NOPASSWD</code> 설정은 보안상 개발 환경에서만 사용하세요.
+            </div>
+        </div>
+
+        <!-- 3. WiFi 설정 -->
+        <div class="card">
+            <h2>3. WiFi 및 고정 IP 설정 (초기 개발용)</h2>
+            
+            <div class="alert alert-danger">
+                <strong>⚠️ 중요: nmtui와 netplan 충돌 주의!</strong>
+                <p style="margin-top: 8px;">
+                    이 섹션의 <code>nmtui</code> 설정은 <strong>초기 개발/테스트 단계</strong>에서만 사용합니다.<br>
+                    드론 시스템 설치 시 <strong>netplan</strong>으로 네트워크를 관리하게 되며, <code>nmtui</code> 설정과 <strong>충돌이 발생</strong>합니다.
+                </p>
+                <div style="background: rgba(0,0,0,0.1); padding: 12px; border-radius: 6px; margin-top: 12px;">
+                    <strong>🔧 해결 방법:</strong><br>
+                    <code>000-install_all.sh</code> 또는 <code>003-apply_config.sh</code> 실행 후,<br>
+                    반드시 <code>nmtui</code>에서 등록한 WiFi 연결을 <strong>삭제</strong>해야 합니다.<br><br>
+                    <code style="background: #1e293b; color: #fbbf24;">sudo nmtui → Edit a connection → WiFi 선택 → Delete</code>
+                </div>
+            </div>
+            
+            <h3><span class="step-number">1</span>nmtui 실행</h3>
+            <pre><code>sudo nmtui</code></pre>
+            
+            <h3><span class="step-number">2</span>WiFi 연결</h3>
+            <ul class="checklist">
+                <li><code>Activate a connection</code> 선택</li>
+                <li>WiFi SSID 선택</li>
+                <li>비밀번호 입력 → OK</li>
+            </ul>
+            
+            <h3><span class="step-number">3</span>고정 IP 설정</h3>
+            <ul class="checklist">
+                <li><code>Edit a connection</code> 선택</li>
+                <li>WiFi SSID 선택</li>
+                <li><code>IPv4 CONFIGURATION</code> → <code>Automatic</code>을 <code>Manual</code>로 변경</li>
+                <li><code>&lt;Show&gt;</code> 클릭 후 IP 정보 입력</li>
+            </ul>
+            
+            <div class="nmtui-box">
+                <div class="title">───────────────── Edit Connection ─────────────────</div>
+                <div>
+                    <span class="field">Profile name:</span> <span class="value">MyWiFi</span><br>
+                    <span class="field">Device:</span> <span class="value">wlan0</span><br><br>
+                    <span class="field">═ WI-FI ═</span><br>
+                    <span class="field">SSID:</span> <span class="value">MyWiFi</span><br>
+                    <span class="field">Password:</span> <span class="value">••••••••••</span><br><br>
+                    <span class="highlight">═ IPv4 CONFIGURATION &lt;Manual&gt; ═</span><br>
+                    <span class="field">Addresses:</span> <span class="highlight">192.168.100.11/24</span><br>
+                    <span class="field">Gateway:</span> <span class="highlight">192.168.100.1</span><br>
+                    <span class="field">DNS servers:</span> <span class="value">8.8.8.8</span><br>
+                    <span class="field">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span> <span class="value">8.8.4.4</span><br><br>
+                    <span class="value">[X] Require IPv4 addressing for this connection</span>
+                </div>
+            </div>
+            
+            <h3>📋 기체별 IP 설정</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>드론</th>
+                        <th>WiFi IP</th>
+                        <th>Gateway</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>#1</strong></td>
+                        <td>192.168.100.11/24</td>
+                        <td>192.168.100.1</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#2</strong></td>
+                        <td>192.168.100.21/24</td>
+                        <td>192.168.100.1</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#3</strong></td>
+                        <td>192.168.100.31/24</td>
+                        <td>192.168.100.1</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="alert alert-warning">
+                <strong>📌 netplan 전환 후 필수 작업</strong><br>
+                드론 시스템 설치 스크립트 실행 후, nmtui 연결을 반드시 삭제하세요:
+                <pre style="margin-top: 8px; margin-bottom: 0;"><code><span class="comment"># nmtui에서 WiFi 연결 삭제</span>
+sudo nmtui
+<span class="comment"># → Edit a connection → WiFi SSID 선택 → Delete → OK</span>
+
+<span class="comment"># 또는 CLI로 삭제</span>
+nmcli connection show                    <span class="comment"># 연결 목록 확인</span>
+nmcli connection delete "MyWiFi"         <span class="comment"># 해당 연결 삭제</span>
+
+<span class="comment"># netplan 연결만 남았는지 확인</span>
+nmcli connection show | grep wifi</code></pre>
+            </div>
+        </div>
+
+        <!-- 4. SSH 설정 -->
+        <div class="card">
+            <h2>4. SSH 서버 설정</h2>
+            
+            <h3><span class="step-number">1</span>SSH 설치 및 활성화</h3>
+            <pre><code><span class="comment"># 패키지 업데이트</span>
+sudo apt update
+
+<span class="comment"># OpenSSH 서버 설치</span>
+sudo apt install openssh-server -y
+
+<span class="comment"># SSH 서비스 활성화 및 시작</span>
+sudo systemctl enable ssh
+sudo systemctl start ssh
+
+<span class="comment"># SSH 상태 확인</span>
+sudo systemctl status ssh</code></pre>
+
+            <div class="alert alert-success">
+                <strong>✅ 확인:</strong> <code>Active: active (running)</code>이 표시되면 정상
+            </div>
+            
+            <h3><span class="step-number">2</span>SSH 접속 테스트</h3>
+            <pre><code><span class="comment"># 다른 PC에서 접속 테스트</span>
+ssh khadas@192.168.100.11</code></pre>
+        </div>
+
+        <!-- 5. VS Code 원격 연결 -->
+        <div class="card">
+            <h2>5. Remote-SSH 개발 환경 (VS Code / Cursor)</h2>
+            
+            <h3><span class="step-number">1</span>확장 프로그램 설치</h3>
+            <ul class="checklist">
+                <li>VS Code 또는 Cursor 실행</li>
+                <li>Extensions에서 <strong>Remote-SSH</strong> 검색 및 설치</li>
+            </ul>
+            
+            <h3><span class="step-number">2</span>SSH 설정 파일 작성</h3>
+            <p><code>Ctrl+Shift+P</code> → <code>Remote-SSH: Open SSH Configuration File...</code></p>
+            
+            <pre><code><span class="comment"># ~/.ssh/config</span>
+
+<span class="comment"># 드론 #1</span>
+Host <span class="highlight">khadas1</span>
+    HostName <span class="string">192.168.100.11</span>
+    User khadas
+    Port 22
+
+<span class="comment"># 드론 #2</span>
+Host <span class="highlight">khadas2</span>
+    HostName <span class="string">192.168.100.21</span>
+    User khadas
+    Port 22
+
+<span class="comment"># 드론 #3</span>
+Host <span class="highlight">khadas3</span>
+    HostName <span class="string">192.168.100.31</span>
+    User khadas
+    Port 22</code></pre>
+
+            <h3><span class="step-number">3</span>원격 접속</h3>
+            <ul class="checklist">
+                <li><code>Ctrl+Shift+P</code> → <code>Remote-SSH: Connect to Host...</code></li>
+                <li><code>khadas1</code> (또는 khadas2, khadas3) 선택</li>
+                <li>비밀번호 입력 후 연결 완료</li>
+            </ul>
+            
+            <div class="alert alert-teal">
+                <strong>💡 팁:</strong> SSH 키 인증을 설정하면 비밀번호 입력 없이 자동 연결됩니다.
+                <pre style="margin-top: 8px; margin-bottom: 0;"><code><span class="comment"># PC에서 키 생성 및 VIM4로 복사</span>
+ssh-keygen -t ed25519
+ssh-copy-id khadas@192.168.100.11</code></pre>
+            </div>
+        </div>
+
+        <!-- 빠른 참조 -->
+        <div class="quick-ref-card">
+            <h2 style="color: #fbbf24; border-color: #475569;">⚡ 빠른 참조 - 전체 명령어</h2>
+            <pre style="background: rgba(0,0,0,0.3);"><code><span class="comment"># 1. sudo 설정</span>
+sudo visudo
+<span class="comment"># 추가: Defaults timestamp_timeout=120</span>
+
+<span class="comment"># 2. WiFi 설정</span>
+sudo nmtui
+
+<span class="comment"># 3. SSH 설치</span>
+sudo apt update
+sudo apt install openssh-server -y
+sudo systemctl enable ssh
+sudo systemctl start ssh
+
+<span class="comment"># 4. 접속 테스트 (다른 PC에서)</span>
+ssh khadas@192.168.100.11</code></pre>
+        </div>
+
+        <!-- 관련 문서 -->
+        <div class="card">
+            <h2>📚 관련 문서</h2>
+            <ul>
+                <li><a href="5000-IMAGE_BACKUP_RESTORE.html">5000-IMAGE_BACKUP_RESTORE.html</a> - OOWOW 이미지 백업/복원</li>
+                <li><a href="3000-INSTALLATION_GUIDE.html">3000-INSTALLATION_GUIDE.html</a> - PX4 + ROS2 설치 가이드</li>
+                <li><a href="4000-POST_INSTALL_GUIDE.html">4000-POST_INSTALL_GUIDE.html</a> - 복원 후 설정 가이드</li>
+                <li><a href="1000-Project_Summery.html">1000-Project_Summery.html</a> - 프로젝트 아키텍처</li>
+            </ul>
+        </div>
+
+        <div class="footer-text">
+            <p>
+                문서 버전: 1.0 | 작성일: 2025-12-19<br>
+                Khadas VIM4 | Ubuntu 22.04 Server | SSH
+            </p>
+        </div>
+    </div>
+</div>

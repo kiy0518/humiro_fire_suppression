@@ -1,0 +1,737 @@
+<p data-ke-size="size16">&nbsp;</p>
+<div>
+    <style>
+        /* 티스토리 충돌 방지를 위해 body 대신 wiki-wrapper 클래스 사용 */
+        .wiki-wrapper {
+            font-family: 'Noto Sans KR', 'Malgun Gothic', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+            /* 전체 배경색 */
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 100%;
+            /* 반응형 처리를 위해 100%로 설정 */
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            box-sizing: border-box;
+        }
+
+        /* 모바일/좁은 화면 대응을 위한 가로 스크롤 래퍼 */
+        .scroll-wrapper {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+
+        .version-info {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+
+        .version-info strong {
+            color: #2e7d32;
+        }
+
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .layer {
+            border: 2px solid #3498db;
+            border-radius: 10px;
+            padding: 20px;
+            background: #ecf0f1;
+            margin-bottom: 20px;
+            /* layer 간 간격 확보 */
+        }
+
+        .layer-title {
+            font-weight: bold;
+            font-size: 18px;
+            color: #2980b9;
+            margin-bottom: 15px;
+            text-align: center;
+            background: #3498db;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .drone-section {
+            display: flex;
+            justify-content: space-around;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .drone-unit {
+            flex: 1;
+            min-width: 300px;
+            /* max-width 제한을 풀어 반응형 대응 */
+            border: 2px solid #e74c3c;
+            border-radius: 8px;
+            padding: 15px;
+            background: white;
+            margin-bottom: 10px;
+        }
+
+        .drone-header {
+            background: #e74c3c;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .component-box {
+            background: #fff;
+            border: 1px solid #bdc3c7;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 8px 0;
+        }
+
+        .component-title {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .component-detail {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-left: 10px;
+        }
+
+        .sensor-group {
+            background: #e8f4f8;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 8px 0;
+        }
+
+        .mc-group {
+            background: #fef9e7;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 8px 0;
+        }
+
+        .network-box {
+            background: #d5f4e6;
+            border: 2px solid #27ae60;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .network-title {
+            font-weight: bold;
+            color: #27ae60;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .gcs-section {
+            background: #fff;
+            border: 3px solid #9b59b6;
+            border-radius: 8px;
+            padding: 20px;
+        }
+
+        .gcs-title {
+            background: #9b59b6;
+            color: white;
+            padding: 12px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 18px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .connection-line {
+            text-align: center;
+            color: #3498db;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+
+        .specs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+
+        .specs-table td {
+            padding: 5px;
+            border: 1px solid #ddd;
+        }
+
+        .specs-table td:first-child {
+            background: #ecf0f1;
+            font-weight: bold;
+            width: 40%;
+        }
+
+        .rtk-base {
+            background: #ffeaa7;
+            border: 2px solid #fdcb6e;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            margin: 15px 0;
+        }
+
+        .data-flow {
+            background: #dfe6e9;
+            padding: 8px;
+            border-left: 4px solid #0984e3;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+
+        .highlight {
+            background: #fff3cd;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+
+        .connection-diagram {
+            background: #f5f5f5;
+            border: 2px dashed #9e9e9e;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 15px 0;
+            text-align: center;
+        }
+    </style>
+</div>
+<div>&nbsp;</div>
+<div class="container">
+    <h1>🚁 PX4 기반 ROS2 군집 드론 시스템 아키텍처 - 화재 진압용</h1>
+    
+    <!-- 프로젝트 개요 -->
+    <div style="background: linear-gradient(135deg, #fef3c7, #fde68a); border: 2px solid #fbbf24; color: #78350f; padding: 30px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+        <h2 style="color: #92400e; margin-top: 0; margin-bottom: 20px; font-size: 24px; text-align: center;">
+            🔥 화재 진압용 군집 드론 시스템
+        </h2>
+        <div style="background: rgba(255,255,255,0.6); padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 1px solid rgba(251,191,36,0.3);">
+            <p style="font-size: 16px; line-height: 1.8; margin: 0; text-align: center; color: #78350f;">
+                화재 발생 시 <strong style="color: #92400e;">3대의 드론이 자동으로 발화점으로 이동</strong>하여<br>
+                <strong style="color: #92400e;">열화상 카메라로 타겟팅</strong>하고, <strong style="color: #92400e;">소화탄을 순차적으로 격발</strong>한 후<br>
+                <strong style="color: #92400e;">자동 복귀 및 착륙</strong>하는 <strong style="color: #92400e;">완전 자동화 시스템</strong>입니다.
+            </p>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.5); padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid rgba(251,191,36,0.2);">
+            <h3 style="color: #d97706; margin-top: 0; margin-bottom: 15px; font-size: 18px; text-align: center;">
+                ⚡ 핵심 기능
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px;">
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">🔥 화재 감지 및 위치 파악</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">자동 화재 감지 시스템 연동</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">✈️ 자동 경로 계획 및 군집 비행</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">3대 동시 편대 비행</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">📷 열화상 카메라 기반 타겟팅</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">정밀 타겟 식별 및 추적</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">📡 라이다로 타겟과의 거리 조정</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">정확한 발사 거리 유지</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">💥 소화탄 순차 격발</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">안전한 순차 발사 시스템</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">🏠 자동 복귀 및 착륙</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">임무 완료 후 자동 복귀</div>
+                </div>
+                <div style="background: rgba(255,255,255,0.7); padding: 15px; border-radius: 6px; border-left: 4px solid #f59e0b; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 5px; color: #78350f;">🛡️ 편대 비행 + 충돌 방지</div>
+                    <div style="font-size: 13px; color: #92400e; opacity: 0.8;">실시간 위치 공유 및 회피</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 버전 정보 -->
+    <div class="version-info">
+        <div style="font-size: 16px; margin-bottom: 8px;"><b>📌 시스템 버전 정보</b></div>
+        <div style="font-size: 13px; line-height: 1.6;">
+            <div>&bull; <b>PX4 Firmware:</b> v1.16.0</div>
+            <div>&bull; <b>QGroundControl:</b> v5.0.8 (64-bit)</div>
+            <div>&bull; <b>Mission Computer:</b> Khadas VIM4 (Ubuntu 22.04, aarch64)</div>
+            <div>&bull; <b>ROS2:</b> Humble Hawksbill</div>
+            <div>&bull; <b>micro-ROS Agent:</b> UDP 8888 (XRCE-DDS)</div>
+            <div>&bull; <b>mavlink-router:</b> Server Mode (FC 브로드캐스트 수신)</div>
+        </div>
+    </div>
+    <!-- 연결 구성도 -->
+      <pre style="margin: 0; background: transparent; font-size: 11px; line-height: 1.3; overflow-x: auto;"><code>
+┌────────────────────────────────────────────────────────────┐
+│         CLUSTER DRONE SYSTEM ARCHITECTURE                  │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ┌──────────┐  WiFi (192.168.100.x)  ┌──────────────┐      │
+│  │  QGC PC  │◄──────────────────────►│ WiFi Router  │      │
+│  │(Any IP)  │  UDP 14550 Broadcast   │ 192.168.100.1│      │
+│  └──────────┘                        └──────────────┘      │
+│                                        ▲                   │
+│                                        │                   │
+│        ┌───────────────────────────────┴─────┬──────┐      │
+│        │                                     │      │      │
+│        ▼                                     ▼      ▼      │
+│  ┌─────────┐                          ┌─────────┐ ┌───────┐│
+│  │ DRONE 1 │                          │ DRONE 2 │ │ DRONE3││
+│  ├─────────┤                          ├─────────┤ ├───────┤│
+│  │  VIM4   │ WiFi: 192.168.100.11     │  VIM4   │ │ VIM4  ││
+│  │         │ eth0: 10.0.0.11          │.100.21  │ │.100.31││
+│  │┌───────┐│                          │10.0.0.21│ │10.0.0 ││
+│  ││micro- ││◄─ ROS2 (DDS Domain 0) ──►│         │ │.31    ││
+│  ││ROS    ││   Cross-drone Comm       │         │ │       ││
+│  │├───────┤│                          │         │ │       ││
+│  ││mavlink││                          │         │ │       ││
+│  ││router ││──► UDP 14550 to QGC      │         │ │       ││
+│  │└───────┘│                          └─────────┘ └───────┘│
+│  │   │    │                                │         │     │
+│  │Ethernet│                            Ethernet  Ethernet  │
+│  │10.0.0.x│                                │         │     │
+│  │   │    │                                │         │     │
+│  │   ▼    │                                ▼         ▼     │
+│  │┌─────┐ │                           ┌──────┐  ┌──────┐   │
+│  ││ FC  │ │ MAVLink (UDP 14540)       │  FC  │  │  FC  │   │
+│  ││Pix  │ │ XRCE-DDS (UDP 8888)       │10.0.0│  │10.0.0│   │
+│  ││10.0.│ │ MAV_SYS_ID = 1            │.22   │  │.32   │   │
+│  ││0.12 │ │                           │ID=2  │  │ID=3  │   │
+│  │└─────┘ │                           └──────┘  └──────┘   │
+│  └────────┘                                                │
+│                                                            │
+├────────────────────────────────────────────────────────────┤
+│  PROTOCOLS:                                                │
+│  • FC ↔ VIM4:  XRCE-DDS (UDP 8888) - ROS2 토픽              │
+│                MAVLink (UDP 14540) - QGC 라우팅             │
+│  • VIM4 ↔ QGC: MAVLink UDP Broadcast (14550)               │
+│  • Drone ↔ Drone: ROS2 DDS (Domain 0) - 위치/상태 공유       │
+└────────────────────────────────────────────────────────────┘
+</code></pre>
+
+</div>
+<!-- RTK Base Station -->
+<div class="rtk-base">
+    <div style="font-weight: bold; font-size: 16px; margin-bottom: 10px;">📡 RTK-GPS Base Station</div>
+    <div style="font-size: 13px;">Base Station &rarr; GCS (Serial/Ethernet) &rarr; WiFi &rarr; 각 드론 Mission Computer<br /><span class="highlight">cm급 정밀 위치 정보 제공</span> &rarr; 충돌 회피용 위치 데이터</div>
+</div>
+<!-- WiFi 단독 통신 강조 -->
+<div style="background: #e8f5e9; border: 2px solid #4caf50; border-radius: 8px; padding: 15px; margin: 15px 0;">
+    <div style="font-weight: bold; color: #2e7d32; margin-bottom: 10px; text-align: center; font-size: 16px;">✅ WiFi 단독 통신 + PX4 Failsafe 자동화</div>
+    <div style="font-size: 13px; line-height: 1.6;"><b>통신 구성:</b> WiFi 6 (5GHz) 단일 경로<br /><b>장점:</b><br />&bull; 자동 Failsafe로 즉각 대응 (0.1초 이내)<br />&bull; 시스템 단순화 (단일 통신 경로)<br />&bull; 비용 절감 (라디오 불필요)<br />&bull; 무게 절감 (150g 감소 &rarr; 비행시간 증가)<br /><br /><b>WiFi 끊김 시 자동 대응:</b><br />1. PX4 Data Link Loss Failsafe 즉시 트리거<br />2. 자동 RTH (Return to Home) 또는 LAND 모드<br />3. WiFi 범위 복귀 시 자동 재연결 &rarr; 미션 재개<br /><br /><b>안전장치:</b><br />&bull; Geofence: WiFi 범위 밖 진입 방지<br />&bull; Low Battery RTH: 배터리 15% 이하 시 자동 귀환<br />&bull; GPS Loss: GPS 손실 시 즉시 착륙</div>
+</div>
+<div class="connection-line">▼ ROS2 DDS Network (WiFi/Ethernet) + MAVLink ▼</div>
+<!-- Ground Control Station -->
+<div class="layer">
+    <div class="layer-title">🖥️ GCS - QGroundControl v5.0.8 (64-bit)</div>
+    <div class="gcs-section">
+        <div class="gcs-title">군집 제어 및 모니터링 센터</div>
+        <div class="component-box">
+            <div class="component-title">📊 Swarm Dashboard</div>
+            <div class="component-detail">&bull; 3대 드론 실시간 상태 모니터링 (위치, 배터리, 센서 상태)<br />&bull; Formation 패턴 설정 (V자형, 일렬, 삼각형 등)<br />&bull; 개별/통합 미션 플래닝<br />&bull; QGC v5.0.8의 Multi-Vehicle 지원 기능 활용</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">📹 영상 디스플레이 (중요 제약사항)</div>
+            <div class="component-detail"><b>⚠️ QGC v5.0.8 제약:</b><br />&bull; 기본 QGC는 <span style="color: red;">한 번에 1개 기체의 영상만 표시</span><br />&bull; 기체 전환 시 해당 기체의 영상으로 자동 전환<br />&bull; 3개 영상 동시 표시 불가 (기본 기능)<br /><br /><b>✅ 해결 방안:</b><br /><b>방안 1:</b> 외부 영상 뷰어 조합 (권장)<br />&bull; QGC: 제어 중인 기체 영상 (기체 전환 가능)<br />&bull; VLC/GStreamer: 나머지 2대 영상 별도 창으로 표시<br />&bull; 각 포트(5600, 5602, 5604) 개별 수신<br /><br /><b>방안 2:</b> ROS2 기반 커스텀 대시보드<br />&bull; rqt_image_view 또는 웹 기반 대시보드<br />&bull; 3개 영상 + 텔레메트리 동시 표시<br />&bull; 개발 필요 (Phase 3에서 구현 가능)<br /><br /><b>방안 3:</b> QGC Custom Fork<br />&bull; DeepWater Exploration 멀티 영상 Fork<br />&bull; 알파 단계, 안정성 검증 필요</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">🌐 ROS2 DDS Central Hub</div>
+            <div class="component-detail">&bull; Domain ID: 0 (군집 전용 네트워크)<br />&bull; QoS: RELIABLE for Command, BEST_EFFORT for Telemetry<br />&bull; Topics: /swarm/formation, /swarm/collision_avoidance, /swarm/mission</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">🔄 mavlink-router 구성</div>
+            <div class="component-detail">&bull; FC (Ethernet) &harr; mavlink-router (MC) &harr; 다중 목적지 라우팅<br />&bull; FC MAVLink를 GCS, ROS2, 로그 등으로 복제 전송<br />&bull; 설정 파일: /etc/mavlink-router/main.conf<br /><br /><b>핵심 설정:</b><br />&bull; <span class="highlight">FC Endpoint: Mode = Server</span> (FC 브로드캐스트 수신 대기)<br />&bull; <span class="highlight">GCS: 브로드캐스트 (192.168.100.255:14550)</span><br />&bull; ROS2: 127.0.0.1:14551<br /><br /><b>장점:</b><br />&bull; QGC IP 고정 불필요 (어디서든 수신 가능)<br />&bull; 다중 QGC 동시 모니터링 가능</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">🤖 micro-ROS Agent (XRCE-DDS)</div>
+            <div class="component-detail">&bull; PX4 &harr; ROS2 실시간 통신 브릿지<br />&bull; 포트: UDP 8888<br />&bull; systemd 서비스로 자동 시작<br /><br /><b>PX4 파라미터:</b><br />&bull; UXRCE_DDS_CFG = Ethernet<br />&bull; UXRCE_DDS_AG_IP = VIM4 IP (10진수)<br />&bull; UXRCE_DDS_PRT = 8888<br />&bull; UXRCE_DDS_DOM_ID = 0</div>
+        </div>
+        <div class="network-box">
+            <div class="network-title">🔗 네트워크 구성</div>
+            <table class="specs-table" data-ke-align="alignLeft">
+                <tbody>
+                    <tr>
+                        <td>WiFi 네트워크</td>
+                        <td>192.168.100.0/24 (5GHz WiFi 6 전용)</td>
+                    </tr>
+                    <tr>
+                        <td>GCS 연결</td>
+                        <td>브로드캐스트 (192.168.100.255:14550) - QGC IP 고정 불필요</td>
+                    </tr>
+                    <tr>
+                        <td>FC &harr; MC Ethernet (전체)</td>
+                        <td>10.0.0.0/24 (단일 서브넷, 물리적 분리)<br /><span style="font-size:11px; color:#666;">VIM4가 DHCP 서버, FC에 단일 IP 할당 (항상 고정)</span></td>
+                    </tr>
+                    <tr>
+                        <td>Drone #1</td>
+                        <td>MC: 10.0.0.11, FC: 10.0.0.12</td>
+                    </tr>
+                    <tr>
+                        <td>Drone #2</td>
+                        <td>MC: 10.0.0.21, FC: 10.0.0.22</td>
+                    </tr>
+                    <tr>
+                        <td>Drone #3</td>
+                        <td>MC: 10.0.0.31, FC: 10.0.0.32</td>
+                    </tr>
+                    <tr>
+                        <td>통신 프로토콜</td>
+                        <td>MAVLink 2.0 (Ethernet/UDP), ROS2 DDS (WiFi)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+<!-- Drones Layer -->
+<div class="layer">
+    <div class="layer-title">🚁 군집 드론 (3대) - 개별 유닛 구성</div>
+    <!-- Leader Drone -->
+    <div style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: center;">
+            <div class="drone-unit" style="max-width: 100%;">
+                <div class="drone-header">Drone #1 (리더) - IP: 192.168.100.11</div>
+                <div class="sensor-group">
+                    <div class="component-title">📡 센서 시스템</div>
+                    <div class="component-detail"><b>RTK-GPS</b> (UART &rarr; FC)<br />&bull; cm급 정밀 위치<br />&bull; 충돌 회피용 절대 좌표<br /><br /><b>Lidar</b> (I2C &rarr; FC)<br />&bull; 화재원 거리 측정<br />&bull; 0.5m ~ 40m 감지<br />&bull; 안전거리 유지 및 투하 고도 제어<br /><br /><b>RGB 카메라</b> (USB &rarr; MC)<br />&bull; 1920x1080 @ 30fps<br /><br /><b>열화상 카메라</b> (USB &rarr; MC)<br />&bull; 640x512 @ 30fps</div>
+                </div>
+                <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 8px 0;">
+                    <div class="component-title">⚡ FC &harr; MC 연결 (Ethernet)</div>
+                    <div class="component-detail"><b>물리 연결:</b> Pixhawk Ethernet Port &harr; VIM4 Ethernet<br /><b>IP 주소:</b> MC: 10.0.0.11, FC: 10.0.0.12 (서브넷: 10.0.0.0/24)<br /><b>프로토콜:</b> MAVLink over Ethernet (UDP)<br /><b>속도:</b> 100Mbps (저지연, 고속 통신)<br /><b>장점:</b> 단일 서브넷으로 설정 간소화, 물리적 분리로 충돌 없음</div>
+                </div>
+                <div class="mc-group">
+                    <div class="component-title">💻 Mission Computer - Khadas VIM4</div>
+                    <div class="component-detail"><b>SoC:</b> Amlogic A311D2 (Quad A73 + Quad A53)<br /><b>NPU:</b> 5 TOPS (AI 가속)<br /><b>RAM:</b> 8GB LPDDR4X<br /><b>Network:</b> Gigabit Ethernet + WiFi 6<br /><b>OS:</b> Ubuntu 22.04 LTS<br /><b>ROS2:</b> Humble Hawksbill<br /><br /><b>실행 노드:</b><br />&bull; px4_ros_com (PX4&harr;ROS2 브릿지, Ethernet 기반)<br />&bull; swarm_agent_node (군집 제어)<br />&bull; collision_avoidance_node<br />&bull; video_fusion_node (NPU 가속)<br />&bull; fire_detection_node (열화상 기반 화점 감지)<br />&bull; lidar_target_tracker_node (화재원 거리 유지)<br />&bull; extinguisher_drop_node (소화탄 투하 제어)<br /><br /><b>영상 처리 (RGB + 열화상 오버레이):</b><br />1. RGB 영상 입력: USB 카메라 1920x1080 @ 30fps<br />2. 열화상 영상 입력: USB 열화상 카메라 640x512 @ 30fps<br />3. <span class="highlight">영상 오버레이</span>: RGB 위에 열화상 반투명 합성<br />&nbsp;&nbsp;&nbsp;&rarr; OpenCV addWeighted() 또는 블렌딩 모드 사용<br />&nbsp;&nbsp;&nbsp;&rarr; RGB(70% 투명도) + 열화상(30% 투명도)<br />4. NPU 가속으로 실시간 처리 (5 TOPS)<br />5. H.264 하드웨어 인코딩<br />6. <span class="highlight">1개 통합 영상</span>으로 FHD 스트리밍<br />7. RTP/UDP Port 5600 &rarr; GCS</div>
+                </div>
+                <div class="component-box">
+                    <div class="component-title">🎮 FC - Pixhawk (PX4 v1.16.0)</div>
+                    <div class="component-detail">&bull; Firmware: PX4 v1.16.0 (최신 안정 버전)<br />&bull; Ethernet: MC &harr; FC (MAVLink over Ethernet/UDP)<br />&bull; Failsafe: Data Link Loss 시 자동 RTH/LAND<br />&bull; PWM: 모터 제어 (ESC 연결) + 소화탄 발사 장치<br />&bull; 센서 통합: RTK-GPS (UART), Lidar (I2C)</div>
+                </div>
+                <div class="data-flow"><b>데이터 흐름:</b><br />RTK-GPS &rarr; FC (10.0.0.12) &rarr; MC (10.0.0.11, Ethernet) &rarr; mavlink-router &rarr; /drone1/position<br />Lidar &rarr; FC (10.0.0.12) &rarr; MC (10.0.0.11, Ethernet) &rarr; mavlink-router &rarr; /drone1/lidar/distance<br />카메라 &rarr; MC (USB) &rarr; fusion &rarr; GCS (WiFi, FHD 영상)<br />GCS (192.168.100.x) &rarr; MC (192.168.100.11, WiFi) &rarr; mavlink-router &rarr; FC (10.0.0.12, Ethernet)</div>
+            </div>
+        </div>
+    </div>
+    <!-- Follower Drones -->
+    <div class="drone-section">
+        <!-- Drone 2 -->
+        <div class="drone-unit">
+            <div class="drone-header">Drone #2 (팔로워) - IP: 192.168.100.21</div>
+            <div class="sensor-group">
+                <div class="component-title">📡 센서 시스템</div>
+                <div class="component-detail"><b>RTK-GPS</b> (UART &rarr; FC)<br />&bull; Drone #1과 상대 위치 계산<br />&bull; Formation 유지용<br /><br /><b>Lidar</b> (I2C &rarr; FC)<br />&bull; 전방 타겟 거리<br />&bull; Drone #1과 동일 타겟 추적<br /><br /><b>RGB + 열화상 카메라</b> (USB &rarr; MC)</div>
+            </div>
+            <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 8px 0;">
+                <div class="component-title">⚡ FC &harr; MC 연결 (Ethernet)</div>
+                <div class="component-detail"><b>IP 주소:</b> MC: 10.0.0.21, FC: 10.0.0.22<br />Pixhawk Ethernet &harr; VIM4 Ethernet<br />MAVLink over UDP</div>
+            </div>
+            <div class="mc-group">
+                <div class="component-title">💻 Mission Computer - Khadas VIM4</div>
+                <div class="component-detail"><b>실행 노드:</b><br />&bull; px4_ros_com (Ethernet 기반)<br />&bull; swarm_agent_node<br />&bull; collision_avoidance_node<br />&bull; video_fusion_node<br />&bull; fire_detection_node<br />&bull; formation_follower_node<br />&bull; extinguisher_drop_node<br /><br /><b>영상 처리 (RGB + 열화상 오버레이):</b><br />&bull; RGB 위에 열화상 반투명 합성<br />&bull; <span class="highlight">HD (1280x720)</span> 1개 통합 영상 스트리밍<br />&bull; RTP/UDP Port 5602</div>
+            </div>
+            <div class="component-box">
+                <div class="component-title">🎮 FC - Pixhawk (PX4 v1.16.0)</div>
+                <div class="component-detail">&bull; Ethernet: MC (10.0.0.21) &harr; FC (10.0.0.22)<br />&bull; Failsafe: Data Link Loss 시 자동 RTH<br />&bull; Leader Following Mode</div>
+            </div>
+            <div class="data-flow"><b>군집 제어:</b><br />Subscribe: /swarm/formation (리더 위치)<br />Publish: /drone2/position, /drone2/status<br />Formation Offset: [-5m, 5m, 0m] (X,Y,Z)</div>
+        </div>
+        <!-- Drone 3 -->
+        <div class="drone-unit">
+            <div class="drone-header">Drone #3 (팔로워) - IP: 192.168.100.31</div>
+            <div class="sensor-group">
+                <div class="component-title">📡 센서 시스템</div>
+                <div class="component-detail"><b>RTK-GPS</b> (UART &rarr; FC)<br /><b>Lidar</b> (I2C &rarr; FC)<br /><b>RGB + 열화상 카메라</b> (USB &rarr; MC)</div>
+            </div>
+            <div style="background: #fff3cd; padding: 10px; border-radius: 5px; margin: 8px 0;">
+                <div class="component-title">⚡ FC &harr; MC 연결 (Ethernet)</div>
+                <div class="component-detail"><b>IP 주소:</b> MC: 10.0.0.31, FC: 10.0.0.32<br />Pixhawk Ethernet &harr; VIM4 Ethernet<br />MAVLink over UDP</div>
+            </div>
+            <div class="mc-group">
+                <div class="component-title">💻 Mission Computer - Khadas VIM4</div>
+                <div class="component-detail">동일 노드 구성 (Drone #2와 동일)<br /><br /><b>영상 처리 (RGB + 열화상 오버레이):</b><br />&bull; <span class="highlight">HD (1280x720)</span> 1개 통합 영상<br />&bull; RTP/UDP Port 5604<br /><br /><b>Formation Offset:</b> [5m, 5m, 0m]</div>
+            </div>
+            <div class="component-box">
+                <div class="component-title">🎮 FC - Pixhawk (PX4 v1.16.0)</div>
+                <div class="component-detail">&bull; Ethernet: MC (10.0.0.31) &harr; FC (10.0.0.32)<br />&bull; Failsafe: Data Link Loss 시 자동 RTH</div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- ROS2 Topics Architecture -->
+<div class="layer">
+    <div class="layer-title">📡 ROS2 DDS Topics 구조</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="component-box">
+            <div class="component-title">Command Topics (RELIABLE QoS)</div>
+            <div class="component-detail"><b>/swarm/formation</b><br />&bull; Type: geometry_msgs/PoseArray<br />&bull; 목표 대형 패턴<br /><br /><b>/swarm/mission</b><br />&bull; Type: custom_msgs/SwarmMission<br />&bull; 통합 미션 명령<br /><br /><b>/swarm/emergency_stop</b><br />&bull; Type: std_msgs/Bool<br />&bull; 긴급 정지 신호</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">Telemetry Topics (BEST_EFFORT QoS)</div>
+            <div class="component-detail"><b>/drone[1-3]/position</b><br />&bull; Type: sensor_msgs/NavSatFix<br />&bull; RTK-GPS 위치 (10Hz)<br /><br /><b>/drone[1-3]/lidar/distance</b><br />&bull; Type: sensor_msgs/Range<br />&bull; 전방 타겟 거리 (20Hz)<br /><br /><b>/drone[1-3]/status</b><br />&bull; Type: px4_msgs/VehicleStatus<br />&bull; 배터리, 모드, 알람</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">Collision Avoidance</div>
+            <div class="component-detail"><b>/swarm/collision_risk</b><br />&bull; Type: custom_msgs/CollisionRisk<br />&bull; RTK-GPS 기반 드론 간 거리 계산<br />&bull; 최소 안전거리: 5m<br />&bull; Warning: &lt;10m, Critical: &lt;5m</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">Video Streaming (별도 구현 예정)</div>
+            <div class="component-detail"><b>계획:</b><br />&bull; RGB + 열화상 오버레이 영상<br />&bull; 화점 감지 및 타겟 표시<br />&bull; 단일 통합 영상으로 전송<br />&bull; 네트워크 부하 최소화<br /><br /><b>참고 포트:</b><br />&bull; Drone #1: 5600<br />&bull; Drone #2: 5602<br />&bull; Drone #3: 5604<br /><br /><span style="color:#666; font-size:11px;">※ 기본 설치에서 제외, 커스텀 영상처리 코드로 구현</span></div>
+        </div>
+    </div>
+</div>
+<!-- 충돌 회피 알고리즘 -->
+<div class="layer">
+    <div class="layer-title">🛡️ RTK-GPS 기반 충돌 회피 알고리즘</div>
+    <div class="component-box">
+        <div class="component-title">충돌 회피 로직 (collision_avoidance_node)</div>
+        <div class="component-detail" style="line-height: 1.8;"><b>1. 위치 모니터링 (10Hz)</b><br />&nbsp;&nbsp;&nbsp;&bull; 각 드론의 RTK-GPS 위치를 /drone[1-3]/position에서 수신<br />&nbsp;&nbsp;&nbsp;&bull; cm급 정밀도로 3차원 거리 계산<br /><br /><b>2. 거리 계산 및 판단</b><br />&nbsp;&nbsp;&nbsp;&bull; Distance = &radic;[(x₂-x₁)&sup2; + (y₂-y₁)&sup2; + (z₂-z₁)&sup2;]<br />&nbsp;&nbsp;&nbsp;&bull; <span style="color: green;">안전 (Distance &ge; 10m)</span>: 정상 운행<br />&nbsp;&nbsp;&nbsp;&bull; <span style="color: orange;">경고 (5m &le; Distance &lt; 10m)</span>: 속도 감속 50%<br />&nbsp;&nbsp;&nbsp;&bull; <span style="color: red;">위험 (Distance &lt; 5m)</span>: 즉시 호버링 + 회피 기동<br /><br /><b>3. 회피 기동</b><br />&nbsp;&nbsp;&nbsp;&bull; 우선순위: Drone #1 &gt; #2 &gt; #3<br />&nbsp;&nbsp;&nbsp;&bull; 낮은 우선순위 드론이 수평 방향으로 이동<br />&nbsp;&nbsp;&nbsp;&bull; 회피 벡터: 현재 위치 - 상대 드론 위치 (정규화 후 5m 이동)<br /><br /><b>4. Lidar 화재원 거리 유지</b><br />&nbsp;&nbsp;&nbsp;&bull; 드론-화재원 안전거리 유지 (예: 화점에서 10m 안전거리)<br />&nbsp;&nbsp;&nbsp;&bull; PID 제어: 목표 거리 &plusmn; 0.5m 오차 범위 유지<br />&nbsp;&nbsp;&nbsp;&bull; 충돌 회피보다 우선순위 낮음 (안전 우선)<br />&nbsp;&nbsp;&nbsp;&bull; 소화탄 투하 시 정밀 고도 제어</div>
+    </div>
+</div>
+<!-- 시스템 사양 -->
+<div class="layer">
+    <div class="layer-title">⚙️ 시스템 사양 요약</div>
+    <table class="specs-table" data-ke-align="alignLeft">
+        <tbody>
+            <tr>
+                <td>Flight Controller</td>
+                <td>Pixhawk 6C/6X, PX4 Firmware v1.16.0, MAVLink 2.0</td>
+            </tr>
+            <tr>
+                <td>Mission Computer</td>
+                <td>Khadas VIM4 (Amlogic A311D2, 5 TOPS NPU), Ubuntu 22.04 + ROS2 Humble</td>
+            </tr>
+            <tr>
+                <td>FC &harr; MC 연결</td>
+                <td>Ethernet 100Mbps (MAVLink over UDP), 저지연 고속 통신</td>
+            </tr>
+            <tr>
+                <td>GCS 소프트웨어</td>
+                <td>QGroundControl v5.0.8 (64-bit), Multi-Vehicle 지원</td>
+            </tr>
+            <tr>
+                <td>통신 구조</td>
+                <td>WiFi 6 단독 (5GHz), PX4 Failsafe 자동화, mavlink-router 기반 MAVLink 라우팅</td>
+            </tr>
+            <tr>
+                <td>RTK-GPS</td>
+                <td>Holybro H-RTK F9P (cm급 정밀도), Base Station 연동</td>
+            </tr>
+            <tr>
+                <td>Lidar</td>
+                <td>Lightware SF45 (50m 범위) 또는 Benewake TF-Luna (8m)</td>
+            </tr>
+            <tr>
+                <td>카메라</td>
+                <td>RGB: 1920x1080 @ 30fps, 열화상: FLIR Lepton 3.5 (160x120) 또는 640x512</td>
+            </tr>
+            <tr>
+                <td>WiFi 통신</td>
+                <td>WiFi 6 (5GHz, 80MHz 채널), ROS2 DDS + 영상 스트리밍</td>
+            </tr>
+            <tr>
+                <td>영상 전송</td>
+                <td>총 대역폭: FHD(8Mbps) + HD(4Mbps) + HD(4Mbps) = 16Mbps (WiFi 6 여유)</td>
+            </tr>
+            <tr>
+                <td>ROS2 DDS</td>
+                <td>Domain ID: 0, DDS Implementation: Fast-DDS (eProsima)</td>
+            </tr>
+            <tr>
+                <td>배터리</td>
+                <td>6S LiPo 22.2V (각 드론 독립 모니터링, 잔량 15% 이하 시 자동 RTH)</td>
+            </tr>
+            <tr>
+                <td>소화탄 발사 장치</td>
+                <td>서보 모터 기반 투하 메커니즘, PWM 제어 (FC AUX 출력 연결), 각 드론 탑재</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+<!-- Khadas VIM4 상세 스펙 -->
+<div class="layer">
+    <div class="layer-title">🖥️ Khadas VIM4 Mission Computer 상세</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div class="component-box">
+            <div class="component-title">하드웨어 사양</div>
+            <div class="component-detail"><b>SoC:</b> Amlogic A311D2<br />&bull; CPU: Quad Cortex-A73 (2.2GHz) + Quad Cortex-A53 (1.8GHz)<br />&bull; GPU: Mali-G52 MP8<br />&bull; NPU: 5 TOPS (INT8) AI 가속<br /><br /><b>메모리:</b><br />&bull; RAM: 8GB LPDDR4X<br />&bull; Storage: eMMC 32GB + microSD 슬롯<br /><br /><b>인터페이스:</b><br />&bull; Gigabit Ethernet (RJ45)<br />&bull; WiFi 6 (802.11ax) + Bluetooth 5.0<br />&bull; USB 3.0 x2 (카메라 연결)<br />&bull; GPIO 40-pin 헤더</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">소프트웨어 장점</div>
+            <div class="component-detail"><b>ROS2 최적화:</b><br />&bull; Ubuntu 22.04 공식 지원<br />&bull; ROS2 Humble 네이티브 실행<br />&bull; Fast-DDS 최적화<br /><br /><b>AI/영상 처리:</b><br />&bull; NPU 5 TOPS로 영상 정합 가속<br />&bull; OpenCV DNN 모듈 지원<br />&bull; 하드웨어 H.264/H.265 인코딩<br />&bull; 저전력 고성능 (10W 이하)<br /><br /><b>드론 적합성:</b><br />&bull; 소형 경량 (82mm x 58mm)<br />&bull; 저발열 (방열판 포함)<br />&bull; 산업용 온도 범위 지원</div>
+        </div>
+    </div>
+</div>
+<!-- PX4 v1.16.0 주요 기능 -->
+<div class="layer">
+    <div class="layer-title">🚀 PX4 v1.16.0 주요 기능 및 파라미터</div>
+    <div class="component-box">
+        <div class="component-title">필수 PX4 파라미터 설정</div>
+        <div class="component-detail" style="line-height: 1.8;"><b>MAVLink over Ethernet (mavlink-router용):</b><br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_CONFIG = 1000 (Ethernet)<br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_BROADCAST = Always broadcast<br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_MODE = 0 (Normal)<br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_RATE = 100000 B/s<br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_REMOTE_PRT = 14540<br />&nbsp;&nbsp;&nbsp;&bull; MAV_2_UDP_PRT = 14550<br /><br /><b>XRCE-DDS (micro-ROS Agent용):</b><br />&nbsp;&nbsp;&nbsp;&bull; UXRCE_DDS_CFG = Ethernet<br />&nbsp;&nbsp;&nbsp;&bull; UXRCE_DDS_AG_IP = VIM4 eth0 IP (10진수 변환)<br />&nbsp;&nbsp;&nbsp;&bull; UXRCE_DDS_PRT = 8888<br />&nbsp;&nbsp;&nbsp;&bull; UXRCE_DDS_DOM_ID = 0<br /><br /><b>기체 식별:</b><br />&nbsp;&nbsp;&nbsp;&bull; MAV_SYS_ID = DRONE_ID (1, 2, 3)</div>
+    </div>
+    <div class="component-box">
+        <div class="component-title">v1.16.0 신규 기능 및 개선사항</div>
+        <div class="component-detail" style="line-height: 1.8;"><b>1. Ethernet 통신 강화</b><br />&nbsp;&nbsp;&nbsp;&bull; MAVLink over Ethernet/UDP 성능 개선<br />&nbsp;&nbsp;&nbsp;&bull; 고속 텔레메트리 지원 (100Mbps+)<br />&nbsp;&nbsp;&nbsp;&bull; Mission Computer 연동 최적화<br /><br /><b>2. RTK-GPS 지원 향상</b><br />&nbsp;&nbsp;&nbsp;&bull; 다중 GPS 융합 알고리즘 개선<br />&nbsp;&nbsp;&nbsp;&bull; RTK Base Station 연동 안정성 향상<br />&nbsp;&nbsp;&nbsp;&bull; GPS Yaw 지원 (듀얼 GPS 사용 시)<br /><br /><b>3. 군집 비행 지원</b><br />&nbsp;&nbsp;&nbsp;&bull; Multi-Vehicle 제어 프레임워크<br />&nbsp;&nbsp;&nbsp;&bull; Formation Flight 기본 모듈<br />&nbsp;&nbsp;&nbsp;&bull; Swarm Collision Avoidance 인터페이스<br /><br /><b>4. 센서 통합 개선</b><br />&nbsp;&nbsp;&nbsp;&bull; Lidar 거리계 지원 확대<br />&nbsp;&nbsp;&nbsp;&bull; 다중 센서 융합 안정성 향상<br />&nbsp;&nbsp;&nbsp;&bull; EKF2 성능 최적화<br /><br /><b>5. 안전 기능 강화</b><br />&nbsp;&nbsp;&nbsp;&bull; Geofence 3D 지원<br />&nbsp;&nbsp;&nbsp;&bull; 배터리 관리 알고리즘 개선<br />&nbsp;&nbsp;&nbsp;&bull; 비상 복구 모드 추가</div>
+    </div>
+</div>
+<!-- 운영 시나리오 -->
+<div class="layer">
+    <div class="layer-title">🎯 운영 시나리오 예시: 화재 진압 미션</div>
+    <div class="component-box">
+        <div class="component-title">미션 수행 단계</div>
+        <div class="component-detail" style="line-height: 1.8;"><b>1. 이륙 및 Formation 형성</b><br />&nbsp;&nbsp;&nbsp;&bull; QGC v5.0.8에서 일괄 이륙 명령 전송 (WiFi &rarr; mavlink-router &rarr; FC)<br />&nbsp;&nbsp;&nbsp;&bull; 각 드론 30m 고도 호버링<br />&nbsp;&nbsp;&nbsp;&bull; V자 대형으로 자동 정렬 (RTK-GPS &plusmn;5cm 정밀도)<br />&nbsp;&nbsp;&nbsp;&bull; WiFi 연결 확인 및 ROS2 Topics 활성화<br /><br /><b>2. 화재 현장 접근</b><br />&nbsp;&nbsp;&nbsp;&bull; 열화상 카메라로 화재 지점 자동 감지<br />&nbsp;&nbsp;&nbsp;&bull; Drone #1이 화재원으로 접근<br />&nbsp;&nbsp;&nbsp;&bull; Lidar로 화재원까지 거리 측정 &rarr; 안전거리 유지<br />&nbsp;&nbsp;&nbsp;&bull; Drone #2, #3도 Formation 유지하며 대기<br />&nbsp;&nbsp;&nbsp;&bull; VIM4 NPU로 실시간 화염 감지 및 위치 추적<br /><br /><b>3. 영상 모니터링 및 화점 분석</b><br />&nbsp;&nbsp;&nbsp;&bull; 3대 드론 동시 촬영 (RGB + 열화상 오버레이)<br />&nbsp;&nbsp;&nbsp;&bull; 열화상으로 최고 온도 지점(화점) 식별<br />&nbsp;&nbsp;&nbsp;&bull; QGC/VLC에서 실시간 모니터링<br />&nbsp;&nbsp;&nbsp;&bull; 소화탄 투하 최적 위치 계산 (NPU AI 분석)<br /><br /><b>4. 소화탄 투하</b><br />&nbsp;&nbsp;&nbsp;&bull; Drone #1: 화점 중심부에 소화탄 투하<br />&nbsp;&nbsp;&nbsp;&bull; Drone #2, #3: 화점 주변 확산 방지 위치에 투하<br />&nbsp;&nbsp;&nbsp;&bull; Lidar로 투하 고도 정밀 제어 (오차 &plusmn;0.5m)<br />&nbsp;&nbsp;&nbsp;&bull; 투하 후 즉시 안전거리로 후퇴 (충돌 회피)<br /><br /><b>5. 충돌 회피 상황 발생</b><br />&nbsp;&nbsp;&nbsp;&bull; Drone #2와 #3 거리 8m로 근접 (경고 단계)<br />&nbsp;&nbsp;&nbsp;&bull; collision_avoidance_node 작동 &rarr; Drone #3 자동 이동<br />&nbsp;&nbsp;&nbsp;&bull; Ethernet 연결로 FC-MC 간 저지연 제어<br />&nbsp;&nbsp;&nbsp;&bull; 안전거리 확보 후 원래 Formation 복귀<br /><br /><b>6. 진압 효과 확인</b><br />&nbsp;&nbsp;&nbsp;&bull; 열화상 카메라로 온도 하강 모니터링<br />&nbsp;&nbsp;&nbsp;&bull; 추가 소화탄 투하 필요 시 재진입<br />&nbsp;&nbsp;&nbsp;&bull; 화재 진압 완료 확인 (온도 임계값 이하)<br /><br /><b>7. 미션 완료 및 귀환</b><br />&nbsp;&nbsp;&nbsp;&bull; QGC에서 일괄 RTH(Return to Home) 명령<br />&nbsp;&nbsp;&nbsp;&bull; PX4 v1.16.0의 향상된 RTH 알고리즘 사용<br />&nbsp;&nbsp;&nbsp;&bull; 이륙 지점으로 자동 귀환 후 순차 착륙<br />&nbsp;&nbsp;&nbsp;&bull; 비행 로그 + 열화상 데이터 자동 저장 (VIM4 eMMC)</div>
+    </div>
+</div>
+<!-- 설치 스크립트 구조 -->
+<div class="layer">
+    <div class="layer-title">📦 VIM4 설치 스크립트 구조</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+        <div class="component-box">
+            <div class="component-title">설치 스크립트 (sudo 필수)</div>
+            <div class="component-detail"><b>000-install_all.sh</b> - 마스터 설치 스크립트<br />&bull; 001, 002, 003 순차 실행<br />&bull; 버전 자동 저장<br /><br /><b>001-install_px4_ros2_complete.sh</b><br />&bull; ROS2 Humble 설치<br />&bull; micro-ROS Agent 빌드<br />&bull; px4_msgs 빌드<br /><br /><b>002-install_mavlink_router.sh</b><br />&bull; mavlink-router 빌드/설치<br />&bull; systemd 서비스 등록<br /><br /><b>003-apply_config.sh</b><br />&bull; device_config.env 기반 설정 적용<br />&bull; 네트워크, 서비스 설정<br />&bull; 독립 실행 가능 (설정 변경 시)</div>
+        </div>
+        <div class="component-box">
+            <div class="component-title">유틸리티 스크립트</div>
+            <div class="component-detail"><b>101-check_px4_connection.sh</b><br />&bull; PX4 연결 상태 확인<br />&bull; DHCP, Agent, 토픽 점검<br /><br /><b>103-verify_installation.sh</b><br />&bull; 전체 설치 검증 (14개 항목)<br />&bull; 경로, 권한, 서비스 확인<br /><br /><b>104-save_versions.sh</b><br />&bull; 설치된 패키지 버전 저장<br />&bull; versions.env 생성<br /><br /><b>device_config.env</b> - 기체별 설정<br />&bull; DRONE_ID, IP 주소 등<br />&bull; 수정 후 003 실행으로 적용<br /><br /><b>versions.env</b> - 버전 관리<br />&bull; Git commit hash 기록<br />&bull; 동일 환경 재현 가능</div>
+        </div>
+    </div>
+    <div style="margin-top: 15px; padding: 12px; background: #e8f5e9; border-left: 4px solid #4caf50; border-radius: 5px;"><b>✅ 설치 방법:</b><br />
+        <div style="font-size: 12px; margin-top: 5px; font-family: monospace;">1. device_config.env 수정 (DRONE_ID, IP 등)<br />2. sudo ./000-install_all.sh<br />3. sudo reboot<br />4. bash 103-verify_installation.sh (검증, sudo 없이!)</div>
+    </div>
+</div>
+<!-- 개발 우선순위 -->
+<div class="layer">
+    <div class="layer-title">🔧 개발 우선순위 및 단계</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+        <div class="component-box" style="background: #e8f5e9;">
+            <div class="component-title">Phase 1: 단일 드론 검증 (2주)</div>
+            <div class="component-detail"><b>하드웨어 통합:</b><br />&bull; Pixhawk + VIM4 Ethernet 연결<br />&bull; PX4 v1.16.0 펌웨어 설정<br />&bull; RTK-GPS 정밀도 확인<br /><br /><b>소프트웨어:</b><br />&bull; ROS2 Humble on VIM4<br />&bull; px4_ros_com Ethernet 모드<br />&bull; Lidar 타겟 추적 알고리즘<br />&bull; 영상 정합 NPU 가속<br /><br /><b>산출물:</b><br />&bull; 단일 드론 비행 테스트 결과<br />&bull; 영상 정합 샘플<br />&bull; 센서 데이터 로그</div>
+        </div>
+        <div class="component-box" style="background: #fff3e0;">
+            <div class="component-title">Phase 2: 군집 제어 구현 (3주)</div>
+            <div class="component-detail"><b>네트워크 구성:</b><br />&bull; WiFi 6 네트워크 설정<br />&bull; ROS2 DDS Domain 0 구성<br /><br /><b>군집 알고리즘:</b><br />&bull; Formation Controller 개발<br />&bull; 충돌 회피 알고리즘 통합<br />&bull; 2대 드론 동시 비행 테스트<br /><br /><b>산출물:</b><br />&bull; 군집 제어 소프트웨어<br />&bull; 충돌 회피 시험 결과<br />&bull; 2대 동시 비행 영상</div>
+        </div>
+        <div class="component-box" style="background: #fce4ec;">
+            <div class="component-title">Phase 3: 통합 최적화 (2주)</div>
+            <div class="component-detail"><b>3대 통합:</b><br />&bull; 3대 동시 비행 안정화<br />&bull; QGC v5.0.8 Multi-Vehicle UI<br />&bull; 영상 대역폭 최적화<br /><br /><b>현장 테스트:</b><br />&bull; 교량 점검 시나리오 실행<br />&bull; 통신 장애 복구 테스트<br />&bull; 장시간 비행 안정성 검증<br /><br /><b>산출물:</b><br />&bull; 완성된 시스템<br />&bull; 사용자 매뉴얼<br />&bull; 현장 테스트 보고서</div>
+        </div>
+    </div>
+    <div style="margin-top: 15px; padding: 12px; background: #e1f5fe; border-left: 4px solid #0277bd; border-radius: 5px;"><b>📅 총 예상 개발 기간: 7주 (약 2개월)</b><br />
+        <div style="font-size: 12px; margin-top: 5px;">&bull; Khadas VIM4의 높은 성능으로 개발 기간 단축 가능<br />&bull; PX4 v1.16.0의 안정성으로 디버깅 시간 절감<br />&bull; Ethernet 연결로 통신 이슈 최소화</div>
+    </div>
+</div>
+<!-- 핵심 포인트 요약 -->
+<div style="margin-top: 30px; padding: 20px; background: #e3f2fd; border-left: 4px solid #2196f3; border-radius: 5px;"><b>📝 핵심 설계 포인트:</b><br /><br />
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;">
+        <div>✅ <b>PX4 v1.16.0</b> - 최신 안정 버전, Ethernet 통신 강화</div>
+        <div>✅ <b>QGC v5.0.8</b> - Multi-Vehicle 지원, 안정적인 군집 제어</div>
+        <div>✅ <b>Khadas VIM4</b> - 5 TOPS NPU, 영상 처리 가속</div>
+        <div>✅ <b>Ethernet 연결</b> - FC&harr;MC 독립 대역 (10.0.x.0/24)</div>
+        <div>✅ <b>WiFi 단독 통신</b> - PX4 Failsafe 자동화, 시스템 단순화</div>
+        <div>✅ <b>mavlink-router</b> - MAVLink 메시지 다중 라우팅</div>
+        <div>✅ <b>RTK-GPS</b> - cm급 정밀 위치로 충돌 회피</div>
+        <div>✅ <b>Lidar</b> - 화재원 거리 유지, 투하 고도 제어</div>
+        <div>✅ <b>영상 오버레이</b> - RGB+열화상 1개 영상, NPU 가속</div>
+        <div>✅ <b>ROS2 DDS</b> - 드론 간 실시간 군집 제어 (WiFi 6)</div>
+    </div>
+</div>
+<!-- VIM4 vs 다른 보드 비교 -->
+<div class="layer">
+    <div class="layer-title">📊 Khadas VIM4 vs 다른 SBC 비교</div>
+    <table class="specs-table" data-ke-align="alignLeft">
+        <tbody>
+            <tr style="background: #2c3e50; color: white;">
+                <td>항목</td>
+                <td>Khadas VIM4</td>
+                <td>Jetson Orin Nano</td>
+                <td>Raspberry Pi 5</td>
+            </tr>
+            <tr>
+                <td>AI 성능 (TOPS)</td>
+                <td style="background: #d5f4e6;">5 TOPS</td>
+                <td>40 TOPS</td>
+                <td>-</td>
+            </tr>
+            <tr>
+                <td>가격</td>
+                <td style="background: #d5f4e6;">~$150</td>
+                <td>~$500</td>
+                <td>~$80</td>
+            </tr>
+            <tr>
+                <td>소비 전력</td>
+                <td style="background: #d5f4e6;">10W 이하</td>
+                <td>15W</td>
+                <td>8W</td>
+            </tr>
+            <tr>
+                <td>Ethernet</td>
+                <td style="background: #d5f4e6;">Gigabit (내장)</td>
+                <td>Gigabit</td>
+                <td>Gigabit</td>
+            </tr>
+            <tr>
+                <td>WiFi 6</td>
+                <td style="background: #d5f4e6;">내장</td>
+                <td>별도 모듈</td>
+                <td>WiFi 5</td>
+            </tr>
+            <tr>
+                <td>H.264 인코딩</td>
+                <td style="background: #d5f4e6;">하드웨어 지원</td>
+                <td>하드웨어 지원</td>
+                <td>하드웨어 지원</td>
+            </tr>
+            <tr>
+                <td>드론 적합성</td>
+                <td style="background: #d5f4e6;">★★★★★</td>
+                <td>★★★★☆</td>
+                <td>★★★☆☆</td>
+            </tr>
+            <tr>
+                <td>평가</td>
+                <td style="background: #d5f4e6;"><b>가격/성능 최적</b></td>
+                <td>고성능, 고가</td>
+                <td>저렴, 성능 부족</td>
+            </tr>
+        </tbody>
+    </table>
+    <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 5px; font-size: 12px;"><b>💡 VIM4 선택 이유:</b><br />&bull; 드론 군집 제어에 충분한 AI 성능 (5 TOPS)<br />&bull; 낮은 소비 전력으로 비행 시간 증가<br />&bull; 내장 WiFi 6로 별도 모듈 불필요<br />&bull; 합리적인 가격으로 3대 구성 가능<br />&bull; 소형 경량으로 드론 페이로드 최소화</div>
+</div>
+<div style="margin-top: 30px; text-align: center; color: #7f8c8d; font-size: 12px;">
+    <hr style="margin: 20px 0;" data-ke-style="style1" />
+    <p data-ke-size="size16">PX4 v1.16.0 + QGC v5.0.8 + Khadas VIM4 기반 ROS2 군집 드론 시스템 아키텍처 (화재 진압용)</p>
+    <p data-ke-size="size16">작성일: 2025년 12월 17일 | 최종 수정: 2025년 12월 18일</p>
+</div>

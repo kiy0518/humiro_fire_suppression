@@ -1,0 +1,634 @@
+<p data-ke-size="size16">&nbsp;</p>
+<div>
+    <style>
+        /* 티스토리 충돌 방지를 위해 body 대신 wrapper 클래스 사용 */
+        .backup-wrapper {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f8fafc;
+            color: #1e293b;
+            line-height: 1.6;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        
+        .backup-wrapper .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .backup-wrapper .header-box {
+            background: linear-gradient(135deg, #0f766e, #14b8a6);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .backup-wrapper .header-box h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        
+        .backup-wrapper .header-box p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .backup-wrapper .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            margin: 4px;
+        }
+        
+        .backup-wrapper .card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .backup-wrapper .card h2 {
+            color: #2563eb;
+            font-size: 1.4rem;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .backup-wrapper .card h3 {
+            color: #1e293b;
+            font-size: 1.1rem;
+            margin: 20px 0 12px 0;
+        }
+        
+        .backup-wrapper pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+            margin: 12px 0;
+        }
+        
+        .backup-wrapper code {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.9rem;
+        }
+        
+        .backup-wrapper pre code {
+            background: none;
+            padding: 0;
+        }
+        
+        .backup-wrapper .step-box {
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-left: 4px solid #2563eb;
+            padding: 20px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper .step-number {
+            display: inline-flex;
+            width: 36px;
+            height: 36px;
+            background: #2563eb;
+            color: white;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            margin-right: 12px;
+        }
+        
+        .backup-wrapper .warning-box {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-left: 4px solid #d97706;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper .danger-box {
+            background: linear-gradient(135deg, #fee2e2, #fecaca);
+            border-left: 4px solid #dc2626;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper .success-box {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-left: 4px solid #16a34a;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper .info-box {
+            background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+            border-left: 4px solid #0ea5e9;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper .teal-box {
+            background: linear-gradient(135deg, #ccfbf1, #99f6e4);
+            border-left: 4px solid #0d9488;
+            padding: 16px;
+            margin: 16px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        
+        .backup-wrapper table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+        }
+        
+        .backup-wrapper th, .backup-wrapper td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .backup-wrapper th {
+            background: #f8fafc;
+            font-weight: 600;
+        }
+        
+        .backup-wrapper .flow-diagram {
+            background: #f8fafc;
+            border: 2px dashed #e2e8f0;
+            padding: 24px;
+            border-radius: 12px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .backup-wrapper .flow-item {
+            display: inline-block;
+            background: white;
+            border: 2px solid #0d9488;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin: 8px;
+            font-weight: 600;
+        }
+        
+        .backup-wrapper .flow-arrow {
+            display: inline-block;
+            font-size: 1.5rem;
+            color: #0d9488;
+            margin: 0 8px;
+        }
+        
+        .backup-wrapper .button-diagram {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .backup-wrapper .button-box {
+            background: #1e293b;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 120px;
+        }
+        
+        .backup-wrapper .button-box.function {
+            background: #7c3aed;
+        }
+        
+        .backup-wrapper .button-box.reset {
+            background: #dc2626;
+        }
+        
+        .backup-wrapper .menu-item {
+            background: #1e293b;
+            color: #10b981;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-family: monospace;
+            margin: 8px 0;
+            display: inline-block;
+        }
+        
+        .backup-wrapper .menu-path {
+            color: #94a3b8;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+
+        .backup-wrapper ul, .backup-wrapper ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+        
+        .backup-wrapper li {
+            margin: 8px 0;
+        }
+
+        .backup-wrapper .two-column {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .backup-wrapper .two-column {
+                grid-template-columns: 1fr;
+            }
+            .backup-wrapper .button-diagram {
+                flex-direction: column;
+            }
+        }
+        
+        .backup-wrapper a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+        
+        .backup-wrapper a:hover {
+            text-decoration: underline;
+        }
+        
+        .backup-wrapper .footer-text {
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+        }
+    </style>
+</div>
+
+<div class="backup-wrapper">
+    <div class="container">
+        <div class="header-box">
+            <h1>💾 VIM4 Cluster Drone</h1>
+            <p>OOWOW를 이용한 이미지 백업 및 복원 가이드</p>
+            <div style="margin-top: 16px;">
+                <span class="badge" style="background: #2563eb; color: white;">Ubuntu 22.04</span>
+                <span class="badge" style="background: #16a34a; color: white;">ROS2 Humble</span>
+                <span class="badge" style="background: #7c3aed; color: white;">PX4 v1.16.0</span>
+                <span class="badge" style="background: #059669; color: white;">QGC v5.0.8</span>
+            </div>
+        </div>
+
+        <!-- OOWOW 소개 -->
+        <div class="card">
+            <h2>🔧 OOWOW란?</h2>
+            <p><strong>OOWOW (Online Operating system Open Wizard)</strong>는 Khadas VIM4에 내장된 복구 시스템입니다.</p>
+            
+            <div class="teal-box">
+                <strong>✨ OOWOW 장점</strong>
+                <ul style="margin-top: 8px; margin-bottom: 0;">
+                    <li>eMMC에 내장되어 있어 <strong>별도 SD 카드 불필요</strong></li>
+                    <li>시스템이 부팅되지 않아도 <strong>항상 접근 가능</strong></li>
+                    <li>GUI 기반으로 <strong>간편한 조작</strong></li>
+                    <li>USB 드라이브로 <strong>백업/복원 지원</strong></li>
+                    <li>네트워크를 통한 <strong>OS 이미지 다운로드</strong></li>
+                </ul>
+            </div>
+
+            <div class="flow-diagram">
+                <div style="margin-bottom: 16px; font-weight: bold; color: #64748b;">백업 및 복원 흐름</div>
+                <div class="flow-item" style="background: #dbeafe;">📦 VIM4 #1<br><small>원본 시스템</small></div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-item" style="background: #fef3c7;">💾 USB<br><small>.img.zst 파일</small></div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-item" style="background: #dcfce7;">🚁 VIM4 #2, #3...<br><small>복제된 시스템</small></div>
+            </div>
+        </div>
+
+        <!-- OOWOW 진입 방법 -->
+        <div class="card">
+            <h2>🚀 OOWOW 진입 방법</h2>
+            
+            <div class="button-diagram">
+                <div class="button-box function">
+                    <div style="font-size: 1.5rem;">①</div>
+                    <div><strong>Function</strong></div>
+                    <div style="font-size: 0.8rem; opacity: 0.8;">누른 상태 유지</div>
+                </div>
+                <div style="font-size: 2rem; color: #64748b;">+</div>
+                <div class="button-box reset">
+                    <div style="font-size: 1.5rem;">②</div>
+                    <div><strong>Reset</strong></div>
+                    <div style="font-size: 0.8rem; opacity: 0.8;">짧게 누르기</div>
+                </div>
+                <div style="font-size: 2rem; color: #64748b;">→</div>
+                <div class="button-box" style="background: #0d9488;">
+                    <div style="font-size: 1.5rem;">✓</div>
+                    <div><strong>OOWOW</strong></div>
+                    <div style="font-size: 0.8rem; opacity: 0.8;">화면 표시</div>
+                </div>
+            </div>
+
+            <div class="warning-box">
+                <strong>⚠️ 주의사항</strong>
+                <ul style="margin-top: 8px; margin-bottom: 0;">
+                    <li>HDMI 모니터와 USB 키보드를 연결하세요</li>
+                    <li>SD 카드 슬롯은 <strong>비워두세요</strong></li>
+                    <li>Function 버튼을 <strong>먼저</strong> 누르고 있어야 합니다</li>
+                </ul>
+            </div>
+
+            <h3>📍 버튼 위치</h3>
+            <p>VIM4 보드에서 버튼 위치:</p>
+            <ul>
+                <li><strong>Function 버튼</strong>: USB-C 포트 근처의 작은 버튼</li>
+                <li><strong>Reset 버튼</strong>: Function 버튼 옆</li>
+            </ul>
+        </div>
+
+        <!-- 준비물 -->
+        <div class="card">
+            <h2>📝 준비물</h2>
+            
+            <div class="two-column">
+                <div>
+                    <h3>필수</h3>
+                    <ul>
+                        <li><strong>USB 드라이브</strong>: 16GB 이상</li>
+                        <li><strong>HDMI 모니터</strong>: OOWOW 화면 표시용</li>
+                        <li><strong>USB 키보드</strong>: 메뉴 조작용</li>
+                    </ul>
+                </div>
+                <div>
+                    <h3>USB 파일시스템</h3>
+                    <ul>
+                        <li><strong>exFAT</strong> ⭐ 권장</li>
+                        <li>FAT32 (4GB 제한)</li>
+                        <li>ext4</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <strong>💡 USB 포맷 (exFAT 권장)</strong>
+                <pre style="margin-top: 8px; margin-bottom: 0;"><code># Linux에서 exFAT 포맷
+sudo mkfs.exfat /dev/sda1
+
+# 또는 OOWOW 내에서 포맷 가능
+Advanced → Format OOWOW storage</code></pre>
+            </div>
+        </div>
+
+        <!-- 백업 가이드 -->
+        <div class="card">
+            <h2>📤 이미지 백업 (Dump image from eMMC)</h2>
+            
+            <div class="step-box">
+                <h3><span class="step-number">1</span>USB 드라이브 연결</h3>
+                <p>16GB 이상의 USB 드라이브를 VIM4의 USB 포트에 연결합니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">2</span>OOWOW 진입</h3>
+                <p><strong>Function 버튼</strong>을 누른 상태에서 <strong>Reset 버튼</strong>을 짧게 누릅니다.</p>
+                <p>OOWOW 화면이 나타날 때까지 기다립니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">3</span>백업 메뉴 선택</h3>
+                <p>키보드 방향키로 메뉴를 탐색합니다:</p>
+                <div class="menu-item">Dump image from eMMC</div>
+                <p style="margin-top: 8px;">Enter 키로 선택합니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">4</span>저장 위치 선택</h3>
+                <p class="menu-path">location → ../ → USB-sdXX... → okay</p>
+                <p style="margin-top: 8px;">USB 드라이브를 선택하고 확인합니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">5</span>백업 진행</h3>
+                <p>백업이 시작되면 진행률이 표시됩니다.</p>
+                <p><strong>예상 시간</strong>: 5-15분 (eMMC 용량에 따라 다름)</p>
+            </div>
+
+            <div class="success-box">
+                <strong>✅ 백업 완료!</strong><br>
+                USB 드라이브에 <code>vim4-xxxxxx.xxxxxx.img.zst</code> 형식의 파일이 생성됩니다.
+            </div>
+
+            <h3>📁 생성되는 파일</h3>
+            <table>
+                <tr>
+                    <th>파일</th>
+                    <th>설명</th>
+                </tr>
+                <tr>
+                    <td><code>vim4-날짜.시간.img.zst</code></td>
+                    <td>zstd 압축된 eMMC 이미지 (약 4-8GB)</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- 복원 가이드 -->
+        <div class="card">
+            <h2>📥 이미지 복원 (Write image to eMMC)</h2>
+            
+            <div class="danger-box">
+                <strong>⚠️ 주의!</strong><br>
+                복원 작업은 대상 VIM4의 eMMC <strong>모든 데이터를 덮어씁니다!</strong>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">1</span>USB 드라이브 연결</h3>
+                <p>백업 이미지가 있는 USB 드라이브를 <strong>대상 VIM4</strong>에 연결합니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">2</span>OOWOW 진입</h3>
+                <p><strong>Function 버튼</strong>을 누른 상태에서 <strong>Reset 버튼</strong>을 짧게 누릅니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">3</span>복원 메뉴 선택</h3>
+                <div class="menu-item">Write image to eMMC</div>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">4</span>이미지 파일 선택</h3>
+                <p class="menu-path">../ → USB-sdXX... → vim4-xxxxxx.img.zst → okay</p>
+                <p style="margin-top: 8px;">USB에서 백업 이미지를 선택합니다.</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">5</span>복원 진행</h3>
+                <p>복원이 시작되면 진행률이 표시됩니다.</p>
+                <p><strong>예상 시간</strong>: 5-15분</p>
+            </div>
+
+            <div class="step-box">
+                <h3><span class="step-number">6</span>재부팅</h3>
+                <p>복원 완료 후 <strong>Reboot</strong>을 선택하거나 Reset 버튼을 누릅니다.</p>
+            </div>
+
+            <div class="success-box">
+                <strong>✅ 복원 완료!</strong><br>
+                시스템이 원본 VIM4와 동일한 상태로 부팅됩니다.
+            </div>
+        </div>
+
+        <!-- 복원 후 설정 -->
+        <div class="card">
+            <h2>🔧 복원 후 기체별 설정</h2>
+            
+            <p>복원된 시스템은 원본 VIM4의 설정을 그대로 가지고 있습니다.<br>
+            각 기체에 맞게 <code>device_config.env</code>를 수정해야 합니다.</p>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>드론</th>
+                        <th>DRONE_ID</th>
+                        <th>ETH0_IP</th>
+                        <th>FC_IP</th>
+                        <th>WIFI_IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>#1 (리더)</strong></td>
+                        <td>1</td>
+                        <td>10.0.0.11</td>
+                        <td>10.0.0.12</td>
+                        <td>192.168.100.11</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#2</strong></td>
+                        <td>2</td>
+                        <td>10.0.0.21</td>
+                        <td>10.0.0.22</td>
+                        <td>192.168.100.21</td>
+                    </tr>
+                    <tr>
+                        <td><strong>#3</strong></td>
+                        <td>3</td>
+                        <td>10.0.0.31</td>
+                        <td>10.0.0.32</td>
+                        <td>192.168.100.31</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>📝 설정 변경 순서</h3>
+            <pre><code># 1. 기체 설정 파일 수정
+cd ~/projects/Cluster_Drone
+nano device_config.env
+
+# 2. 설정 적용
+sudo ./003-apply_config.sh
+
+# 3. 시스템 검증
+bash 103-verify_installation.sh
+
+# 4. 재부팅
+sudo reboot</code></pre>
+        </div>
+
+        <!-- 문제 해결 -->
+        <div class="card">
+            <h2>❓ 문제 해결</h2>
+            
+            <h3>OOWOW가 나타나지 않음</h3>
+            <ul>
+                <li>Function 버튼을 <strong>먼저</strong> 누르고 있는지 확인</li>
+                <li>SD 카드 슬롯이 <strong>비어있는지</strong> 확인</li>
+                <li>HDMI 케이블이 제대로 연결되어 있는지 확인</li>
+            </ul>
+
+            <h3>USB 드라이브가 인식되지 않음</h3>
+            <ul>
+                <li>USB 드라이브가 <strong>exFAT</strong> 또는 <strong>ext4</strong>로 포맷되어 있는지 확인</li>
+                <li>다른 USB 포트에 연결해보기</li>
+                <li>OOWOW에서 포맷: <code>Advanced → Format OOWOW storage</code></li>
+            </ul>
+
+            <h3>복원 후 부팅 안됨</h3>
+            <ul>
+                <li>이미지 파일이 손상되었을 수 있음 → 다시 백업 후 시도</li>
+                <li>OOWOW에서 다른 OS 이미지 설치 시도</li>
+            </ul>
+
+            <h3>백업 이미지 크기가 너무 큼</h3>
+            <ul>
+                <li>OOWOW는 <strong>.zst (zstd)</strong> 압축 사용 - 효율적인 압축</li>
+                <li>실제 사용 중인 데이터만 압축되어 저장됨</li>
+            </ul>
+        </div>
+
+        <!-- OOWOW 추가 기능 -->
+        <div class="card">
+            <h2>🎛️ OOWOW 추가 기능</h2>
+            
+            <table>
+                <tr>
+                    <th>기능</th>
+                    <th>설명</th>
+                </tr>
+                <tr>
+                    <td><strong>Online Install</strong></td>
+                    <td>네트워크를 통해 공식 OS 이미지 다운로드 및 설치</td>
+                </tr>
+                <tr>
+                    <td><strong>Dump image from eMMC</strong></td>
+                    <td>eMMC를 USB/SD 카드로 백업</td>
+                </tr>
+                <tr>
+                    <td><strong>Write image to eMMC</strong></td>
+                    <td>USB/SD 카드에서 eMMC로 이미지 복원</td>
+                </tr>
+                <tr>
+                    <td><strong>Erase eMMC</strong></td>
+                    <td>eMMC 전체 삭제 (초기화)</td>
+                </tr>
+                <tr>
+                    <td><strong>Advanced</strong></td>
+                    <td>고급 설정 (포맷, 네트워크 설정 등)</td>
+                </tr>
+                <tr>
+                    <td><strong>Shell</strong></td>
+                    <td>터미널 접속</td>
+                </tr>
+                <tr>
+                    <td><strong>Reboot / Poweroff</strong></td>
+                    <td>재부팅 / 전원 끄기</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- 관련 문서 -->
+        <div class="card">
+            <h2>📚 관련 문서</h2>
+            <ul>
+                <li><a href="https://docs.khadas.com/software/oowow/" target="_blank">Khadas OOWOW 공식 문서</a></li>
+            </ul>
+        </div>
+
+        <!-- 푸터 -->
+        <div class="footer-text">
+            <p>VIM4 Cluster Drone Project - OOWOW Backup & Restore Guide</p>
+            <p style="font-size: 0.85rem;">Last updated: December 2024</p>
+        </div>
+    </div>
+</div>

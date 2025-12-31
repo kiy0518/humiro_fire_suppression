@@ -1,0 +1,809 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Humiro Fire Suppression Drone System** - A ROS2-based autonomous fire suppression system for multi-drone coordination, running on Khadas VIM4 boards with PX4 flight controllers.
+
+**Core Technologies:**
+- ROS2 Humble (middleware)
+- PX4 Firmware v1.16.0 (flight control)
+- Micro-ROS Agent (XRCE-DDS bridge)
+- OpenCV + GStreamer (thermal/RGB processing)
+- Python 3 + C++17
+- systemd service management
+
+**System Architecture:**
+```
+PX4 Flight Controller
+    ↓ MAVLink/XRCE-DDS
+Khadas VIM4 (Ubuntu 22.04 ARM64)
+    ├── Thermal Processing (C++, real-time streaming)
+    ├── LiDAR Distance Measurement (ToF/Scanning, ROS2)
+    ├── Targeting System (Python, fire detection + trajectory calc)
+    ├── Throwing Mechanism (GPIO, projectile deployment)
+    └── Navigation (Python, RTK GPS, formation flight)
+```
+```
+
+## Essential Commands
+
+### Environment Setup (CRITICAL - Always First!)
+
+```bash
+# Load environment variables before ANY development work
+source ~/humiro_fire_suppression/setup_env.sh
+
+# This sets: PROJECT_ROOT, MICRO_ROS_WS, PX4_ROS2_WS, PYTHONPATH, etc.
+```
+
+### Installation & Setup
+
+```bash
+# Full system installation (first time)
+cd ~/humiro_fire_suppression
+sudo ./scripts/install/000-install_all.sh
+
+# Rebuild ROS2 workspaces (after git clone or directory move)
+./scripts/install/004-rebuild_workspaces.sh
+
+# Apply configuration changes
+sudo ./scripts/install/003-apply_config.sh
+```
+
+### ROS2 Workspace Management
+
+```bash
+# Rebuild Micro-ROS workspace
+cd $MICRO_ROS_WS
+rm -rf build install log
+colcon build --symlink-install
+source install/setup.bash
+
+# Rebuild PX4 ROS2 workspace
+cd $PX4_ROS2_WS
+rm -rf build install log
+colcon build --symlink-install
+source install/setup.bash
+
+# Rebuild specific package only
+cd $MICRO_ROS_WS
+colcon build --packages-select micro_ros_agent
+```
+
+### Thermal System Build (C++)
+
+```bash
+cd ~/humiro_fire_suppression/thermal/src
+mkdir -p build && cd build
+cmake ..
+make -j$(nproc)
+
+# Output binary: ./thermal_rgb_streaming
+# Run: ./thermal_rgb_streaming
+```
+
+### Testing & Verification
+
+```bash
+# Verify complete installation
+./scripts/check/103-verify_installation.sh
+
+# Check PX4 connection (network diagnostics)
+./scripts/check/101-check_px4_connection.sh
+
+# Test ROS2 topics
+ros2 topic list
+ros2 topic echo /fmu/out/vehicle_status
+
+# Check running nodes
+ros2 node list
+```
+
+### Service Management
+
+```bash
+# Check service status
+sudo systemctl status micro-ros-agent.service
+sudo systemctl status mavlink-router.service
+sudo systemctl status dnsmasq-px4.service
+
+# Restart services
+sudo systemctl restart micro-ros-agent.service
+sudo systemctl restart mavlink-router.service
+
+# View service logs (real-time)
+sudo journalctl -u micro-ros-agent.service -f
+
+# View last 50 log entries
+sudo journalctl -u micro-ros-agent.service -n 50
+```
+
+### Network Diagnostics
+
+```bash
+# Check network interfaces
+ip addr show eth0
+ip addr show wlan0
+
+# Check ARP table (find PX4 IP)
+ip neigh show dev eth0
+
+# Test connectivity
+ping 10.0.0.12  # PX4 flight controller
+```
+
+## Architecture & Code Structure
+
+### Directory Organization
+
+```
+humiro_fire_suppression/
+├── thermal/                    # Thermal camera system
+│   ├── src/                    # C++ production code (2,665 LOC)
+│   │   ├── main.cpp            # Multi-threaded orchestration
+│   │   ├── camera_manager.cpp  # Camera I/O
+│   │   ├── thermal_processor.cpp  # Thermal analysis
+│   │   ├── frame_compositor.cpp   # RGB+thermal fusion
+│   │   ├── rtsp_server.cpp     # GStreamer RTSP streaming
+│   │   └── http_server.cpp     # Web interface
+│   └── python/                 # Experimental prototypes (12 versions)
+│
+├── targeting/                  # Fire detection & tracking
+│   ├── horizontal_alignment/   # Gimbal control
+│   ├── thermal_tracking/       # Target lock & follow
+│   └── trajectory_calc/        # Projectile path computation
+│
+├── throwing_mechanism/         # Projectile deployment
+│   ├── actuator_control/       # Servo/motor PWM control
+│   ├── gpio_interface/         # Hardware GPIO driver
+│   └── calibration/            # Mechanism calibration
+│
+├── navigation/                 # Autonomous flight
+│   ├── formation_control/      # Multi-drone coordination
+│   ├── rtk_positioning/        # Centimeter GPS
+│   └── collision_avoidance/    # Obstacle detection
+│
+├── workspaces/                 # ROS2 workspaces (NOT in Git)
+│   ├── micro_ros_ws/           # Micro-ROS Agent (XRCE-DDS)
+│   ├── px4_ros2_ws/            # PX4 message definitions
+│   └── mavlink-router/         # MAVLink routing
+│
+├── common/                     # Shared utilities
+│   ├── utils/                  # Helper functions
+│   ├── interfaces/             # ROS2 message/service definitions
+│   ├── exceptions/             # Custom exceptions
+│   └── constants/              # System constants
+│
+├── scripts/                    # Automation scripts
+│   ├── install/                # Installation scripts
+│   ├── check/                  # Verification scripts
+│   ├── runtime/                # Service wrappers
+│   ├── update/                 # Update scripts
+│   └── maintenance/            # Maintenance tools
+│
+├── config/                     # Configuration files
+│   ├── device_config.env       # Per-drone settings
+│   ├── versions.env            # Version tracking
+│   └── network/                # Network templates
+│
+├── deployment/                 # Deployment configs
+│   ├── systemd/                # Service definitions
+│   ├── docker/                 # Docker configs
+│   └── backup/                 # Backup scripts
+│
+├── tests/                      # Test suites
+│   ├── unit/                   # Unit tests
+│   ├── integration/            # Integration tests
+│   └── hardware/               # Hardware-in-the-loop
+│
+└── docs/                       # Documentation
+```
+
+### System Communication Flow
+
+**Three-Layer Network Architecture:**
+
+1. **Flight Controller Link (eth0: 10.0.0.x)**
+   - Direct Ethernet to PX4 Pixhawk
+   - Micro-ROS Agent on UDP port 8888 (XRCE-DDS)
+   - Low-latency command/telemetry
+
+2. **Ground Control Link (wlan0: 192.168.100.x)**
+   - WiFi to QGroundControl
+   - MAVLink Router bridges QGC ↔ PX4
+   - UDP ports 14540-14550
+
+3. **ROS2 DDS Network**
+   - All drones on ROS_DOMAIN_ID=0
+   - Per-drone namespaces: drone1, drone2, drone3
+   - FastRTPS middleware
+
+**Per-Drone Network Configuration:**
+- Drone 1: eth0=10.0.0.11, FC=10.0.0.12, WiFi=192.168.100.11
+- Drone 2: eth0=10.0.0.21, FC=10.0.0.22, WiFi=192.168.100.21
+- Drone 3: eth0=10.0.0.31, FC=10.0.0.32, WiFi=192.168.100.31
+
+### Thermal System Architecture
+
+**Multi-Threaded Design (30 FPS Real-Time):**
+
+```
+Main Thread
+├── RGB Capture Thread          → rgb_frame_queue
+├── Thermal Capture Thread      → thermal_frame_queue
+├── Processing Thread
+│   ├── Thermal analysis (hotspot detection)
+│   ├── Frame composition (RGB + thermal overlay)
+│   └── Feature extraction
+├── RTSP Server Thread          → GStreamer pipeline (H.264, port 8554)
+└── HTTP Server Thread          → MJPEG stream (port 8080)
+```
+
+**Key Features:**
+- Thread-safe queues for frame passing
+- Green channel max-finding for hotspot detection
+- Gradient alpha blending for thermal overlay
+- Auto-detection of thermal/RGB cameras via USB VID/PID
+- Output: 640x480 @ 30 FPS composite video
+
+**Camera Support:**
+- Thermal: FLIR Lepton, Pure Thermal (USB)
+- RGB: Standard USB UVC cameras
+
+
+### LiDAR Distance Measurement System
+
+**Purpose:** Measure precise distance to fire targets for accurate projectile trajectory calculation.
+
+**Current Status:** ⚠️ **Hardware selection and integration required**
+
+#### Proposed Hardware: TF02-Pro
+
+**TF02-Pro Specifications:**
+- Type: ToF (Time of Flight) single-point distance sensor
+- Range: 0.1m ~ 40m
+- Accuracy: ±3cm @ 12m
+- FOV (Field of View): ~3.6° (narrow beam)
+- Update Rate: Up to 1000Hz
+- Interface: UART, CAN
+- Weight: 35g
+- Cost: ~$50-70
+
+**⚠️ Critical Limitation:**
+The TF02-Pro is a **single-point sensor** that measures distance in only one direction (straight ahead). Since the requirement is to "measure a certain range of area," this sensor has significant limitations:
+
+**Limitations:**
+- ❌ Cannot scan a wide area simultaneously
+- ❌ Requires drone rotation to measure different angles
+- ❌ No simultaneous multi-point measurement
+- ❌ Sequential scanning is slow for area coverage
+
+**Possible Use Cases for TF02-Pro:**
+- ✅ If thermal camera provides target angle, drone rotates to face target, TF02-Pro measures distance
+- ✅ Single hotspot targeting (not area scanning)
+- ✅ Simple distance-only measurement
+- ❌ NOT suitable for: Area scanning, multiple target detection, wide-area coverage
+
+#### Alternative: Scanning LiDAR (Recommended for Area Measurement)
+
+If you need to **measure a range of area** simultaneously, consider scanning LiDAR sensors:
+
+**RPLIDAR A2 (Recommended):**
+- Type: 360° scanning LiDAR
+- Range: 0.15m ~ 12m
+- Scan Rate: 10Hz (360° per 100ms)
+- Angular Resolution: 0.9° (400 points per scan)
+- Interface: USB, UART
+- Weight: 190g
+- Cost: ~$150
+- **Advantage:** Covers entire 360° area in real-time
+
+**RPLIDAR A3:**
+- Range: 0.15m ~ 25m (longer range)
+- Scan Rate: 20Hz
+- Cost: ~$300
+
+**YDLIDAR X4:**
+- Type: 270° scanning LiDAR
+- Range: 0.12m ~ 10m
+- Cost: ~$120
+- **Advantage:** Lower cost, adequate for forward scanning
+
+**Livox Mid-40 (Advanced):**
+- Type: Non-repetitive scanning pattern
+- Range: 260m (outdoor), 90m (indoor)
+- FOV: 38.4° (circular)
+- Cost: ~$600
+- **Advantage:** High precision, excellent for outdoor use
+
+#### Integration Architecture
+
+**With TF02-Pro (Single-Point):**
+```
+Thermal Camera → Target Angle (θ)
+        ↓
+Drone Rotates → Align with target
+        ↓
+TF02-Pro → Distance (d) in that direction
+        ↓
+3D Position = (d × cos(θ), d × sin(θ), altitude_diff)
+        ↓
+Launch Angle Calculation → Projectile trajectory
+```
+
+**With Scanning LiDAR (Area Coverage):**
+```
+Thermal Camera → Target Angle (θ)
+        ↓
+Scanning LiDAR → Distance array [d₀, d₁, ..., d₃₅₉]
+        ↓
+Extract distance at angle θ → d_target
+        ↓
+3D Position + Area Map
+        ↓
+Multi-target capability + Obstacle avoidance
+```
+
+#### ROS2 Integration Plan
+
+**TF02-Pro Integration:**
+```bash
+# ROS2 driver installation
+cd $PROJECT_WORKSPACES
+git clone https://github.com/budavariam/tf02_ros2.git
+cd tf02_ros2
+colcon build
+
+# Launch TF02-Pro node
+ros2 run tf02_ros2 tf02_node --ros-args \
+    -p serial_port:=/dev/ttyUSB0 \
+    -p frame_id:=lidar_link
+
+# Topic: /tf02/distance (sensor_msgs/Range)
+```
+
+**RPLIDAR Integration:**
+```bash
+# ROS2 driver installation
+cd $PROJECT_WORKSPACES
+git clone https://github.com/Slamtec/rplidar_ros.git -b ros2
+cd rplidar_ros
+colcon build
+
+# Launch RPLIDAR node
+ros2 run rplidar_ros rplidar_node --ros-args \
+    -p serial_port:=/dev/ttyUSB0 \
+    -p frame_id:=lidar_link
+
+# Topic: /scan (sensor_msgs/LaserScan)
+```
+
+#### Distance Measurement Workflow
+
+**Current Implementation Status:**
+- ✅ Full documentation: `docs/technical/LIDAR_TARGETING.md` (17KB)
+- ✅ ROS2 node design complete (Python examples included)
+- ✅ Trajectory calculation algorithms designed
+- ❌ **Hardware not installed**
+- ❌ **ROS2 nodes not implemented**
+
+**Required ROS2 Nodes (To Be Implemented):**
+1. `TargetDistanceNode`: Integrate thermal angle + LiDAR distance
+2. `LaunchAngleCalculatorNode`: Calculate projectile launch angle
+3. `IntegratedTargetingNode`: Combine thermal + LiDAR + GPS
+4. `FireExtinguisherLaunchNode`: Control projectile deployment
+
+**Critical Path:**
+```
+Thermal Camera (thermal/src/) [✅ IMPLEMENTED]
+        ↓
+Target Angle Detection [✅ IMPLEMENTED]
+        ↓
+LiDAR Distance Measurement [❌ HARDWARE NEEDED]
+        ↓
+3D Position Calculation [❌ TO IMPLEMENT]
+        ↓
+Trajectory Calculation [❌ TO IMPLEMENT]
+        ↓
+Servo Angle Control [❌ TO IMPLEMENT]
+        ↓
+Projectile Launch [❌ TO IMPLEMENT]
+```
+
+#### Recommendation
+
+**Decision Required:**
+
+**Option 1: Use TF02-Pro (Single-Point)**
+- ✅ Lower cost ($50-70)
+- ✅ Lightweight (35g)
+- ✅ High update rate (1000Hz)
+- ❌ Requires drone rotation for area scanning
+- ❌ No simultaneous multi-target detection
+- **Best for:** Single hotspot targeting, weight-constrained systems
+
+**Option 2: Use Scanning LiDAR (e.g., RPLIDAR A2)**
+- ✅ True area coverage (360°)
+- ✅ Multi-target capability
+- ✅ Obstacle avoidance data
+- ✅ No drone rotation needed
+- ❌ Higher cost ($150+)
+- ❌ Heavier (190g)
+- **Best for:** Area scanning, multiple targets, advanced autonomy
+
+**Recommendation:** 
+If the requirement is to **"measure a certain range of area"**, the TF02-Pro is **NOT sufficient**. You should select a **scanning LiDAR** like RPLIDAR A2. However, if you only need distance to a single pre-identified target (from thermal camera), TF02-Pro can work.
+
+**Next Steps:**
+1. Clarify requirement: Single-point distance OR area scanning?
+2. If area scanning → Select RPLIDAR A2 or equivalent
+3. If single-point → TF02-Pro is acceptable
+4. Update `config/device_config.env` with LiDAR model
+5. Implement ROS2 integration nodes in `targeting/` directory
+6. Test distance measurement accuracy
+7. Integrate with trajectory calculation
+
+**Reference Documentation:**
+- Full LiDAR integration guide: `docs/technical/LIDAR_TARGETING.md`
+- Trajectory calculation: Parabolic motion physics
+- Safety checks: Min 5m, Max 50m distance limits
+
+### ROS2 Integration Pattern
+
+**Micro-ROS Agent Flow:**
+```
+PX4 Firmware (embedded)
+    ↓ XRCE-DDS (serial/ethernet)
+Micro-ROS Agent (bridge)
+    ↓ DDS (FastRTPS)
+ROS2 Nodes (Humble)
+    ↓ Topics/Services
+Application Logic
+```
+
+**Important Topics:**
+- `/fmu/out/vehicle_attitude` - Drone orientation
+- `/fmu/out/vehicle_status` - Flight status
+- `/fmu/out/vehicle_gps_position` - GPS location
+- `/drone_X/thermal_camera/image_raw` - Thermal feed
+- `/drone_X/fire_target/hotspot` - Target coordinates
+
+## Development Workflows
+
+### Adding a New Python Module
+
+1. Create module in appropriate subsystem:
+   ```bash
+   mkdir -p targeting/new_feature
+   touch targeting/new_feature/__init__.py
+   touch targeting/new_feature/my_module.py
+   ```
+
+2. Module is automatically added to PYTHONPATH by `setup_env.sh`
+
+3. Import from anywhere:
+   ```python
+   from targeting.new_feature import MyClass
+   ```
+
+### Modifying Thermal System (C++)
+
+1. Edit source files in `thermal/src/`
+2. Rebuild:
+   ```bash
+   cd thermal/src/build
+   make -j$(nproc)
+   ```
+3. Test binary: `./thermal_rgb_streaming`
+
+### Modifying ROS2 Packages
+
+1. Edit source in `workspaces/*/src/`
+2. Rebuild specific package:
+   ```bash
+   cd $MICRO_ROS_WS
+   colcon build --packages-select <package_name>
+   source install/setup.bash
+   ```
+3. Restart services:
+   ```bash
+   sudo systemctl restart micro-ros-agent.service
+   ```
+
+### Deploying Configuration Changes
+
+1. Edit configuration templates:
+   - `config/device_config.env` - Per-drone settings
+   - `deployment/systemd/*.service` - Service definitions
+   - `config/network/*.yaml` - Network configs
+
+2. Apply changes:
+   ```bash
+   sudo ./scripts/install/003-apply_config.sh
+   ```
+
+3. Verify:
+   ```bash
+   ./scripts/check/101-check_px4_connection.sh
+   sudo systemctl status micro-ros-agent.service
+   ```
+
+### Debugging Communication Issues
+
+**Step-by-step diagnostics:**
+
+1. Check service status:
+   ```bash
+   sudo systemctl status micro-ros-agent.service
+   sudo systemctl status mavlink-router.service
+   ```
+
+2. View real-time logs:
+   ```bash
+   sudo journalctl -u micro-ros-agent.service -f
+   ```
+
+3. Verify network configuration:
+   ```bash
+   ip addr show eth0  # Should show 10.0.0.X
+   ip neigh show dev eth0  # Should show PX4 at 10.0.0.X+1
+   ```
+
+4. Test ROS2 connectivity:
+   ```bash
+   source $MICRO_ROS_WS/install/setup.bash
+   ros2 topic list  # Should show /fmu/* topics
+   ros2 topic echo /fmu/out/vehicle_status
+   ```
+
+5. Check XRCE-DDS port:
+   ```bash
+   sudo netstat -ulnp | grep 8888
+   ```
+
+### Testing Thermal Streaming
+
+1. Start thermal system:
+   ```bash
+   cd ~/humiro_fire_suppression/thermal/src/build
+   ./thermal_rgb_streaming
+   ```
+
+2. View RTSP stream:
+   ```bash
+   # From another machine
+   vlc rtsp://192.168.100.11:8554/stream
+   ```
+
+3. View HTTP stream:
+   ```bash
+   # Open browser
+   http://192.168.100.11:8080
+   ```
+
+## Critical Development Rules
+
+### Path Management
+- **NEVER use hardcoded paths** - Always use environment variables
+- Use `$PROJECT_ROOT`, `$MICRO_ROS_WS`, `$PX4_ROS2_WS`, etc.
+- This allows project to work from any location
+
+### Workspace Rebuild Requirements
+- ROS2 workspaces contain **absolute paths** in build artifacts
+- After `git clone` or moving project directory, **MUST rebuild**:
+  ```bash
+  ./scripts/install/004-rebuild_workspaces.sh
+  ```
+- `build/`, `install/`, `log/` directories are in `.gitignore` (intentional)
+
+### Environment Setup
+- **Always run first**: `source ~/humiro_fire_suppression/setup_env.sh`
+- Required for: PYTHONPATH, ROS2 paths, project variables
+- All scripts auto-load this, but interactive work needs manual sourcing
+
+### Service Configuration
+- **Never edit** `/etc/systemd/system/` files directly
+- Always edit templates in `deployment/systemd/`
+- Apply with: `sudo ./scripts/install/003-apply_config.sh`
+- Script handles path substitution and systemd reload
+
+### Python Module Organization
+- All subsystem directories auto-added to PYTHONPATH
+- Import pattern: `from subsystem.module import Class`
+- No need to modify sys.path manually
+
+### Multi-Drone Configuration
+- Edit `config/device_config.env` for per-drone settings
+- Set `DRONE_ID`, `ETH0_IP`, `WIFI_IP`, `ROS_NAMESPACE`
+- Apply with configuration script
+- Keep project path consistent: `~/humiro_fire_suppression`
+
+## Common Issues & Solutions
+
+### Issue: "No ROS2 topics found"
+**Solution:**
+```bash
+source $MICRO_ROS_WS/install/setup.bash
+sudo systemctl restart micro-ros-agent.service
+ros2 daemon stop && ros2 daemon start
+```
+
+### Issue: "Workspace build fails after git clone"
+**Solution:**
+```bash
+cd $MICRO_ROS_WS
+rm -rf build install log
+colcon build --symlink-install
+```
+
+### Issue: "PX4 not detected on network"
+**Solution:**
+```bash
+# Check eth0 configuration
+ip addr show eth0
+
+# Restart DHCP server
+sudo systemctl restart dnsmasq-px4.service
+
+# Check ARP table
+ip neigh show dev eth0
+
+# Run diagnostics
+./scripts/check/101-check_px4_connection.sh
+```
+
+### Issue: "Thermal camera not found"
+**Solution:**
+```bash
+# List USB devices
+lsusb
+
+# Check camera permissions
+ls -la /dev/video*
+
+# Add user to video group
+sudo usermod -a -G video $USER
+```
+
+### Issue: "Service fails to start"
+**Solution:**
+```bash
+# Check service logs
+sudo journalctl -u micro-ros-agent.service -n 100
+
+# Verify paths in service file
+sudo systemctl cat micro-ros-agent.service
+
+# Re-apply configuration
+sudo ./scripts/install/003-apply_config.sh
+```
+
+## Important Files & Configurations
+
+### Configuration Files
+
+**Device Configuration** (`config/device_config.env`):
+```bash
+DRONE_ID=1
+ROS_NAMESPACE=drone1
+ETH0_IP=10.0.0.11
+FC_IP=10.0.0.12
+WIFI_IP=192.168.100.11
+ROS_DOMAIN_ID=0
+XRCE_DDS_PORT=8888
+```
+
+**Version Tracking** (`config/versions.env`):
+- PX4_FIRMWARE_VERSION="v1.16.0"
+- ROS2_DISTRO="humble"
+- MICRO_ROS_AGENT_VERSION (commit hash)
+
+### Service Definitions
+
+**Micro-ROS Agent** (`deployment/systemd/micro-ros-agent.service`):
+- Bridges PX4 ↔ ROS2 via XRCE-DDS
+- Auto-restart on failure
+- Logs to journalctl
+
+**MAVLink Router** (`deployment/systemd/mavlink-router.service`):
+- Routes MAVLink between QGC and PX4
+- Broadcast UDP for multi-drone QGC
+
+**DHCP Server** (`deployment/systemd/dnsmasq-px4.service`):
+- Provides DHCP to PX4 on eth0
+- Ensures stable FC addressing
+
+## Testing
+
+### Running Tests
+
+```bash
+# Unit tests (when implemented)
+cd ~/humiro_fire_suppression/tests/unit
+python3 -m pytest
+
+# Integration tests
+cd ~/humiro_fire_suppression/tests/integration
+python3 -m pytest
+
+# Hardware tests (requires connected hardware)
+cd ~/humiro_fire_suppression/tests/hardware
+python3 test_gpio.py
+python3 test_thermal_camera.py
+```
+
+### Manual Verification Checklist
+
+- [ ] Environment sourced: `source setup_env.sh`
+- [ ] Services running: `sudo systemctl status micro-ros-agent mavlink-router`
+- [ ] PX4 connected: `./scripts/check/101-check_px4_connection.sh`
+- [ ] ROS2 topics: `ros2 topic list`
+- [ ] Thermal streaming: Test RTSP/HTTP endpoints
+- [ ] Network config: `ip addr show eth0 wlan0`
+
+## Performance Considerations
+
+### Thermal System
+- **Target**: 30 FPS @ 640x480
+- **CPU Usage**: ~40% on single core (C++ optimized)
+- **Latency**: <100ms glass-to-glass
+- **Optimization**: Multi-threading, thread-safe queues, minimal copying
+
+### ROS2 Communication
+- **QoS**: BEST_EFFORT for telemetry, RELIABLE for commands
+- **Message Rate**: 50-100 Hz typical
+- **Network**: Gigabit Ethernet for PX4, WiFi 5 for QGC
+
+### Multi-Drone Scaling
+- **Current**: Tested with 3 drones
+- **Limit**: Network bandwidth (WiFi) is bottleneck
+- **Solution**: 5 GHz WiFi, separate ROS domains if needed
+
+## Security Notes
+
+- SSH keys used for inter-drone communication
+- No credentials stored in repository
+- Service files use environment variables
+- Network isolated (eth0 dedicated to FC)
+
+## Additional Resources
+
+**Documentation:**
+- Technical specs: `docs/technical/FIREFIGHTING_SYSTEM.md`
+- RTK GPS guide: `docs/technical/RTK_PRECISION_HOVERING.md`
+- Installation: `docs/installation/3000-INSTALLATION_GUIDE.html`
+
+**External Links:**
+- PX4 Docs: https://docs.px4.io/
+- ROS2 Humble: https://docs.ros.org/en/humble/
+- Micro-ROS: https://micro.ros.org/
+
+## Quick Reference Commands
+
+```bash
+# Daily workflow
+source ~/humiro_fire_suppression/setup_env.sh
+./scripts/check/101-check_px4_connection.sh
+
+# Build ROS2
+cd $MICRO_ROS_WS && colcon build && source install/setup.bash
+
+# Build thermal
+cd ~/humiro_fire_suppression/thermal/src/build && make -j$(nproc)
+
+# View logs
+sudo journalctl -u micro-ros-agent.service -f
+
+# Restart all services
+sudo systemctl restart micro-ros-agent mavlink-router dnsmasq-px4
+
+
+# Test LiDAR (if installed)
+ros2 topic echo /scan  # For scanning LiDAR (RPLIDAR)
+ros2 topic echo /tf02/distance  # For TF02-Pro
+# Check ROS2
+ros2 topic list && ros2 node list
+```
+## Rules

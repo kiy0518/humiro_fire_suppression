@@ -1,0 +1,30 @@
+name: Build Workspaces
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'workspaces/**'
+      - 'scripts/install/**'
+
+jobs:
+  check-workspaces:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Check workspace source existence
+        run: |
+          echo "Checking workspace sources..."
+          if [ ! -d "workspaces/micro_ros_ws/src" ]; then
+            echo "⚠️ Micro-ROS workspace source not found"
+          fi
+          if [ ! -d "workspaces/px4_ros2_ws/src" ]; then
+            echo "⚠️ PX4 ROS2 workspace source not found"
+          fi
+          
+      - name: Workspace size check
+        run: |
+          echo "Workspace source sizes:"
+          du -sh workspaces/*/src 2>/dev/null || echo "No source directories found"
