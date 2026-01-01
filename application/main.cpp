@@ -9,35 +9,35 @@
 #include <gst/gst.h>
 
 #include "config.h"
-#include "camera_manager.h"
-#include "thermal_processor.h"
-#include "thermal_basic_overlay.h"
-#include "thread_safe_queue.h"
-#include "thermal_data.h"
-#include "utils.h"
+#include "../thermal/src/camera_manager.h"
+#include "../thermal/src/thermal_processor.h"
+#include "../osd/src/thermal/thermal_overlay.h"
+#include "../thermal/src/thread_safe_queue.h"
+#include "../thermal/src/thermal_data.h"
+#include "../thermal/src/utils.h"
 
-// 라이다 인터페이스 (경로는 빌드 시스템에서 설정)
-#include "../../lidar/src/lidar_interface.h"
-#include "../../lidar/src/lidar_config.h"
+// 라이다 인터페이스
+#include "../lidar/src/lidar_interface.h"
+#include "../lidar/src/lidar_config.h"
 
-// 타겟팅 프레임 합성 (경로는 빌드 시스템에서 설정)
-#include "../../targeting/src/targeting_frame_compositor.h"
+// 타겟팅 프레임 합성
+#include "../targeting/src/targeting_frame_compositor.h"
 
-// 스트리밍 관리자 (경로는 빌드 시스템에서 설정)
-#include "../../streaming/src/streaming_manager.h"
+// 스트리밍 관리자
+#include "../streaming/src/streaming_manager.h"
 
 // ROS2 통합 (선택적)
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
-#include "thermal_ros2_publisher.h"
-#include "../../lidar/src/lidar_ros2_publisher.h"
+#include "../thermal/src/thermal_ros2_publisher.h"
+#include "../lidar/src/lidar_ros2_publisher.h"
 #endif
 
 // 전역 변수
 std::atomic<bool> is_running(true);
 CameraManager* camera_manager = nullptr;
 ThermalProcessor* thermal_processor = nullptr;
-ThermalBasicOverlay* thermal_overlay = nullptr;
+    ThermalOverlay* thermal_overlay = nullptr;
 TargetingFrameCompositor* targeting_compositor = nullptr;
 StreamingManager* streaming_manager = nullptr;
 LidarInterface* lidar_interface = nullptr;
@@ -333,7 +333,7 @@ int main(int argc, char* argv[]) {
     thermal_processor = new ThermalProcessor();
     
     // 기본 오버레이 (열화상 레이어, 로고)
-    thermal_overlay = new ThermalBasicOverlay();
+        thermal_overlay = new ThermalOverlay();
     
     // 타겟팅 프레임 합성 (조준, 라이다, hotspot)
     targeting_compositor = new TargetingFrameCompositor();
@@ -364,10 +364,6 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ 라이다 오리엔테이션 오프셋: " << LIDAR_ORIENTATION_OFFSET << "도" << std::endl;
     }
     
-    // 라이다 디스플레이 모드 설정
-    targeting_compositor->setLidarDisplayMode(LIDAR_DISPLAY_MODE);
-    targeting_compositor->setLidarShowDirectionLines(LIDAR_SHOW_DIRECTION_LINES);
-    targeting_compositor->setLidarThreePointTolerance(LIDAR_THREE_POINT_TOLERANCE);
     
     // 라이다 초기화 (VIM4 UART_E 사용)
     std::cout << "\n[라이다 초기화]" << std::endl;

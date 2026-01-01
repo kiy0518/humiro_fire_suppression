@@ -1,7 +1,7 @@
 #include "targeting_frame_compositor.h"
-#include "distance_overlay.h"
-#include "aim_indicator.h"
-#include "hotspot_tracker.h"
+#include "../../osd/src/lidar/distance_overlay.h"
+#include "../../osd/src/targeting/aim_indicator.h"
+#include "../../osd/src/targeting/hotspot_tracker.h"
 #include "../../lidar/src/lidar_interface.h"
 
 TargetingFrameCompositor::TargetingFrameCompositor() {
@@ -49,21 +49,4 @@ void TargetingFrameCompositor::setLidarOrientation(float offset_degrees) {
     }
 }
 
-void TargetingFrameCompositor::setLidarDisplayMode(const std::string& mode) {
-    if (distance_overlay_) {
-        distance_overlay_->setDisplayMode(mode);
-    }
-}
-
-void TargetingFrameCompositor::setLidarShowDirectionLines(bool show) {
-    if (distance_overlay_) {
-        distance_overlay_->setShowDirectionLines(show);
-    }
-}
-
-void TargetingFrameCompositor::setLidarThreePointTolerance(float tolerance) {
-    if (distance_overlay_) {
-        distance_overlay_->setThreePointTolerance(tolerance);
-    }
-}
 

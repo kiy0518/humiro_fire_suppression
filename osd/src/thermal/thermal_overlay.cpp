@@ -1,21 +1,23 @@
-#include "thermal_basic_overlay.h"
-#include "config.h"
+#include "thermal_overlay.h"
+#include "../../thermal/src/config.h"
 #include <unistd.h>
 #include <cmath>
 
-ThermalBasicOverlay::ThermalBasicOverlay() : logo_loaded_(false) {
-    // 로고 이미지 로드 (실행 파일 기준 상대 경로 또는 절대 경로)
+ThermalOverlay::ThermalOverlay() : logo_loaded_(false) {
+    // 로고 이미지 로드 (osd/src/ 폴더 기준)
     std::string logo_path = LOGO_PATH;
-    // 상대 경로인 경우 실행 파일 위치 기준으로 변환
+    // 상대 경로인 경우 osd/src/ 폴더 기준으로 변환
     if (logo_path[0] != '/') {
-        char exe_path[1024];
-        ssize_t len = readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        // osd/src/ 폴더 경로 찾기 (현재 파일 위치 기준)
+        char file_path[1024];
+        ssize_t len = readlink("/proc/self/exe", file_path, sizeof(file_path) - 1);
         if (len != -1) {
-            exe_path[len] = '\0';
-            std::string exe_dir = std::string(exe_path);
+            file_path[len] = '\0';
+            std::string exe_dir = std::string(file_path);
             size_t last_slash = exe_dir.find_last_of('/');
             if (last_slash != std::string::npos) {
-                logo_path = exe_dir.substr(0, last_slash) + "/" + logo_path;
+                // application/build/ -> application/ -> .. -> osd/src/
+                logo_path = exe_dir.substr(0, last_slash) + "/../../osd/src/" + logo_path;
             }
         }
     }
@@ -35,10 +37,10 @@ ThermalBasicOverlay::ThermalBasicOverlay() : logo_loaded_(false) {
     }
 }
 
-ThermalBasicOverlay::~ThermalBasicOverlay() {
+ThermalOverlay::~ThermalOverlay() {
 }
 
-void ThermalBasicOverlay::overlayThermal(cv::Mat& rgb_frame, const cv::Mat& thermal_frame) {
+void ThermalOverlay::overlayThermal(cv::Mat& rgb_frame, const cv::Mat& thermal_frame) {
     if (thermal_frame.empty()) {
         return;
     }
@@ -108,7 +110,7 @@ void ThermalBasicOverlay::overlayThermal(cv::Mat& rgb_frame, const cv::Mat& ther
     }
 }
 
-void ThermalBasicOverlay::overlayLogo(cv::Mat& frame) {
+void ThermalOverlay::overlayLogo(cv::Mat& frame) {
     if (!logo_loaded_ || logo_image_.empty()) {
         return;
     }
@@ -116,8 +118,8 @@ void ThermalBasicOverlay::overlayLogo(cv::Mat& frame) {
     try {
         int logo_h = logo_image_.rows;
         int logo_w = logo_image_.cols;
-        int pos_x = LOGO_POS_X;
-        int pos_y = LOGO_POS_Y;
+        int pos_x = LOGO_POS_X;  // 왼쪽 여백
+        int pos_y = frame.rows - logo_h - 5;  // 하단 여백 (5픽셀)
         
         // 경계 체크
         if (pos_x < 0 || pos_y < 0 || 
@@ -163,7 +165,7 @@ void ThermalBasicOverlay::overlayLogo(cv::Mat& frame) {
     }
 }
 
-cv::Mat ThermalBasicOverlay::create_gradient_mask(int width, int height) {
+cv::Mat ThermalOverlay::create_gradient_mask(int width, int height) {
     cv::Mat mask = cv::Mat::ones(height, width, CV_32F);
     
     int grad_size = std::min({GRADIENT_BORDER_SIZE, width / 4, height / 4});
@@ -208,7 +210,7 @@ cv::Mat ThermalBasicOverlay::create_gradient_mask(int width, int height) {
     return mask;
 }
 
-float ThermalBasicOverlay::apply_curve(float value) {
+float ThermalOverlay::apply_curve(float value) {
     if (GRADIENT_CURVE == 1.0f) {
         return value;  // 선형
     } else if (GRADIENT_CURVE > 1.0f) {

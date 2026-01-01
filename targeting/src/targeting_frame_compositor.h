@@ -40,12 +40,6 @@ public:
      */
     void setLidarOrientation(float offset_degrees);
     
-    /**
-     * 설정 업데이트
-     */
-    void setLidarDisplayMode(const std::string& mode);
-    void setLidarShowDirectionLines(bool show);
-    void setLidarThreePointTolerance(float tolerance);
     
 private:
     DistanceOverlay* distance_overlay_;

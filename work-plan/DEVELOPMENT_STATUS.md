@@ -31,18 +31,33 @@ Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳ 미구�
 
 ### 구현된 파일 목록
 ```
+application/
+├── main.cpp                    ✅ 메인 프로그램 (통합 애플리케이션)
+├── config.h                    ✅ 설정 파일
+├── CMakeLists.txt              ✅ 빌드 설정
+└── build.sh                    ✅ 빌드 스크립트
+
 thermal/src/
-├── main.cpp                    ✅ 메인 프로그램
 ├── camera_manager.h/cpp        ✅ 카메라 관리 (USB VID/PID 자동 감지)
 ├── thermal_processor.h/cpp     ✅ 핫스팟 감지 (녹색 채널 최대값)
-├── frame_compositor.h/cpp      ✅ RGB+Thermal 정합 (그라데이션 알파 블렌딩)
-├── rtsp_server.h/cpp          ✅ RTSP 스트리밍 (GStreamer, H.264, 포트 8554)
-├── http_server.h/cpp           ✅ HTTP MJPEG 스트리밍 (포트 8080)
+├── thermal_basic_overlay.h/cpp ✅ 기본 오버레이 (열화상 레이어, 로고)
 ├── thread_safe_queue.h         ✅ 스레드 안전 큐
 ├── thermal_data.h              ✅ 데이터 구조
 ├── utils.h/cpp                 ✅ 유틸리티 함수
-├── config.h                    ✅ 설정 파일
-└── CMakeLists.txt              ✅ 빌드 설정
+└── CMakeLists.txt              ✅ 빌드 설정 (thermal_lib 라이브러리)
+
+streaming/src/
+├── rtsp_server.h/cpp          ✅ RTSP 스트리밍 (GStreamer, H.264, 포트 8554)
+├── http_server.h/cpp           ✅ HTTP MJPEG 스트리밍 (포트 8080)
+├── streaming_manager.h/cpp     ✅ 스트리밍 통합 관리
+└── CMakeLists.txt              ✅ 빌드 설정 (streaming_lib 라이브러리)
+
+targeting/src/
+├── distance_overlay.h/cpp      ✅ 라이다 거리 오버레이
+├── aim_indicator.h/cpp         ✅ 조준 표시
+├── hotspot_tracker.h/cpp       ✅ Hotspot 추적
+├── targeting_frame_compositor.h/cpp ✅ 타겟팅 정보 합성
+└── CMakeLists.txt              ✅ 빌드 설정 (targeting_lib 라이브러리)
 ```
 
 ### 핵심 기능
@@ -70,11 +85,29 @@ thermal/src/
 
 ### 빌드 및 실행
 ```bash
-cd ~/humiro_fire_suppression/thermal/src
-mkdir -p build && cd build
-cmake ..
-make -j$(nproc)
-./thermal_rgb_streaming
+# 방법 1: 빌드 스크립트 사용 (권장)
+cd ~/humiro_fire_suppression
+./application/build.sh
+
+# 방법 2: 수동 빌드
+# 1. thermal_lib
+cd ~/humiro_fire_suppression/thermal/src/build
+cmake .. && make -j$(nproc) thermal_lib
+
+# 2. targeting_lib
+cd ~/humiro_fire_suppression/targeting/src/build
+cmake .. && make -j$(nproc) targeting_lib
+
+# 3. streaming_lib
+cd ~/humiro_fire_suppression/streaming/src/build
+cmake .. && make -j$(nproc) streaming_lib
+
+# 4. 메인 애플리케이션
+cd ~/humiro_fire_suppression/application/build
+cmake .. && make -j$(nproc) humiro_fire_suppression
+
+# 실행
+./application/build/humiro_fire_suppression
 ```
 
 ### 테스트 완료 항목
@@ -264,12 +297,13 @@ targeting/
 ```
 throwing_mechanism/
 ├── src/
-│   ├── main.cpp                  ⏳ 메인 프로그램
 │   ├── servo_controller.h/cpp   ⏳ 서보 제어 (PWM)
 │   ├── fire_trigger.h/cpp       ⏳ GPIO 트리거
 │   ├── throwing_controller.h/cpp ⏳ 통합 제어
 │   └── CMakeLists.txt           ⏳ 빌드 설정
 └── README.md                     ✅ 설계 문서
+
+참고: 메인 프로그램은 application/humiro_fire_suppression에 통합됩니다.
 ```
 
 ### 개발 단계

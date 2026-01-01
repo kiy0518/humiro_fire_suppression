@@ -7,11 +7,71 @@
 #include <algorithm>
 #include <cmath>
 
-// LD19 프로토콜 상수 (V2.5 Manual 기준)
+// LD19 프로토콜 상수 (공식 SDK 기준)
 #define LD19_HEADER 0x54
 #define LD19_VERLEN 0x2C  // 상위 3비트: 패킷 타입(1), 하위 5비트: 포인트 수(12)
 #define LD19_POINTS_PER_PACK 12
 #define LD19_PACKET_SIZE 47  // Header(1) + VerLen(1) + Speed(2) + StartAngle(2) + Data(36) + EndAngle(2) + Timestamp(2) + CRC(1)
+
+// 패킷 구조체 (공식 SDK 방식, __attribute__((packed)) 사용)
+typedef struct __attribute__((packed))
+{
+    uint16_t distance;
+    uint8_t confidence;
+} LidarPointStructDef;
+
+typedef struct __attribute__((packed))
+{
+    uint8_t header;
+    uint8_t ver_len;
+    uint16_t speed;
+    uint16_t start_angle;
+    LidarPointStructDef point[LD19_POINTS_PER_PACK];
+    uint16_t end_angle;
+    uint16_t timestamp;
+    uint8_t crc8;
+} LiDARFrameTypeDef;
+
+// CRC8 테이블 (LD19 Development Manual V2.5 기준)
+static const uint8_t crc_table[256] = {
+    0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3, 0xae, 0xf2, 0xbf, 0x68, 0x25, 0x8b, 0xc6, 0x11, 0x5c,
+    0xa9, 0xe4, 0x33, 0x7e, 0xd0, 0x9d, 0x4a, 0x07, 0x5b, 0x16, 0xc1, 0x8c, 0x22, 0x6f, 0xb8, 0xf5,
+    0x1f, 0x52, 0x85, 0xc8, 0x66, 0x2b, 0xfc, 0xb1, 0xed, 0xa0, 0x77, 0x3a, 0x94, 0xd9, 0x0e, 0x43,
+    0xb6, 0xfb, 0x2c, 0x61, 0xcf, 0x82, 0x55, 0x18, 0x44, 0x09, 0xde, 0x93, 0x3d, 0x70, 0xa7, 0xea,
+    0x3e, 0x73, 0xa4, 0xe9, 0x47, 0x0a, 0xdd, 0x90, 0xcc, 0x81, 0x56, 0x1b, 0xb5, 0xf8, 0x2f, 0x62,
+    0x97, 0xda, 0x0d, 0x40, 0xee, 0xa3, 0x74, 0x39, 0x65, 0x28, 0xff, 0xb2, 0x1c, 0x51, 0x86, 0xcb,
+    0x21, 0x6c, 0xbb, 0xf6, 0x58, 0x15, 0xc2, 0x8f, 0xd3, 0x9e, 0x49, 0x04, 0xaa, 0xe7, 0x30, 0x7d,
+    0x88, 0xc5, 0x12, 0x5f, 0xf1, 0xbc, 0x6b, 0x26, 0x7a, 0x37, 0xe0, 0xad, 0x03, 0x4e, 0x99, 0xd4,
+    0x7c, 0x31, 0xe6, 0xab, 0x05, 0x48, 0x9f, 0xd2, 0x8e, 0xc3, 0x14, 0x59, 0xf7, 0xba, 0x6d, 0x20,
+    0xd5, 0x98, 0x4f, 0x02, 0xac, 0xe1, 0x36, 0x7b, 0x27, 0x6a, 0xbd, 0xf0, 0x5e, 0x13, 0xc4, 0x89,
+    0x63, 0x2e, 0xf9, 0xb4, 0x1a, 0x57, 0x80, 0xcd, 0x91, 0xdc, 0x0b, 0x46, 0xe8, 0xa5, 0x72, 0x3f,
+    0xca, 0x87, 0x50, 0x1d, 0xb3, 0xfe, 0x29, 0x64, 0x38, 0x75, 0xa2, 0xef, 0x41, 0x0c, 0xdb, 0x96,
+    0x42, 0x0f, 0xd8, 0x95, 0x3b, 0x76, 0xa1, 0xec, 0xb0, 0xfd, 0x2a, 0x67, 0xc9, 0x84, 0x53, 0x1e,
+    0xeb, 0xa6, 0x71, 0x3c, 0x92, 0xdf, 0x08, 0x45, 0x19, 0x54, 0x83, 0xce, 0x60, 0x2d, 0xfa, 0xb7,
+    0x5d, 0x10, 0xc7, 0x8a, 0x24, 0x69, 0xbe, 0xf3, 0xaf, 0xe2, 0x35, 0x78, 0xd6, 0x9b, 0x4c, 0x01,
+    0xf4, 0xb9, 0x6e, 0x23, 0x8d, 0xc0, 0x17, 0x5a, 0x06, 0x4b, 0x9c, 0xd1, 0x7f, 0x32, 0xe5, 0xa8
+};
+
+/**
+ * CRC8 계산 함수 (공식 SDK 방식)
+ * 참고: LD Robot 공식 SDK (ldlidar_component)
+ * 
+ * 공식 SDK는 전체 패킷(CRC 제외)을 계산합니다:
+ *   - sizeof(LiDARFrameTypeDef) - 1 = 47 - 1 = 46바이트
+ *   - 헤더부터 CRC 전까지 모든 바이트 포함
+ *   - 초기값은 0
+ * 
+ * @param data 데이터 버퍼 (전체 패킷, CRC 제외)
+ * @param len 데이터 길이 (46바이트: 헤더부터 Timestamp까지)
+ * @return 계산된 CRC8 값
+ */
+static uint8_t calculateCRC8(const uint8_t* data, size_t len) {
+    uint8_t crc = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        crc = crc_table[(crc ^ data[i]) & 0xff];
+    }
+    return crc;
+}
 
 LidarInterface::LidarInterface(const std::string& device, int baudrate)
     : config_(LidarConfig::createUSBUartConfig(device))
@@ -249,83 +309,80 @@ void LidarInterface::receiveThread() {
 }
 
 bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
-    // 패킷 크기 및 헤더 검증
-    if (len < LD19_PACKET_SIZE || data[0] != LD19_HEADER) {
+    // 패킷 크기 검증
+    if (len < sizeof(LiDARFrameTypeDef)) {
         return false;
     }
     
-    // VerLen 검증 (0x2C = 패킷 타입(1) + 포인트 수(12))
-    if (data[1] != LD19_VERLEN) {
+    // 패킷 구조체로 캐스팅 (공식 SDK 방식)
+    LiDARFrameTypeDef* pkg = (LiDARFrameTypeDef*)data;
+    
+    // 헤더 및 VerLen 검증
+    if (pkg->header != LD19_HEADER || pkg->ver_len != LD19_VERLEN) {
         return false;
     }
     
-    // 패킷 구조 (LD19 V2.5 Manual 기준):
-    // [0] Header (0x54)
-    // [1] VerLen (0x2C)
-    // [2-3] Speed (LSB, MSB) - degrees per second
-    // [4-5] Start angle (LSB, MSB) - 0.01도 단위
-    // [6-41] Data (12 points × 3 bytes = 36 bytes)
-    // [42-43] End angle (LSB, MSB) - 0.01도 단위
-    // [44-45] Timestamp (LSB, MSB) - milliseconds
-    // [46] CRC check
-    
-    // 시작 각도 및 종료 각도 읽기 (little-endian, 0.01도 단위)
-    uint16_t start_angle_raw = data[4] | (data[5] << 8);
-    uint16_t end_angle_raw = data[42] | (data[43] << 8);
-    
-    // 각도를 도 단위로 변환
-    float start_angle = start_angle_raw / 100.0f;
-    float end_angle = end_angle_raw / 100.0f;
-    
-    // 각도 정규화 (0~360도 범위)
-    while (start_angle >= 360.0f) start_angle -= 360.0f;
-    while (start_angle < 0.0f) start_angle += 360.0f;
-    while (end_angle >= 360.0f) end_angle -= 360.0f;
-    while (end_angle < 0.0f) end_angle += 360.0f;
-    
-    // 각도 간격 계산 (Manual V2.5 공식)
-    // step = (end_angle - start_angle) / (len - 1)
-    // angle = start_angle + step * i
-    float angle_step = 0.0f;
-    if (LD19_POINTS_PER_PACK > 1) {
-        // 각도 차이 계산 (360도 경계 고려)
-        float angle_diff = end_angle - start_angle;
-        if (angle_diff > 180.0f) {
-            angle_diff -= 360.0f;
-        } else if (angle_diff < -180.0f) {
-            angle_diff += 360.0f;
-        }
-        angle_step = angle_diff / (LD19_POINTS_PER_PACK - 1);
+    // CRC 검증 (공식 SDK 방식)
+    // 공식 SDK는 전체 패킷(CRC 제외)을 계산: sizeof(LiDARFrameTypeDef) - 1 = 46바이트
+    uint8_t calculated_crc = 0;
+    for (uint32_t i = 0; i < sizeof(LiDARFrameTypeDef) - 1; i++) {
+        calculated_crc = crc_table[(calculated_crc ^ data[i]) & 0xff];
     }
     
-    // Timestamp 읽기 (little-endian, milliseconds)
-    uint16_t timestamp = data[44] | (data[45] << 8);
+    if (calculated_crc != pkg->crc8) {
+        // CRC 불일치: 패킷 오류, 무시
+        return false;
+    }
+    
+    // 패킷 데이터 읽기 (구조체에서 직접 읽기)
+    uint16_t speed = pkg->speed;
+    uint16_t start_angle_raw = pkg->start_angle;
+    uint16_t end_angle_raw = pkg->end_angle;
+    uint16_t timestamp = pkg->timestamp;
+    
+    // 각도 차이 검증 (공식 SDK 방식)
+    // diff = (end_angle / 100 - start_angle / 100 + 360) % 360
+    double diff = (end_angle_raw / 100.0 - start_angle_raw / 100.0 + 360.0);
+    if (diff >= 360.0) diff -= 360.0;
+    
+    // 각도 차이가 비정상적으로 큰 경우 필터링
+    // 공식 SDK: diff > speed * POINT_PER_PACK / 4500 * 3 / 2
+    if (diff > (double)speed * LD19_POINTS_PER_PACK / 4500.0 * 3.0 / 2.0) {
+        // 비정상적인 패킷, 무시
+        return false;
+    }
+    
+    // 각도 간격 계산 (공식 SDK 방식)
+    // diff = ((uint32_t)end_angle + 36000 - (uint32_t)start_angle) % 36000
+    uint32_t angle_diff = ((uint32_t)end_angle_raw + 36000 - (uint32_t)start_angle_raw) % 36000;
+    float step = angle_diff / (LD19_POINTS_PER_PACK - 1) / 100.0f;  // 도 단위
+    float start_angle = (double)start_angle_raw / 100.0;  // 도 단위
+    float end_angle = (double)(end_angle_raw % 36000) / 100.0;  // 도 단위
     
     // 12개의 측정 포인트 추출
     LidarScan new_scan;
     new_scan.timestamp = timestamp;  // 패킷의 timestamp 사용
     
     for (int i = 0; i < LD19_POINTS_PER_PACK; i++) {
-        // Data 섹션 시작 위치: 6번째 바이트부터
-        int offset = 6 + i * 3;  // 각 포인트는 3바이트 (distance 2바이트 + intensity 1바이트)
-        
-        if (static_cast<size_t>(offset + 2) >= len) break;
-        
         LidarPoint point;
         
-        // 거리 읽기 (little-endian, mm 단위)
-        uint16_t distance_mm = data[offset] | (data[offset + 1] << 8);
-        point.distance = distance_mm / 1000.0f;  // mm -> m 변환
+        // 거리 읽기 (구조체에서 직접 읽기, mm 단위)
+        point.distance = pkg->point[i].distance / 1000.0f;  // mm -> m 변환
         
-        // 각도 계산 (Manual V2.5 공식)
-        point.angle = start_angle + angle_step * i;
+        // 각도 계산 (공식 SDK 방식)
+        // angle = start + i * step
+        point.angle = start_angle + i * step;
+        if (point.angle >= 360.0f) {
+            point.angle -= 360.0f;
+        }
         
-        // 각도 정규화 (0~360도 범위)
-        while (point.angle >= 360.0f) point.angle -= 360.0f;
-        while (point.angle < 0.0f) point.angle += 360.0f;
+        // 마지막 포인트는 end_angle로 설정 (공식 SDK 방식: prevent angle invert)
+        if (i == LD19_POINTS_PER_PACK - 1) {
+            point.angle = end_angle;
+        }
         
         // Intensity (신호 강도)
-        point.quality = data[offset + 2];
+        point.quality = pkg->point[i].confidence;
         
         // 유효 범위 체크 (0.05m ~ 12m)
         // 거리가 0이거나 유효 범위를 벗어나면 무효 데이터
@@ -340,9 +397,78 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
     {
         std::lock_guard<std::mutex> lock(scan_mutex_);
         
-        // 새 포인트 추가
+        // 새 스캔 감지: 더 정확한 방법으로 감지
+        // 1. 각도가 0도 근처로 돌아왔거나 (정상적인 360도 회전 완료)
+        // 2. 타임스탬프가 크게 증가했거나 (100ms 이상, 새 스캔 시작)
+        // 3. 각도 범위가 크게 달라진 경우 (라이다 물리적 이동 감지)
+        bool is_new_scan = false;
+        if (!current_scan_.points.empty()) {
+            // 이전 스캔의 각도 범위 계산
+            float min_existing_angle = 360.0f;
+            float max_existing_angle = 0.0f;
+            for (const auto& p : current_scan_.points) {
+                if (p.angle < min_existing_angle) min_existing_angle = p.angle;
+                if (p.angle > max_existing_angle) max_existing_angle = p.angle;
+            }
+            
+            // 새 패킷의 각도 범위
+            float new_packet_end_angle = end_angle;
+            
+            // 타임스탬프 차이 계산 (오버플로우 처리)
+            uint16_t timestamp_diff = 0;
+            if (new_scan.timestamp >= current_scan_.timestamp) {
+                timestamp_diff = new_scan.timestamp - current_scan_.timestamp;
+            } else {
+                // 타임스탬프 오버플로우 (16비트, 0-65535ms)
+                timestamp_diff = (65535 - current_scan_.timestamp) + new_scan.timestamp + 1;
+            }
+            
+            // 새 스캔 감지 조건:
+            // 1. 각도가 0도 근처로 돌아옴 (정상 회전 완료)
+            bool angle_wrapped = (start_angle < 30.0f && max_existing_angle > 330.0f);
+            
+            // 2. 타임스탬프가 100ms 이상 증가 (새 스캔 시작)
+            bool timestamp_jump = (timestamp_diff > 100);
+            
+            // 3. 각도 범위가 크게 달라짐 (라이다 물리적 이동 또는 스캔 불연속)
+            // 기존 범위와 새 패킷 범위가 겹치지 않거나, 겹치는 부분이 작으면 새 스캔으로 간주
+            // 단, 이 조건은 너무 엄격하지 않도록 조정 (연속적인 스캔을 방해하지 않도록)
+            bool angle_range_changed = false;
+            float angle_span_existing = max_existing_angle - min_existing_angle;
+            
+            // 360도 경계 처리: 각도 차이 계산
+            float angle_diff = start_angle - max_existing_angle;
+            if (angle_diff > 180.0f) {
+                angle_diff -= 360.0f;
+            } else if (angle_diff < -180.0f) {
+                angle_diff += 360.0f;
+            }
+            
+            if (angle_span_existing > 180.0f) {
+                // 기존 범위가 360도를 거의 다 커버하는 경우 (거의 완전한 스캔)
+                // 새 패킷이 0도 근처로 돌아오면 새 스캔 (각도 차이가 30도 이상)
+                angle_range_changed = (start_angle < 30.0f && std::abs(angle_diff) > 30.0f);
+            } else {
+                // 기존 범위가 작은 경우: 새 패킷이 기존 범위와 연속적이지 않으면 새 스캔
+                // 각도 차이가 60도 이상이면 새 스캔으로 간주 (연속적인 스캔 허용)
+                angle_range_changed = (std::abs(angle_diff) > 60.0f);
+            }
+            
+            if (angle_wrapped || timestamp_jump || angle_range_changed) {
+                is_new_scan = true;
+            }
+        } else {
+            // 첫 번째 스캔
+            is_new_scan = true;
+        }
+        
+        // 새 스캔이 시작되면 이전 데이터 초기화
+        if (is_new_scan) {
+            current_scan_.points.clear();
+        }
+        
+        // 새 포인트 추가 (중복 제거: 같은 각도(±0.5도)의 포인트가 있으면 업데이트, 없으면 추가)
         for (const auto& new_point : new_scan.points) {
-            // 중복 제거: 같은 각도(±0.5도)의 포인트가 있으면 업데이트, 없으면 추가
             bool found = false;
             for (auto& existing_point : current_scan_.points) {
                 float angle_diff = std::abs(existing_point.angle - new_point.angle);
@@ -361,6 +487,7 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
             }
         }
         
+        // 타임스탬프 업데이트 (항상 최신 타임스탬프로)
         current_scan_.timestamp = new_scan.timestamp;
         
         // 각도 순으로 정렬

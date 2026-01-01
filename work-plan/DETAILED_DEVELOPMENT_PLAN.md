@@ -47,14 +47,16 @@
 
 ### 전체 진행률
 ```
-Phase 1: Thermal System      [██████████] 100%  ✅
-Phase 2: LiDAR System        [██████████] 100%  ✅ (HW 테스트 대기)
-Phase 3: Targeting System    [░░░░░░░░░░]   0%  ⏳
-Phase 4: Throwing Mechanism  [░░░░░░░░░░]   0%  ⏳
-Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
+프로젝트 Phase 1: Thermal System      [██████████] 100%  ✅
+프로젝트 Phase 2: LiDAR System        [██████████] 100%  ✅ (HW 테스트 대기)
+프로젝트 Phase 3: Targeting System    [██░░░░░░░░]  20%  ⏳ 부분 완료 (드론 제어 기능 추가 필요)
+프로젝트 Phase 4: Throwing Mechanism  [░░░░░░░░░░]   0%  ⏳
+프로젝트 Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
 
-전체: 40% 완료 (5단계 중 2단계)
+전체: 44% 완료 (5단계 중 2단계 완료 + 1단계 부분 완료)
 코드: 48% 완료 (3,853 / 8,000 LOC)
+
+참고: 아키텍처 리팩토링 Phase 1-3는 모두 완료되었습니다.
 ```
 
 ### 완료된 모듈
@@ -133,10 +135,16 @@ Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
 
 ---
 
-### Phase 3: Targeting System ⏳ (다음 우선순위)
+### 프로젝트 Phase 3: Targeting System ⏳ (다음 우선순위)
+
+**참고**: 이것은 **프로젝트 기능 Phase 3**입니다. 아키텍처 리팩토링의 Phase 3 (ROS2 통신 강화)는 이미 완료되었습니다.
 
 #### 목표
 **핫스팟 트래킹 + 드론 위치 제어를 통한 정조준**
+
+**참고**: `targeting/src/`는 이미 아키텍처 리팩토링에서 생성되었으며,
+distance_overlay, aim_indicator, hotspot_tracker, targeting_frame_compositor가 구현되어 있습니다.
+프로젝트 Phase 3에서는 이를 확장하여 드론 제어 기능(drone_position_controller)을 추가합니다.
 
 #### 핵심 기능
 1. **핫스팟 트래킹**
@@ -156,58 +164,52 @@ Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
 
 #### 개발 단계
 
-##### Phase 3.1: 기본 구조 (1주)
-**목표**: 핫스팟 추적 및 오버레이 구현
+##### 프로젝트 Phase 3.1: 드론 제어 기능 추가 (1주)
+**목표**: 드론 위치 제어 기능 구현
+
+**참고**: `hotspot_tracker`, `targeting_overlay`의 기본 구조는 이미 아키텍처 리팩토링에서 구현되었습니다.
+프로젝트 Phase 3.1에서는 드론 제어 기능을 추가합니다.
 
 **작업 항목**:
-- [ ] `hotspot_tracker.h/cpp` 구현
-  - Kalman Filter 초기화
-  - 위치 업데이트 로직
-  - 오차 계산 함수
-  - 추적 상태 관리
-- [ ] `targeting_overlay.h/cpp` 구현
-  - 십자선 그리기
-  - 상태 텍스트 표시
-  - 오차 벡터 표시
-  - LOCKED 표시
-- [ ] `targeting_manager.h/cpp` 기본 구조
-  - 상태 머신 구현
-  - 기본 업데이트 루프
-  - thermal/src 데이터 수신
-
-**예상 코드량**: ~400 LOC
-
-**테스트**:
-- 단위 테스트: Kalman Filter 정확도
-- 통합 테스트: thermal/src와 연동
-- 시각화 테스트: 오버레이 렌더링
-
-##### Phase 3.2: 드론 제어 연동 (1주)
-**목표**: PX4를 통한 드론 위치 제어
-
-**작업 항목**:
-- [ ] `drone_position_controller.h/cpp` 구현
+- [ ] `drone_position_controller.h/cpp` 구현 (신규)
   - ROS2 노드 초기화
   - PX4 토픽 구독/발행
   - Offboard 모드 활성화
   - 위치 명령 전송
-- [ ] PID 제어 로직
+- [ ] `targeting_manager.h/cpp` 확장
+  - 드론 제어 기능 통합
+  - 상태 머신 확장
+  - thermal/src 데이터 수신 (이미 구현됨)
+
+**예상 코드량**: ~500 LOC (신규)
+
+**테스트**:
+- 단위 테스트: 드론 제어 로직
+- 통합 테스트: PX4 연동
+- 시뮬레이션 테스트: Gazebo/PX4 SITL
+
+##### 프로젝트 Phase 3.2: PX4 연동 및 미세 조정 (1주)
+**목표**: PX4를 통한 드론 위치 제어 완성
+
+**작업 항목**:
+- [ ] PID 제어 로직 추가
   - X축 PID 컨트롤러
   - Y축 PID 컨트롤러
   - 파라미터 튜닝
-- [ ] 미세 조정 로직
+- [ ] 미세 조정 로직 완성
   - 픽셀 오차 → 미터 변환
   - 속도 제한
   - 안전 체크
+- [ ] 드론 제어 기능 통합 및 테스트
 
-**예상 코드량**: ~500 LOC
+**예상 코드량**: ~300 LOC
 
 **테스트**:
 - 시뮬레이션 테스트: Gazebo/PX4 SITL
 - 실제 드론 테스트: 작은 이동량부터
 - 안전 테스트: 비상 정지, 범위 제한
 
-##### Phase 3.3: GCS 통합 (1주)
+##### 프로젝트 Phase 3.3: GCS 통합 (1주)
 **목표**: 전체 시스템 통합 및 최적화
 
 **작업 항목**:
@@ -232,10 +234,11 @@ Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
 - 안전 테스트: 모든 안전 로직 검증
 
 #### 전체 예상 소요 시간
-- **3주** (Phase 3.1 + 3.2 + 3.3)
+- **3주** (프로젝트 Phase 3.1 + 3.2 + 3.3)
 
 #### 예상 코드량
-- **~1,200 LOC C++**
+- **~800 LOC C++** (신규, 드론 제어 기능)
+- **참고**: targeting/src/의 기본 구조(~400 LOC)는 이미 아키텍처 리팩토링에서 완료됨
 
 ---
 
@@ -317,12 +320,12 @@ Phase 5: Navigation          [░░░░░░░░░░]   0%  ⏳
 - [ ] Phase 4.1: Throwing 하드웨어 준비
 
 ### 2025년 3월
-- [ ] Phase 4.2: Throwing 소프트웨어 구현
-- [ ] Phase 4.3: Throwing 통합 및 테스트
+- [ ] 프로젝트 Phase 4.2: Throwing 소프트웨어 구현
+- [ ] 프로젝트 Phase 4.3: Throwing 통합 및 테스트
 - [ ] 전체 시스템 통합 테스트
 
 ### 2025년 4월 이후
-- [ ] Phase 5: Navigation 설계 및 구현
+- [ ] 프로젝트 Phase 5: Navigation 설계 및 구현
 - [ ] 최종 최적화 및 문서화
 
 ---

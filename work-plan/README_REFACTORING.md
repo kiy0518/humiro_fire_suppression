@@ -56,7 +56,8 @@ thermal/ (데이터 취득) → targeting/ (타겟팅/표시) → streaming/ (�
 cd thermal/src/build
 cmake ..
 make -j$(nproc)
-./thermal_rgb_streaming
+cd ~/humiro_fire_suppression/application/build
+./humiro_fire_suppression
 ```
 
 ### ROS2 활성화 빌드 (선택적)

@@ -152,7 +152,7 @@ cd thermal/src/build
 cmake ..
 make -j$(nproc)
 ```
-- 바이너리: `thermal_rgb_streaming` (397KB)
+- 바이너리: `humiro_fire_suppression` (application/build/)
 - 상태: ✅ 정상 동작 확인됨 (사용자 테스트 완료)
 
 ### ROS2 활성화 빌드 (선택적)

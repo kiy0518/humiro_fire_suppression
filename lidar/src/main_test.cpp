@@ -26,7 +26,7 @@
 
 #include "lidar_interface.h"
 #include "lidar_config.h"
-#include "distance_overlay.h"
+#include "../../osd/src/lidar/distance_overlay.h"
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <csignal>
@@ -139,7 +139,7 @@ int main(int argc, char** argv) {
     cap.set(cv::CAP_PROP_FRAME_HEIGHT, frame_height);
     
     // 거리 오버레이 초기화
-    DistanceOverlay overlay(60.0f, frame_width, frame_height);
+    DistanceOverlay overlay;
     
     // 프레임 카운터
     int frame_count = 0;
@@ -163,8 +163,9 @@ int main(int argc, char** argv) {
             std::vector<LidarPoint> lidar_data = lidar.getRangeData(0.0f, 360.0f);
 
             if (!lidar_data.empty()) {
-                // 360도 원형 레이더 뷰 그리기
-                overlay.drawRadarView(frame, lidar_data);
+                // 라이다 데이터 설정 및 오버레이 그리기
+                overlay.setLidarData(lidar_data);
+                overlay.drawOverlay(frame);
             }
         } else {
             // LiDAR 연결 안됨 표시

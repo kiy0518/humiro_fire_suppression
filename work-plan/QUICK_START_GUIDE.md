@@ -61,8 +61,11 @@
 **핫스팟 자동 감지**
 
 ```bash
-cd ~/humiro_fire_suppression/thermal/src/build
-./thermal_rgb_streaming
+cd ~/humiro_fire_suppression
+./application/build.sh  # 또는 수동 빌드
+
+cd ~/humiro_fire_suppression/application/build
+./humiro_fire_suppression
 ```
 
 - RTSP: `rtsp://192.168.100.11:8554/stream`
@@ -136,12 +139,31 @@ targeting/
 source ~/humiro_fire_suppression/setup_env.sh
 ```
 
-### thermal 빌드 & 실행
+### 통합 애플리케이션 빌드 & 실행
 ```bash
-cd ~/humiro_fire_suppression/thermal/src
-mkdir -p build && cd build
-cmake .. && make -j$(nproc)
-./thermal_rgb_streaming
+# 방법 1: 빌드 스크립트 사용 (권장)
+cd ~/humiro_fire_suppression
+./application/build.sh
+
+# 방법 2: 수동 빌드
+# 1. thermal_lib
+cd ~/humiro_fire_suppression/thermal/src/build
+cmake .. && make -j$(nproc) thermal_lib
+
+# 2. targeting_lib
+cd ~/humiro_fire_suppression/targeting/src/build
+cmake .. && make -j$(nproc) targeting_lib
+
+# 3. streaming_lib
+cd ~/humiro_fire_suppression/streaming/src/build
+cmake .. && make -j$(nproc) streaming_lib
+
+# 4. 메인 애플리케이션
+cd ~/humiro_fire_suppression/application/build
+cmake .. && make -j$(nproc) humiro_fire_suppression
+
+# 실행
+./humiro_fire_suppression
 ```
 
 ### lidar 빌드 & 테스트

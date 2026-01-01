@@ -39,117 +39,27 @@ else()
     message(STATUS "Using hardcoded GStreamer RTSP Server path: ${GSTREAMER_RTSP_LIBRARY}")
 endif()
 
-# libmicrohttpd 찾기
-find_library(MHD_LIBRARY microhttpd)
-if(NOT MHD_LIBRARY)
-    message(FATAL_ERROR "libmicrohttpd not found")
-endif()
-
 # 프로젝트 루트 찾기
 get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
 
-# 라이다 디렉토리
-set(LIDAR_DIR "${PROJECT_ROOT}/lidar/src")
-include_directories(${LIDAR_DIR})
-
-# 타겟팅 라이브러리 (빌드된 라이브러리 링크)
-set(TARGETING_DIR "${PROJECT_ROOT}/targeting/src")
-set(TARGETING_BUILD_DIR "${TARGETING_DIR}/build")
-include_directories(${TARGETING_DIR})
-
-# 스트리밍 라이브러리 (빌드된 라이브러리 링크)
-set(STREAMING_DIR "${PROJECT_ROOT}/streaming/src")
-set(STREAMING_BUILD_DIR "${STREAMING_DIR}/build")
-include_directories(${STREAMING_DIR})
-
-# ROS2 옵션 (선택적)
-option(ENABLE_ROS2 "Enable ROS2 topic publishing" OFF)
-
-# 소스 파일
+# 소스 파일 (main.cpp는 application/로 이동, thermal_basic_overlay는 overlays/로 이동)
 set(SOURCES
-    main.cpp
     utils.cpp
     camera_manager.cpp
     thermal_processor.cpp
-    thermal_basic_overlay.cpp
 )
 
-# ROS2 지원 추가 (선택적)
-if(ENABLE_ROS2)
-    # ROS2 찾기
-    find_package(ament_cmake REQUIRED)
-    find_package(rclcpp REQUIRED)
-    find_package(sensor_msgs REQUIRED)
-    find_package(std_msgs REQUIRED)
-    find_package(geometry_msgs REQUIRED)
-    find_package(cv_bridge REQUIRED)
-    find_package(pcl_conversions REQUIRED)
-    find_package(PCL REQUIRED)
-    
-    # ROS2 정의 추가
-    add_definitions(-DENABLE_ROS2)
-    
-    # ROS2 소스 추가
-    list(APPEND SOURCES
-        thermal_ros2_publisher.cpp
-        ../../lidar/src/lidar_ros2_publisher.cpp
-    )
-    
-    message(STATUS "ROS2 support enabled")
-endif()
-
-# 라이브러리 링크 디렉토리
-link_directories(${TARGETING_BUILD_DIR})
-link_directories(${STREAMING_BUILD_DIR})
-
-# 실행 파일 생성
-add_executable(thermal_rgb_streaming ${SOURCES})
-
-# GStreamer App 라이브러리 찾기
-find_library(GSTREAMER_APP_LIBRARY
-    NAMES gstapp-1.0
-    PATHS /usr/lib/aarch64-linux-gnu /usr/lib /usr/local/lib
-    NO_DEFAULT_PATH
-)
-
-if(NOT GSTREAMER_APP_LIBRARY)
-    set(GSTREAMER_APP_LIBRARY "/usr/lib/aarch64-linux-gnu/libgstapp-1.0.so")
-endif()
-
-# 타겟팅 및 스트리밍 라이브러리 먼저 빌드
-add_custom_command(TARGET thermal_rgb_streaming PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} --build ${TARGETING_BUILD_DIR} --target targeting_lib
-    COMMAND ${CMAKE_COMMAND} --build ${STREAMING_BUILD_DIR} --target streaming_lib
-    COMMENT "Building targeting and streaming libraries..."
-)
+# thermal 라이브러리 생성 (메인 애플리케이션은 application/로 이동)
+add_library(thermal_lib STATIC ${SOURCES})
 
 # 링크 라이브러리
-# streaming_lib이 정적 라이브러리이므로, streaming_lib이 의존하는 모든 라이브러리를 링크해야 함
-target_link_libraries(thermal_rgb_streaming
+target_link_libraries(thermal_lib
     ${OpenCV_LIBS}
-    targeting_lib
-    streaming_lib
-    ${GSTREAMER_LIBRARIES}  # streaming_lib과 utils.cpp용
-    ${GSTREAMER_RTSP_LIBRARY}  # streaming_lib용
-    ${GSTREAMER_APP_LIBRARY}  # streaming_lib용
-    ${MHD_LIBRARY}  # streaming_lib용
+    ${GSTREAMER_LIBRARIES}
     pthread
 )
 
-# ROS2 라이브러리 (선택적)
-if(ENABLE_ROS2)
-    ament_target_dependencies(thermal_rgb_streaming
-        rclcpp
-        sensor_msgs
-        std_msgs
-        geometry_msgs
-        cv_bridge
-        pcl_conversions
-        PCL
-    )
-endif()
-
 # 컴파일 플래그
-target_compile_options(thermal_rgb_streaming PRIVATE
+target_compile_options(thermal_lib PRIVATE
     ${GSTREAMER_CFLAGS_OTHER}
 )

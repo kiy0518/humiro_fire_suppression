@@ -1,5 +1,5 @@
-#ifndef THERMAL_BASIC_OVERLAY_H
-#define THERMAL_BASIC_OVERLAY_H
+#ifndef THERMAL_OVERLAY_H
+#define THERMAL_OVERLAY_H
 
 #include <opencv2/opencv.hpp>
 
@@ -7,10 +7,10 @@
  * 열화상 기본 오버레이 클래스
  * 열화상 레이어와 로고만 처리 (타겟팅 관련 기능 없음)
  */
-class ThermalBasicOverlay {
+class ThermalOverlay {
 public:
-    ThermalBasicOverlay();
-    ~ThermalBasicOverlay();
+    ThermalOverlay();
+    ~ThermalOverlay();
     
     /**
      * 열화상 레이어 오버레이
@@ -33,5 +33,5 @@ private:
     bool logo_loaded_;    // 로고 로드 여부
 };
 
-#endif // THERMAL_BASIC_OVERLAY_H
+#endif // THERMAL_OVERLAY_H
 

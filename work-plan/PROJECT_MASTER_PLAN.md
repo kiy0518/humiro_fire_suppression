@@ -39,6 +39,9 @@
 ```
 lidar/        (이전: targeting/lidar_integration)
 targeting/    (새로 정의: 핫스팟 트래킹 + 드론 제어)
+application/  (통합 애플리케이션, 최신 리팩토링)
+thermal/src/  (라이브러리로 변경, thermal_lib)
+streaming/src/ (라이브러리로 변경, streaming_lib)
 ```
 
 ---
@@ -54,11 +57,11 @@ targeting/    (새로 정의: 핫스팟 트래킹 + 드론 제어)
 - 10m 지점 호버링
 - **GCS 격발 신호 대기**
 
-### Phase 3: Targeting 활성화 ⭐ (핵심)
+### 프로젝트 Phase 3: Targeting 활성화 ⭐ (핵심)
 - **GCS 격발 신호 수신** (ROS2 토픽)
-- **targeting/** 모듈 활성화
-- **핫스팟 트래킹 시작** (thermal/src 데이터 사용)
-- **드론 상하좌우 미세 조정** (PX4 제어)
+- **targeting/** 모듈 활성화 (드론 제어 기능 포함)
+- **핫스팟 트래킹 시작** (thermal/src 데이터 사용, 이미 구현됨)
+- **드론 상하좌우 미세 조정** (PX4 제어, 프로젝트 Phase 3에서 추가)
 - **정조준 유지** (화면 중심에 핫스팟)
 - **LOCKED 판정** (오차 < 임계값)
 
@@ -95,7 +98,7 @@ bool extract_thermal_data(const cv::Mat& thermal_frame, ThermalData& data) {
 }
 ```
 
-### ✅ Phase 2: LiDAR 거리 측정 (완료 - 100%)
+### ✅ 프로젝트 Phase 2: LiDAR 거리 측정 (완료 - 100%)
 
 **위치**: `lidar/src/` (이전: targeting/lidar_integration)  
 **코드**: 1,188 LOC C++  
@@ -128,7 +131,9 @@ cv::Scalar getColorForDistance(float distance) {
 }
 ```
 
-### ⏳ Phase 3: Targeting 시스템 (미구현 - 0%)
+### ⏳ 프로젝트 Phase 3: Targeting 시스템 (미구현 - 0%)
+
+**참고**: 이것은 **프로젝트 기능 Phase 3**입니다. 아키텍처 리팩토링의 Phase 3 (ROS2 통신 강화)와는 다릅니다.
 
 **위치**: `targeting/`  
 **코드**: 0 LOC (설계 완료)  
@@ -140,34 +145,24 @@ cv::Scalar getColorForDistance(float distance) {
 - **정조준 유지** (화면 중심에 핫스팟)
 - **GCS 신호 처리**
 
-**구현 계획**:
+**구현 계획** (프로젝트 Phase 3에서 추가할 부분):
 ```cpp
-// hotspot_tracker.cpp - 핫스팟 추적
-class HotspotTracker {
-    void updateHotspot(int x, int y);  // thermal/src로부터
-    cv::Point getOffsetFromCenter();   // 오차 계산
-    bool isTracking() const;
-};
-
-// drone_position_controller.cpp - 드론 제어
+// drone_position_controller.cpp - 드론 제어 (신규)
 class DronePositionController {
     bool adjustPosition(float dx, float dy);  // 상하좌우 미세 조정
     bool holdPosition();                      // 위치 유지
 };
 
-// targeting_manager.cpp - 통합 관리
+// targeting_manager.cpp - 통합 관리 (확장)
 class TargetingManager {
     void onFireCommand(bool enable);  // GCS 신호
     bool isLocked() const;            // 정조준 완료
     void update();                    // 메인 루프
 };
-
-// targeting_overlay.cpp - 화면 표시
-class TargetingOverlay {
-    void draw(cv::Mat& frame, bool tracking, bool locked);
-    // "TRACKING ACTIVE", 십자선, "LOCKED"
-};
 ```
+
+**참고**: `hotspot_tracker`, `targeting_overlay`의 기본 구조는 이미 아키텍처 리팩토링에서 구현되었습니다.
+프로젝트 Phase 3에서는 `drone_position_controller`를 추가하고 `targeting_manager`를 확장합니다.
 
 **개발 단계**:
 1. Phase 1 (1주): 기본 구조
@@ -267,7 +262,7 @@ class TargetingOverlay {
 - [x] 거리 오버레이 (distance_overlay.cpp)
 - [x] USB-UART / GPIO-UART 지원
 
-### ⏳ Phase 3: Targeting (다음 작업)
+### ⏳ 프로젝트 Phase 3: Targeting (다음 작업)
 - [ ] hotspot_tracker.cpp (핫스팟 추적)
 - [ ] drone_position_controller.cpp (드론 제어)
 - [ ] targeting_manager.cpp (GCS 신호)
@@ -282,13 +277,15 @@ class TargetingOverlay {
 ## 진행 상황 요약
 
 ```
-Phase 1: 열화상       [██████████] 100%  ✅ 완료
-Phase 2: LiDAR        [██████████] 100%  ✅ 완료 (HW 대기)
-Phase 3: Targeting    [░░░░░░░░░░]   0%  ⏳ 다음 (핵심)
-Phase 4: Throwing     [░░░░░░░░░░]   0%  ⏳ 추후
+프로젝트 Phase 1: 열화상       [██████████] 100%  ✅ 완료
+프로젝트 Phase 2: LiDAR        [██████████] 100%  ✅ 완료 (HW 대기)
+프로젝트 Phase 3: Targeting    [██░░░░░░░░]  20%  ⏳ 부분 완료 (드론 제어 기능 추가 필요)
+프로젝트 Phase 4: Throwing     [░░░░░░░░░░]   0%  ⏳ 추후
 
-전체: 50% 완료 (4단계 중 2단계)
+전체: 55% 완료 (4단계 중 2단계 완료 + 1단계 부분 완료)
 코드: 64% 완료 (3,853 / 5,953 LOC)
+
+참고: 아키텍처 리팩토링 Phase 1-3는 모두 완료되었습니다.
 ```
 
 ---
@@ -335,20 +332,22 @@ Phase 4: Throwing     [░░░░░░░░░░]   0%  ⏳ 추후
 2. targeting/ 구현 시작 준비
 
 ### 1주일 내
-1. **targeting/** Phase 1 구현
-   - hotspot_tracker.cpp
-   - targeting_overlay.cpp
-   - targeting_manager.cpp
+1. **targeting/** 프로젝트 Phase 3.1 구현
+   - drone_position_controller.cpp (드론 제어 기능 추가)
+   - targeting_manager.cpp 확장
 
 ### 2주 내
-1. **targeting/** Phase 2 구현
-   - drone_position_controller.cpp
+1. **targeting/** 프로젝트 Phase 3.2 구현
    - PX4 연동
+   - 미세 조정 로직
 
 ### 3주 내
-1. **targeting/** Phase 3 통합
+1. **targeting/** 프로젝트 Phase 3.3 통합
    - GCS 신호 연동
    - 전체 시스템 테스트
+
+**참고**: targeting/src/의 기본 구조는 이미 아키텍처 리팩토링에서 완료되었습니다.
+프로젝트 Phase 3에서는 드론 제어 기능을 추가하여 확장합니다.
 
 ---
 

@@ -44,7 +44,7 @@ ros2 topic echo /fmu/out/vehicle_odometry
 
 **경로**:
 ```
-VIM4 내부 애플리케이션 (thermal_rgb_streaming)
+VIM4 내부 애플리케이션 (humiro_fire_suppression)
     ↓ (ROS2 Publisher)
 ROS2 토픽 (VIM4)
     - /thermal/image
@@ -100,9 +100,9 @@ ros2 topic list
 # 출력 예시:
 # /fmu/out/vehicle_status          # PX4에서
 # /fmu/out/vehicle_odometry        # PX4에서
-# /thermal/image                   # VIM4 내부 (Phase 3)
-# /thermal/max_temperature         # VIM4 내부 (Phase 3)
-# /lidar/front_distance            # VIM4 내부 (Phase 3)
+# /thermal/image                   # VIM4 내부 (아키텍처 리팩토링 Phase 3)
+# /thermal/max_temperature         # VIM4 내부 (아키텍처 리팩토링 Phase 3)
+# /lidar/front_distance            # VIM4 내부 (아키텍처 리팩토링 Phase 3)
 ```
 
 ### 활용 시나리오
@@ -126,7 +126,7 @@ class DataCollector(Node):
             VehicleStatus, '/fmu/out/vehicle_status', 
             self.vehicle_status_callback, 10)
         
-        # VIM4 내부 데이터 구독 (Phase 3)
+        # VIM4 내부 데이터 구독 (아키텍처 리팩토링 Phase 3)
         self.thermal_temp_sub = self.create_subscription(
             Float32, '/thermal/max_temperature',
             self.thermal_temp_callback, 10)
@@ -176,14 +176,14 @@ ros2 topic echo /lidar/front_distance
 | **데이터 타입** | 비행 상태, 명령 | 열화상, 라이다 |
 | **필수 여부** | 필수 (비행 제어용) | 선택적 (모니터링용) |
 | **토픽 예시** | `/fmu/out/vehicle_status` | `/thermal/max_temperature` |
-| **활성화** | Micro-ROS Agent 실행 시 | `-DENABLE_ROS2=ON` 빌드 시 |
+| **활성화** | Micro-ROS Agent 실행 시 | `application/build`에서 `-DENABLE_ROS2=ON` 빌드 시 |
 
 ## 결론
 
 **네, 완전히 다른 통신 경로입니다:**
 
 1. **PX4 ↔ VIM4**: Micro-ROS (uxrce-dds) - 비행 제어 데이터
-2. **VIM4 내부**: 일반 ROS2 - 열화상/라이다 데이터 (Phase 3)
+2. **VIM4 내부**: 일반 ROS2 - 열화상/라이다 데이터 (아키텍처 리팩토링 Phase 3에서 추가)
 
 하지만 **같은 ROS2 DDS 네트워크**에 있으면 서로의 토픽을 볼 수 있어서, 통합 모니터링이나 데이터 수집에 활용할 수 있습니다.
 

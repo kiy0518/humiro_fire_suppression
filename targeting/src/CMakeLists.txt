@@ -19,11 +19,15 @@ include_directories(${LIDAR_DIR})
 set(THERMAL_DIR "${PROJECT_ROOT}/thermal/src")
 include_directories(${THERMAL_DIR})
 
+# OSD 라이브러리 경로
+set(OSD_DIR "${PROJECT_ROOT}/osd/src")
+set(OSD_BUILD_DIR "${OSD_DIR}/build")
+include_directories(${OSD_DIR}/thermal)
+include_directories(${OSD_DIR}/lidar)
+include_directories(${OSD_DIR}/targeting)
+
 # 소스 파일
 set(SOURCES
-    distance_overlay.cpp
-    aim_indicator.cpp
-    hotspot_tracker.cpp
     targeting_frame_compositor.cpp
 )
 
@@ -36,9 +40,17 @@ set(LIDAR_SOURCES
 add_library(targeting_lib STATIC ${SOURCES} ${LIDAR_SOURCES})
 
 # 링크 라이브러리
+link_directories(${OSD_BUILD_DIR})
 target_link_libraries(targeting_lib
+    osd_lib
     ${OpenCV_LIBS}
     pthread
+)
+
+# 빌드 순서 강제 (osd_lib이 먼저 빌드되도록)
+add_custom_command(TARGET targeting_lib PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} --build ${OSD_BUILD_DIR} --target osd_lib
+    COMMENT "Building osd_lib..."
 )
 
 # 헤더 파일 설치 (선택사항)

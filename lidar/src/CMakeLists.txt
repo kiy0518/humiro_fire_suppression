@@ -18,13 +18,11 @@ find_package(Threads REQUIRED)
 # 소스 파일
 set(LIDAR_SOURCES
     lidar_interface.cpp
-    distance_overlay.cpp
 )
 
 # 헤더 파일
 set(LIDAR_HEADERS
     lidar_interface.h
-    distance_overlay.h
 )
 
 # 라이브러리 생성
@@ -34,12 +32,35 @@ target_link_libraries(lidar_integration
     Threads::Threads
 )
 
+# 프로젝트 루트 찾기
+get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
+
+# OSD 라이브러리 경로
+set(OSD_DIR "${PROJECT_ROOT}/osd/src")
+set(OSD_BUILD_DIR "${OSD_DIR}/build")
+include_directories(${OSD_DIR}/lidar)
+
 # 테스트 프로그램
 add_executable(lidar_test main_test.cpp)
 target_link_libraries(lidar_test 
     lidar_integration
     ${OpenCV_LIBS}
     Threads::Threads
+)
+link_directories(${OSD_BUILD_DIR})
+target_link_libraries(lidar_test osd_lib)
+
+# 각도별 통계 테스트 프로그램
+add_executable(angle_statistics_test angle_statistics_test.cpp)
+target_link_libraries(angle_statistics_test 
+    lidar_integration
+    Threads::Threads
+)
+
+# 빌드 순서 강제 (osd_lib이 먼저 빌드되도록)
+add_custom_command(TARGET lidar_test PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} --build ${OSD_BUILD_DIR} --target osd_lib
+    COMMENT "Building osd_lib..."
 )
 
 # 설치

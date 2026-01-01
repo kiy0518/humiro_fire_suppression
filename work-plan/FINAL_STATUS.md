@@ -42,7 +42,7 @@ streaming/ (스트리밍)
 - `streaming_lib.a` - 스트리밍 계층 정적 라이브러리
 
 ### 실행 파일
-- `thermal_rgb_streaming` (397KB) - 메인 실행 파일
+- `humiro_fire_suppression` - 메인 실행 파일 (application/build/)
   - 상태: ✅ 정상 동작 확인 (사용자 테스트 완료)
   - 모드: ROS2 비활성화 (기본)
 
