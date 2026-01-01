@@ -4,6 +4,11 @@
 // RTSP 설정
 #define RTSP_PORT "8554"
 #define RTSP_MOUNT_POINT "/stream"
+// RTSP IP 주소 설정 (자동 감지 대신 특정 IP 사용)
+// 아래 줄의 주석을 제거하고 IP 주소를 입력하면 해당 IP를 사용합니다
+// 주석 처리하거나 정의하지 않으면 자동으로 로컬 IP를 감지합니다
+// 예: #define RTSP_IP "192.168.1.100"
+// #define RTSP_IP ""
 
 // HTTP 서버 설정
 #define ENABLE_HTTP_SERVER true

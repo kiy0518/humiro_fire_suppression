@@ -234,6 +234,38 @@ void drawPlaceholder(cv::Mat& frame, const std::string& message) {
     cv::putText(frame, message, cv::Point(text_x, text_y), font_face, font_scale, text_color, thickness, cv::LINE_AA);
 }
 
+// 탄의 갯수 시뮬레이션 스레드 (1초에 1개씩 감소)
+void ammunition_simulation_thread() {
+    int current_ammo = 6;  // 초기값
+    const int max_ammo = 6;
+    auto last_update = std::chrono::steady_clock::now();
+    
+    while (is_running) {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count();
+        
+        if (elapsed >= 1) {  // 1초마다
+            if (current_ammo > 0) {
+                current_ammo--;
+                if (status_overlay) {
+                    status_overlay->setAmmunition(current_ammo, max_ammo);
+                    std::cout << "  [시뮬레이션] 탄의 갯수: " << current_ammo << "/" << max_ammo << std::endl;
+                }
+            } else {
+                // 0이 되면 다시 6으로 리셋 (테스트용)
+                current_ammo = max_ammo;
+                if (status_overlay) {
+                    status_overlay->setAmmunition(current_ammo, max_ammo);
+                    std::cout << "  [시뮬레이션] 탄의 갯수 리셋: " << current_ammo << "/" << max_ammo << std::endl;
+                }
+            }
+            last_update = now;
+        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
 // 프레임 합성 스레드 (비동기식: 부분 데이터 처리)
 void composite_thread() {
     int frame_count = 0;
@@ -527,6 +559,7 @@ int main(int argc, char* argv[]) {
     std::thread thermal_thread(thermal_capture_thread);
     std::thread lidar_thread_obj(lidar_thread);
     std::thread composite_thread_obj(composite_thread);
+    std::thread ammo_sim_thread(ammunition_simulation_thread);  // 탄의 갯수 시뮬레이션
     
     std::this_thread::sleep_for(std::chrono::seconds(1));
     
@@ -632,6 +665,9 @@ int main(int argc, char* argv[]) {
     }
     if (composite_thread_obj.joinable()) {
         composite_thread_obj.join();
+    }
+    if (ammo_sim_thread.joinable()) {
+        ammo_sim_thread.join();
     }
     std::cout << "  ✓ 모든 스레드 종료 완료" << std::endl;
     

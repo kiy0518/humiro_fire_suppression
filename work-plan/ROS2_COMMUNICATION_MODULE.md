@@ -9,7 +9,16 @@
 
 PX4와 VIM4 간의 ROS2 통신을 담당하는 모듈입니다. uXRCE-DDS를 통해 PX4 데이터를 수신하고, 향후 충돌 회피, 명령 발행 등의 기능을 확장할 수 있는 구조로 설계되었습니다.
 
+**기반**: 화재 진압 드론 임무 플로우차트  
 **통신 방식**: uXRCE-DDS (Micro-ROS Agent를 통한 PX4 ↔ ROS2 브리지)
+
+**통신 방향 구분** (플로우차트 색상 기준):
+- **🟡 노란색**: QGC → FC 또는 VIM4 → FC (비행 명령)
+- **🟢 초록색**: VIM4 → QGC (상태 알림)
+- **🔴 빨간색**: QGC → VIM4 (격발 명령)
+- **🔵 파란색**: VIM4 내부 처리 (DRONE 단독)
+
+**상세 토픽 구조**: `ROS2_TOPIC_ARCHITECTURE.md` 참조
 
 ---
 
@@ -29,8 +38,8 @@ ros2/
 │   ├── command/                   # 🔜 향후: 명령 발행
 │   │   ├── px4_command_publisher.h
 │   │   ├── px4_command_publisher.cpp
-│   │   ├── auto_control_publisher.h
-│   │   └── auto_control_publisher.cpp
+│   │   ├── offboard_publisher.h
+│   │   └── offboard_publisher.cpp
 │   ├── formation/                 # 🔜 향후: 편대 제어
 │   │   └── formation_controller.*
 │   └── CMakeLists.txt
@@ -50,18 +59,37 @@ ros2/
 ### 구독 토픽
 
 #### PX4 uXRCE-DDS 토픽 (읽기 전용)
-| 토픽 | 메시지 타입 | 필드 | 용도 |
-|------|------------|------|------|
-| `/fmu/out/vehicle_status` | `px4_msgs::VehicleStatus` | `nav_state`, `arming_state` | 비행 모드, 시동 상태 |
-| `/fmu/out/battery_status` | `px4_msgs::BatteryStatus` | `remaining`, `voltage_v`, `current_a` | 배터리 잔량, 전압, 전류 |
-| `/fmu/out/vehicle_gps_position` | `px4_msgs::VehicleGpsPosition` | `satellites_used`, `lat`, `lon` | GPS 위성 수, 위치 |
+| 토픽 | 메시지 타입 | 필드 | 용도 | 업데이트 주기 |
+|------|------------|------|------|--------------|
+| `/fmu/out/vehicle_status_v1` | `px4_msgs::VehicleStatus` | `nav_state`, `arming_state`, `failsafe` | 비행 모드, 시동 상태 | 10Hz |
+| `/fmu/out/battery_status` | `px4_msgs::BatteryStatus` | `remaining`, `voltage_v`, `current_a` | 배터리 잔량, 전압, 전류 | 1Hz |
+| `/fmu/out/vehicle_gps_position` | `px4_msgs::SensorGps` | `latitude_deg`, `longitude_deg`, `satellites_used`, `fix_type` | GPS 위치, 위성 수 | 1Hz |
 
-#### VIM4 커스텀 토픽
-| 토픽 | 메시지 타입 | 용도 |
-|------|------------|------|
-| `/auto_mode/status` | `std_msgs::String` | VIM4 자동 제어 상태 (OFFBOARD 모드) |
-| `/ammunition/current` | `std_msgs::Int32` | 현재 소화탄 갯수 |
-| `/formation/current` | `std_msgs::Int32` | 현재 편대 번호 |
+#### VIM4 커스텀 토픽 (구독)
+| 토픽 | 메시지 타입 | 용도 | 발행 위치 |
+|------|------------|------|----------|
+| `/offboard/status` | `std_msgs::String` | VIM4 OFFBOARD 모드 상태 | `navigation/src/offboard/status_reporter.cpp` |
+| `/ammunition/current` | `std_msgs::Int32` | 현재 소화탄 갯수 | `throwing_mechanism/src/fire_controller.cpp` |
+| `/formation/current` | `std_msgs::Int32` | 현재 편대 번호 | `navigation/src/formation/formation_controller.cpp` |
+
+#### VIM4 → QGC 토픽 (발행 예정)
+| 토픽 | 메시지 타입 | 용도 | 발행 위치 |
+|------|------------|------|----------|
+| `/offboard/destination_reached` | `std_msgs::Bool` | 목적지 도착 완료 알림 | `navigation/src/offboard/waypoint_handler.cpp` |
+| `/offboard/fire_ready` | `std_msgs::Bool` | 격발 준비 완료 알림 | `navigation/src/offboard/auto_targeting_handler.cpp` |
+
+#### QGC → VIM4 토픽 (구독 예정)
+| 토픽 | 메시지 타입 | 용도 | 구독 위치 |
+|------|------------|------|----------|
+| `/gcs/fire_command` | `std_msgs::Bool` | 격발 명령 | `navigation/src/offboard/command_receiver.cpp` |
+| `/gcs/emergency_stop` | `std_msgs::Bool` | 비상 정지 명령 | `navigation/src/offboard/emergency_handler.cpp` |
+
+#### VIM4 → PX4 토픽 (발행 예정)
+| 토픽 | 메시지 타입 | 용도 | 발행 위치 |
+|------|------------|------|----------|
+| `/fmu/in/vehicle_command` | `px4_msgs::VehicleCommand` | 시동, 이륙, 복귀 명령 | `navigation/src/offboard/arm_handler.cpp`, `takeoff_handler.cpp`, `rtl_handler.cpp` |
+| `/fmu/in/trajectory_setpoint` | `px4_msgs::TrajectorySetpoint` | 위치/속도 명령 (이동, 거리조정, 조준) | `navigation/src/offboard/waypoint_handler.cpp`, `distance_adjustment_handler.cpp`, `auto_targeting_handler.cpp` |
+| `/fmu/in/offboard_control_mode` | `px4_msgs::OffboardControlMode` | 오프보드 제어 모드 설정 | `navigation/src/offboard/waypoint_handler.cpp` |
 
 ### PX4 nav_state 매핑
 
@@ -112,15 +140,15 @@ ros2/src/collision/
 - `/fmu/in/trajectory_setpoint` - 궤적 설정점
 
 **커스텀 발행 토픽**:
-- `/auto_mode/command` - 자동 제어 명령
+- `/offboard/command` - OFFBOARD 모드 명령
 
 **파일 구조**:
 ```
 ros2/src/command/
 ├── px4_command_publisher.h
 ├── px4_command_publisher.cpp
-├── auto_control_publisher.h
-└── auto_control_publisher.cpp
+├── offboard_publisher.h
+└── offboard_publisher.cpp
 ```
 
 ### 3. 편대 제어 모듈 (Formation Control)
@@ -198,9 +226,19 @@ status_ros2_subscriber->spin();
 - **현재 구현**: uXRCE-DDS 사용 (`/fmu/out/*`, `/fmu/in/*` 토픽)
 
 ### 토픽 네이밍 규칙
-- **PX4 → ROS2**: `/fmu/out/*` (읽기)
-- **ROS2 → PX4**: `/fmu/in/*` (쓰기)
-- **커스텀**: `/auto_mode/*`, `/ammunition/*`, `/formation/*` 등
+- **PX4 → ROS2**: `/fmu/out/*` (읽기, uXRCE-DDS)
+- **ROS2 → PX4**: `/fmu/in/*` (쓰기, uXRCE-DDS)
+- **VIM4 → QGC**: `/offboard/*` (상태 알림)
+- **QGC → VIM4**: `/gcs/*` (명령)
+- **VIM4 내부**: `/lidar/*`, `/thermal/*`, `/ammunition/*`, `/formation/*` 등
+
+### 플로우차트 기반 통신 방향
+- **🟡 노란색 (QGC → FC)**: `/fmu/in/vehicle_command`, `/fmu/in/trajectory_setpoint`
+- **🟢 초록색 (VIM4 → QGC)**: `/offboard/status`, `/offboard/destination_reached`, `/offboard/fire_ready`
+- **🔴 빨간색 (QGC → VIM4)**: `/gcs/fire_command`, `/gcs/emergency_stop`
+- **🔵 파란색 (DRONE 단독)**: VIM4 내부 처리 (`/lidar/*`, `/thermal/*`)
+
+**상세 내용**: `ROS2_TOPIC_ARCHITECTURE.md` 참조
 
 ---
 

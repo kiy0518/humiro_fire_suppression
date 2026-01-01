@@ -25,7 +25,7 @@ ros2/src/
   - `/fmu/out/vehicle_status` - PX4 비행 상태
   - `/fmu/out/battery_status` - 배터리 상태
   - `/fmu/out/vehicle_gps_position` - GPS 정보
-  - `/auto_mode/status` - 자동 제어 상태
+  - `/offboard/status` - OFFBOARD 모드 상태
   - `/ammunition/current` - 소화탄 갯수
   - `/formation/current` - 편대 정보
 

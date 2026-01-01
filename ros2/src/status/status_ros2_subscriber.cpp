@@ -84,11 +84,11 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
         std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
     std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_gps_position (uXRCE-DDS, SensorGps, BestEffort QoS)" << std::endl;
     
-    // 자동 제어 상태 구독 (/auto_mode/status) - VIM4 커스텀 토픽
-    auto_control_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
-        "/auto_mode/status", 10,
-        std::bind(&StatusROS2Subscriber::autoControlStatusCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /auto_mode/status" << std::endl;
+    // OFFBOARD 모드 상태 구독 (/offboard/status) - VIM4 커스텀 토픽
+    offboard_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
+        "/offboard/status", 10,
+        std::bind(&StatusROS2Subscriber::offboardStatusCallback, this, std::placeholders::_1));
+    std::cout << "  ✓ ROS2 구독: /offboard/status (OFFBOARD 모드 상태)" << std::endl;
     
     // 소화탄 갯수 구독 (/ammunition/current) - 커스텀 토픽
     ammunition_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
@@ -293,7 +293,7 @@ void StatusROS2Subscriber::gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr
     }
 }
 
-void StatusROS2Subscriber::autoControlStatusCallback(const std_msgs::msg::String::SharedPtr msg) {
+void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::SharedPtr msg) {
     if (!status_overlay_) {
         return;
     }
@@ -318,6 +318,8 @@ void StatusROS2Subscriber::autoControlStatusCallback(const std_msgs::msg::String
         status = StatusOverlay::DroneStatus::FIRE_READY;
     } else if (status_str == "FIRING_AUTO_TARGETING") {
         status = StatusOverlay::DroneStatus::FIRING_AUTO_TARGETING;
+    } else if (status_str == "AUTO_FIRING") {
+        status = StatusOverlay::DroneStatus::AUTO_FIRING;
     } else if (status_str == "MISSION_COMPLETE") {
         status = StatusOverlay::DroneStatus::MISSION_COMPLETE;
     } else if (status_str == "RETURNING") {
@@ -329,12 +331,12 @@ void StatusROS2Subscriber::autoControlStatusCallback(const std_msgs::msg::String
     }
     
     // StatusOverlay 업데이트
-    status_overlay_->updateAutoControlStatus(status);
+    status_overlay_->updateOffboardStatus(status);
     
     // 디버깅: 상태 변경 시 출력
     static std::string last_status = "";
     if (status_str != last_status) {
-        std::cout << "  [자동제어] 상태: " << status_str << std::endl;
+        std::cout << "  [OFFBOARD 모드] 상태: " << status_str << std::endl;
         last_status = status_str;
     }
 }

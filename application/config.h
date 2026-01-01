@@ -4,6 +4,8 @@
 // RTSP 설정
 #define RTSP_PORT "8554"
 #define RTSP_MOUNT_POINT "/stream"
+// RTSP IP 주소는 device_config.env의 WIFI_IP 환경 변수에서 자동으로 읽어옵니다
+// 환경 변수가 없으면 자동으로 로컬 IP를 감지합니다
 
 // HTTP 서버 설정
 #define ENABLE_HTTP_SERVER true

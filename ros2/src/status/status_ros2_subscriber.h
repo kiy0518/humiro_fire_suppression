@@ -40,8 +40,8 @@ private:
     // GPS 상태 콜백 (uXRCE-DDS)
     void gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg);
     
-    // 자동 제어 상태 콜백 (VIM4 커스텀 토픽)
-    void autoControlStatusCallback(const std_msgs::msg::String::SharedPtr msg);
+    // OFFBOARD 모드 상태 콜백 (VIM4 커스텀 토픽: /offboard/status)
+    void offboardStatusCallback(const std_msgs::msg::String::SharedPtr msg);
     
     // 소화탄 갯수 콜백 (커스텀 토픽)
     void ammunitionCallback(const std_msgs::msg::Int32::SharedPtr msg);
@@ -59,7 +59,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
     rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
     rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sub_;
-    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr auto_control_status_sub_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr offboard_status_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr ammunition_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr formation_sub_;
     

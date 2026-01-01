@@ -8,6 +8,7 @@ StatusOverlay::StatusOverlay()
     , px4_mode_("UNKNOWN")
     , is_armed_(false)
     , is_offboard_(false)
+    , is_offboard_custom_status_(false)  // VIM4 커스텀 상태 사용 여부
     , ammo_current_(6)
     , ammo_max_(6)
     , drone_name_("1")
@@ -51,25 +52,32 @@ void StatusOverlay::updatePx4State(const std::string& px4_mode, bool is_armed) {
                       << " → " << static_cast<int>(new_status) << " (모드: \"" << px4_mode << "\")" << std::endl;
         }
         current_status_ = new_status;
+        is_offboard_custom_status_ = false;  // 일반 모드에서는 VIM4 커스텀 상태 아님
     }
-    // OFFBOARD 모드로 전환되었지만 아직 VIM4 커스텀 상태가 없으면 기본 NAVIGATING 상태 사용
-    else if (is_offboard_ && !was_offboard) {
-        // OFFBOARD 모드로 전환 시 기본적으로 이동중 상태로 설정
-        // 이후 updateAutoControlStatus()에서 VIM4 커스텀 상태로 업데이트됨
-        current_status_ = DroneStatus::NAVIGATING;
-    }
-    // OFFBOARD 모드에서 다른 모드로 전환 시 PX4 상태로 즉시 업데이트
-    else if (!is_offboard_ && was_offboard) {
-        current_status_ = convertPx4ModeToStatus(px4_mode, is_armed);
+    // OFFBOARD 모드일 때: 공유 상태(시동, 이륙, 이동, 착륙, RTL 등)는 VIM4에서 /offboard/status로 전송
+    // PX4의 nav_state는 OFFBOARD 모드일 때 항상 9(OFFBOARD)이므로 세부 상태를 알 수 없음
+    // 따라서 VIM4 커스텀 상태가 없으면 기본 NAVIGATING 상태 사용
+    else if (is_offboard_) {
+        // VIM4 커스텀 상태가 없으면 기본 NAVIGATING 상태 유지
+        // VIM4 커스텀 상태는 updateOffboardStatus()에서 처리됨
+        if (!is_offboard_custom_status_) {
+            // VIM4 커스텀 상태가 아직 수신되지 않았으면 기본 상태 유지
+            // (이미 NAVIGATING으로 설정되어 있음)
+        }
     }
 }
 
-void StatusOverlay::updateAutoControlStatus(DroneStatus status) {
+void StatusOverlay::updateOffboardStatus(DroneStatus status) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     
-    // OFFBOARD 모드일 때만 VIM4 커스텀 상태 사용 (PX4 기본 상태보다 우선)
+    // OFFBOARD 모드일 때만 VIM4 커스텀 상태 사용
     if (is_offboard_) {
+        // VIM4에서 /offboard/status 토픽으로 상태 전송
+        // 공유 상태(ARMING, TAKEOFF, NAVIGATING, LANDING, RETURNING, DISARMED)와
+        // 특수 상태(DESTINATION_REACHED, FIRE_READY, FIRING_AUTO_TARGETING, AUTO_FIRING, MISSION_COMPLETE) 모두
+        // VIM4 커스텀 상태로 처리 (PX4 상태보다 우선)
         current_status_ = status;
+        is_offboard_custom_status_ = true;  // VIM4 커스텀 상태 사용 중
     }
     // OFFBOARD 모드가 아닐 때는 무시 (PX4 상태가 우선)
 }
@@ -140,7 +148,7 @@ StatusOverlay::DroneStatus StatusOverlay::convertPx4ModeToStatus(const std::stri
         return DroneStatus::IDLE;  // 수동 비행 모드
     }
     else if (mode_upper.find("OFFBOARD") != std::string::npos) {
-        // OFFBOARD 모드는 updateAutoControlStatus()에서 처리
+        // OFFBOARD 모드는 updateOffboardStatus()에서 처리
         return DroneStatus::IDLE;
     }
     
@@ -164,6 +172,7 @@ cv::Scalar StatusOverlay::getStatusColor(DroneStatus status) {
         case DroneStatus::FIRE_READY:
             return cv::Scalar(0, 255, 0);  // 초록색
         case DroneStatus::FIRING_AUTO_TARGETING:
+        case DroneStatus::AUTO_FIRING:
             return cv::Scalar(0, 0, 255);  // 빨간색
         case DroneStatus::MISSION_COMPLETE:
             return cv::Scalar(255, 255, 0);  // 하늘색
@@ -188,6 +197,8 @@ std::string StatusOverlay::getStatusText(DroneStatus status) {
             return "FIRE_READY";
         case DroneStatus::FIRING_AUTO_TARGETING:
             return "FIRING";
+        case DroneStatus::AUTO_FIRING:
+            return "AUTO_FIRING";
         case DroneStatus::MISSION_COMPLETE:
             return "MISSION_COMPLETE";
         case DroneStatus::RETURNING:
@@ -311,16 +322,11 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 TEXT_COLOR, FONT_THICKNESS, cv::LINE_AA);
     current_x += mode_size.width + ITEM_SPACING;
     
-    // 3. 소화탄 (아이콘 + 값)
+    // 3. 소화탄 (아이콘 + 값) - 커스텀 토픽이므로 녹색
     std::string ammo_icon = "*";
     std::ostringstream ammo_oss;
     ammo_oss << ammo_icon << ":" << ammo_current_ << "/" << ammo_max_;
-    cv::Scalar ammo_color = TEXT_COLOR;
-    if (ammo_current_ == 1) {
-        ammo_color = cv::Scalar(0, 255, 255);  // 노란색 (경고)
-    } else if (ammo_current_ == 0) {
-        ammo_color = cv::Scalar(0, 0, 255);  // 빨간색 (위험)
-    }
+    cv::Scalar ammo_color = cv::Scalar(0, 255, 0);  // 녹색 (커스텀 토픽)
     cv::Size ammo_size = cv::getTextSize(ammo_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
     cv::putText(frame, ammo_oss.str(),
                 cv::Point(current_x, text_y),
@@ -370,24 +376,32 @@ void StatusOverlay::draw(cv::Mat& frame) {
         current_x += battery_size.width + ITEM_SPACING;
     }
     
-    // 6. 편대 (아이콘 + 값)
+    // 6. 편대 (아이콘 + 값) - 커스텀 토픽이므로 녹색
     if (formation_total_ > 1) {
         std::string form_icon = "F";
         std::ostringstream formation_oss;
         formation_oss << form_icon << ":" << formation_current_ << "/" << formation_total_;
+        cv::Scalar form_color = cv::Scalar(0, 255, 0);  // 녹색 (커스텀 토픽)
         cv::Size form_size = cv::getTextSize(formation_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
         cv::putText(frame, formation_oss.str(),
                     cv::Point(current_x, text_y),
                     FONT_FACE, FONT_SCALE, 
-                    TEXT_COLOR, FONT_THICKNESS, cv::LINE_AA);
+                    form_color, FONT_THICKNESS, cv::LINE_AA);
         current_x += form_size.width + ITEM_SPACING;
     }
     
-    // 7. 상태 (마지막, 흰색 글자)
+    // 7. 상태 (마지막)
+    // OFFBOARD 모드 + VIM4 커스텀 상태면 초록색, 그 외(일반 모드)면 흰색
     std::string status_text = getStatusText(current_status_);
+    cv::Scalar status_color;
+    if (is_offboard_ && is_offboard_custom_status_) {
+        status_color = cv::Scalar(0, 255, 0);  // 초록색 (OFFBOARD 모드 + VIM4 커스텀 상태)
+    } else {
+        status_color = cv::Scalar(255, 255, 255);  // 흰색 (일반 모드 또는 PX4 기본 상태)
+    }
     cv::putText(frame, status_text,
                 cv::Point(current_x, text_y),
                 FONT_FACE, FONT_SCALE, 
-                cv::Scalar(255, 255, 255), FONT_THICKNESS, cv::LINE_AA);
+                status_color, FONT_THICKNESS, cv::LINE_AA);
 }
 

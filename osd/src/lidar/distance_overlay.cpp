@@ -269,15 +269,18 @@ void DistanceOverlay::drawMinimap(cv::Mat& frame, const std::vector<LidarPoint>&
     }
 
     // 반투명 원형 배경 그리기 (먼저 그리기 - 테두리 아래 레이어)
+    // 테두리 두께(2픽셀)를 고려하여 배경 영역 계산
+    int border_thickness = 2;
+    int background_radius = MINIMAP_RADIUS - border_thickness;
+    int background_radius_sq = background_radius * background_radius;
+    
     for (int y = minimap_center_y - MINIMAP_RADIUS; y <= minimap_center_y + MINIMAP_RADIUS; y++) {
         for (int x = minimap_center_x - MINIMAP_RADIUS; x <= minimap_center_x + MINIMAP_RADIUS; x++) {
             int dx = x - minimap_center_x;
             int dy = y - minimap_center_y;
             int dist_sq = dx * dx + dy * dy;
-            // 원형 영역 내부인지 확인 (테두리 제외, 약간 안쪽)
-            int border_thickness = 3;
-            int inner_radius_sq = (MINIMAP_RADIUS - border_thickness) * (MINIMAP_RADIUS - border_thickness);
-            if (dist_sq <= inner_radius_sq) {
+            // 원형 영역 내부인지 확인 (테두리 제외)
+            if (dist_sq <= background_radius_sq) {
                 if (x >= 0 && x < frame.cols && y >= 0 && y < frame.rows) {
                     cv::Vec3b& pixel = frame.at<cv::Vec3b>(y, x);
                     // 검정색과 블렌딩 (반투명)
@@ -289,10 +292,10 @@ void DistanceOverlay::drawMinimap(cv::Mat& frame, const std::vector<LidarPoint>&
         }
     }
 
-    // 미니맵 테두리 그리기 (흰색, 1픽셀) - 배경 위에 그리기 (명확하게 보이도록)
+    // 미니맵 테두리 그리기 (밝은 흰색, 2픽셀) - 배경 위에 그리기 (명확하게 보이도록)
     // cv::circle의 thickness 파라미터는 선 두께 (양수면 외곽선, 음수면 채움)
     cv::circle(frame, cv::Point(minimap_center_x, minimap_center_y), MINIMAP_RADIUS,
-              cv::Scalar(138, 138, 138), 1, cv::LINE_AA);
+              cv::Scalar(255, 255, 255), 2, cv::LINE_AA);
     
     // 미니맵 내부에 작은 원 그리기 (중심 원)
     // int inner_circle_radius = MINIMAP_RADIUS / 3;  // 외부 원의 1/3 크기

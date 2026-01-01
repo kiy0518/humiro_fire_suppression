@@ -42,6 +42,8 @@ private:
     std::atomic<bool> is_running_;
     
     static GstElement* create_media_element(GstRTSPMediaFactory* factory, const GstRTSPUrl* url);
+    static void media_configured(GstRTSPMediaFactory* factory, GstRTSPMedia* media);
+    static void media_unprepared(GstRTSPMedia* media);
     static void* server_thread_func(void* arg);
     std::string get_launch_string();
     bool check_encoder(const std::string& encoder_name);

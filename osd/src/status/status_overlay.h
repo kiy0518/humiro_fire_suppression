@@ -21,8 +21,9 @@ public:
         TAKEOFF,                 // 이륙
         NAVIGATING,              // 이동중
         DESTINATION_REACHED,     // 목적지도착
-        FIRE_READY,              // 격발대기
-        FIRING_AUTO_TARGETING,   // 격발중(자동조준)
+        FIRE_READY,              // 격발대기 (수동 격발 대기)
+        FIRING_AUTO_TARGETING,   // 격발중(자동조준) - 수동 격발 모드
+        AUTO_FIRING,             // 자동조준격발 (자동 격발 모드)
         MISSION_COMPLETE,        // 임무완료
         RETURNING,               // 복귀중
         LANDING,                 // 착륙
@@ -43,7 +44,7 @@ public:
      * VIM4 자동 제어 시스템 상태 업데이트 (OFFBOARD 모드일 때만 사용)
      * @param status 커스텀 상태
      */
-    void updateAutoControlStatus(DroneStatus status);
+    void updateOffboardStatus(DroneStatus status);
     
     /**
      * 소화탄 갯수 설정
@@ -104,6 +105,7 @@ private:
     std::string px4_mode_;       // PX4 비행 모드
     bool is_armed_;              // 시동 상태
     bool is_offboard_;           // OFFBOARD 모드 여부
+    bool is_offboard_custom_status_;  // VIM4 커스텀 상태 사용 여부 (OFFBOARD 모드일 때)
     
     // 기타 정보
     int ammo_current_;
