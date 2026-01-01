@@ -11,9 +11,7 @@
 #include "config.h"
 #include "camera_manager.h"
 #include "thermal_processor.h"
-#include "frame_compositor.h"
-#include "rtsp_server.h"
-#include "http_server.h"
+#include "thermal_basic_overlay.h"
 #include "thread_safe_queue.h"
 #include "thermal_data.h"
 #include "utils.h"
@@ -22,14 +20,33 @@
 #include "../../lidar/src/lidar_interface.h"
 #include "../../lidar/src/lidar_config.h"
 
+// 타겟팅 프레임 합성 (경로는 빌드 시스템에서 설정)
+#include "../../targeting/src/targeting_frame_compositor.h"
+
+// 스트리밍 관리자 (경로는 빌드 시스템에서 설정)
+#include "../../streaming/src/streaming_manager.h"
+
+// ROS2 통합 (선택적)
+#ifdef ENABLE_ROS2
+#include <rclcpp/rclcpp.hpp>
+#include "thermal_ros2_publisher.h"
+#include "../../lidar/src/lidar_ros2_publisher.h"
+#endif
+
 // 전역 변수
 std::atomic<bool> is_running(true);
 CameraManager* camera_manager = nullptr;
 ThermalProcessor* thermal_processor = nullptr;
-FrameCompositor* frame_compositor = nullptr;
-RTSPServer* rtsp_server = nullptr;
-HTTPServer* http_server = nullptr;
+ThermalBasicOverlay* thermal_overlay = nullptr;
+TargetingFrameCompositor* targeting_compositor = nullptr;
+StreamingManager* streaming_manager = nullptr;
 LidarInterface* lidar_interface = nullptr;
+
+#ifdef ENABLE_ROS2
+rclcpp::Node::SharedPtr ros2_node = nullptr;
+ThermalROS2Publisher* thermal_ros2_publisher = nullptr;
+LidarROS2Publisher* lidar_ros2_publisher = nullptr;
+#endif
 
 ThreadSafeQueue<cv::Mat> rgb_frame_queue(RGB_FRAME_QUEUE_SIZE);
 ThreadSafeQueue<cv::Mat> frame_queue(FRAME_QUEUE_SIZE);
@@ -43,11 +60,8 @@ void signal_handler(int sig) {
     is_running = false;
     
     // 서버 중지 (비동기적으로 안전하게)
-    if (rtsp_server) {
-        rtsp_server->stop();
-    }
-    if (http_server) {
-        http_server->stop();
+    if (streaming_manager) {
+        streaming_manager->stop();
     }
     
     // 카메라와 리소스 정리는 main 함수에서 처리
@@ -106,6 +120,18 @@ void thermal_capture_thread() {
         if (camera_manager->read_thermal_frame(frame)) {
             consecutive_failures = 0;
             thermal_processor->extract_thermal_data(frame, thermal_data);
+            
+#ifdef ENABLE_ROS2
+            // ROS2 토픽 발행 (선택적)
+            if (thermal_ros2_publisher && ros2_node) {
+                thermal_ros2_publisher->publishThermalData(thermal_data);
+                if (!frame.empty()) {
+                    thermal_ros2_publisher->publishThermalImage(frame);
+                }
+                // ROS2 스핀 (비동기)
+                rclcpp::spin_some(ros2_node);
+            }
+#endif
         } else {
             consecutive_failures++;
             if (consecutive_failures >= max_failures) {
@@ -123,7 +149,7 @@ void thermal_capture_thread() {
 // 라이다 데이터 수집 스레드
 void lidar_thread() {
     while (is_running) {
-        if (!lidar_interface || !frame_compositor) {
+        if (!lidar_interface || !targeting_compositor) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
@@ -132,8 +158,22 @@ void lidar_thread() {
             // 최신 스캔 데이터 가져오기
             LidarScan scan;
             if (lidar_interface->getLatestScan(scan)) {
-                // FrameCompositor에 라이다 데이터 전달
-                frame_compositor->setLidarData(scan.points);
+                // TargetingFrameCompositor에 라이다 데이터 전달
+                targeting_compositor->setLidarData(scan.points);
+                
+#ifdef ENABLE_ROS2
+                // ROS2 토픽 발행 (선택적)
+                if (lidar_ros2_publisher && ros2_node) {
+                    lidar_ros2_publisher->publishLidarPoints(scan.points);
+                    // 전방 거리 발행
+                    float front_dist = lidar_interface->getFrontDistance();
+                    if (front_dist > 0.0f) {
+                        lidar_ros2_publisher->publishFrontDistance(front_dist);
+                    }
+                    // ROS2 스핀 (비동기)
+                    rclcpp::spin_some(ros2_node);
+                }
+#endif
             }
         }
         
@@ -162,7 +202,7 @@ void composite_thread() {
         
         last_frame_time = std::chrono::steady_clock::now();
         
-        if (!frame_compositor) {
+        if (!thermal_overlay || !targeting_compositor) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
@@ -184,8 +224,27 @@ void composite_thread() {
             continue;
         }
         
-        // 프레임 합성
-        cv::Mat composite = frame_compositor->composite_frames(rgb_frame, thermal_data);
+        // 프레임 크기 조정
+        cv::Mat output;
+        if (rgb_frame.rows != OUTPUT_HEIGHT || rgb_frame.cols != OUTPUT_WIDTH) {
+            cv::resize(rgb_frame, output, cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT), 0, 0, cv::INTER_LINEAR);
+        } else {
+            output = rgb_frame.clone();
+        }
+        
+        // 열화상 데이터 가져오기 (스레드 안전 복사)
+        ThermalData data = thermal_data.copy();
+        
+        // 기본 오버레이 (열화상 레이어, 로고)
+        if (OVERLAY_THERMAL && data.valid && !data.frame.empty()) {
+            thermal_overlay->overlayThermal(output, data.frame);
+        }
+        thermal_overlay->overlayLogo(output);
+        
+        // 타겟팅 오버레이 (조준, 라이다, hotspot)
+        targeting_compositor->compositeTargeting(output, data);
+        
+        cv::Mat composite = output;
         
         if (composite.empty()) {
             continue;
@@ -272,15 +331,43 @@ int main(int argc, char* argv[]) {
     
     // 프로세서 초기화
     thermal_processor = new ThermalProcessor();
-    frame_compositor = new FrameCompositor();
+    
+    // 기본 오버레이 (열화상 레이어, 로고)
+    thermal_overlay = new ThermalBasicOverlay();
+    
+    // 타겟팅 프레임 합성 (조준, 라이다, hotspot)
+    targeting_compositor = new TargetingFrameCompositor();
+    
+#ifdef ENABLE_ROS2
+    // ROS2 발행자 초기화
+    if (ros2_node) {
+        thermal_ros2_publisher = new ThermalROS2Publisher(ros2_node);
+        lidar_ros2_publisher = new LidarROS2Publisher(ros2_node);
+        std::cout << "  ✓ ROS2 토픽 발행 활성화" << std::endl;
+    }
+#endif
+    
+#ifdef ENABLE_ROS2
+    // ROS2 발행자 초기화
+    if (ros2_node) {
+        thermal_ros2_publisher = new ThermalROS2Publisher(ros2_node);
+        lidar_ros2_publisher = new LidarROS2Publisher(ros2_node);
+        std::cout << "  ✓ ROS2 토픽 발행 활성화" << std::endl;
+    }
+#endif
     
     // 라이다 오리엔테이션 설정 (각도 오프셋)
     // 라이다의 0도 방향이 실제 전방과 다를 경우 오프셋 설정
     // config.h의 LIDAR_ORIENTATION_OFFSET 값 사용
-    frame_compositor->setLidarOrientation(LIDAR_ORIENTATION_OFFSET);
+    targeting_compositor->setLidarOrientation(LIDAR_ORIENTATION_OFFSET);
     if (LIDAR_ORIENTATION_OFFSET != 0.0f) {
         std::cout << "  ✓ 라이다 오리엔테이션 오프셋: " << LIDAR_ORIENTATION_OFFSET << "도" << std::endl;
     }
+    
+    // 라이다 디스플레이 모드 설정
+    targeting_compositor->setLidarDisplayMode(LIDAR_DISPLAY_MODE);
+    targeting_compositor->setLidarShowDirectionLines(LIDAR_SHOW_DIRECTION_LINES);
+    targeting_compositor->setLidarThreePointTolerance(LIDAR_THREE_POINT_TOLERANCE);
     
     // 라이다 초기화 (VIM4 UART_E 사용)
     std::cout << "\n[라이다 초기화]" << std::endl;
@@ -311,31 +398,18 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ x264enc" << std::endl;
     }
     
-    // RTSP 서버 시작
-    std::cout << "\n[서버 시작]" << std::endl;
-    rtsp_server = new RTSPServer();
-    if (!rtsp_server->initialize(&frame_queue)) {
-        std::cerr << "  ✗ RTSP 서버 초기화 실패" << std::endl;
+    // 스트리밍 서버 시작
+    std::cout << "\n[스트리밍 서버 시작]" << std::endl;
+    streaming_manager = new StreamingManager();
+    if (!streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
+        std::cerr << "  ✗ 스트리밍 서버 초기화 실패" << std::endl;
         is_running = false;
     } else {
-        rtsp_server->start();
+        streaming_manager->start();
     }
     
-    std::string rtsp_url = rtsp_server->get_rtsp_url();
-    
-    // HTTP 서버 시작
-    std::string http_url;
-    if (ENABLE_HTTP_SERVER) {
-        std::cout << "\n[HTTP 웹 서버]" << std::endl;
-        http_server = new HTTPServer();
-        if (http_server->initialize(&web_frame_queue)) {
-            http_server->start();
-            http_url = http_server->get_http_url();
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        } else {
-            std::cout << "  ⚠ HTTP 웹 서버 시작 실패 (계속 진행)" << std::endl;
-        }
-    }
+    std::string rtsp_url = streaming_manager->getRTSPUrl();
+    std::string http_url = streaming_manager->getHTTPUrl();
     
     std::cout << "\n" << std::string(60, '=') << std::endl;
     std::cout << "  ✓ RTSP 서버 시작됨" << std::endl;
@@ -384,11 +458,8 @@ int main(int argc, char* argv[]) {
     std::cout << "  → 리소스 정리 중..." << std::endl;
     
     // 서버 먼저 중지
-    if (rtsp_server) {
-        rtsp_server->stop();
-    }
-    if (http_server) {
-        http_server->stop();
+    if (streaming_manager) {
+        streaming_manager->stop();
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     
@@ -411,19 +482,19 @@ int main(int argc, char* argv[]) {
         delete thermal_processor;
         thermal_processor = nullptr;
     }
-    if (frame_compositor) {
-        delete frame_compositor;
-        frame_compositor = nullptr;
+    if (thermal_overlay) {
+        delete thermal_overlay;
+        thermal_overlay = nullptr;
     }
-    if (rtsp_server) {
-        delete rtsp_server;
-        rtsp_server = nullptr;
+    if (targeting_compositor) {
+        delete targeting_compositor;
+        targeting_compositor = nullptr;
     }
-    if (http_server) {
-        delete http_server;
-        http_server = nullptr;
+    if (streaming_manager) {
+        delete streaming_manager;
+        streaming_manager = nullptr;
     }
-    std::cout << "  ✓ 서버 리소스 해제 완료" << std::endl;
+    std::cout << "  ✓ 스트리밍 서버 리소스 해제 완료" << std::endl;
     
     // 기존 프로세스 정리 (다음 실행을 위해)
     std::cout << "  → 기존 프로세스 정리 중..." << std::endl;

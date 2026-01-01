@@ -30,3 +30,8 @@ __pycache__/
 
 # Logs
 *.log
+
+# Backup files
+*.backup
+*.bak
+*.bak2

@@ -82,4 +82,9 @@
 #define LIDAR_SHOW_DIRECTION_LINES false  // 방향선 표시 (false = 원형 포인트만)
 #define LIDAR_THREE_POINT_TOLERANCE 1.0f  // 3포인트 모드에서 각 방향 허용 범위 (±도)
 
+// ROS2 통합 설정
+// ROS2 토픽 발행 기능 활성화 (외부 모니터링/디버깅용)
+// 내부 통신은 기존 큐 방식 유지 (성능 보장)
+// CMakeLists.txt의 -DENABLE_ROS2 옵션으로 제어됨 (기본값: OFF)
+
 #endif // CONFIG_H
