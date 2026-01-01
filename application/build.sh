@@ -148,7 +148,34 @@ echo "[${STEP_NUM}/${TOTAL_STEPS}] 메인 애플리케이션 빌드..."
 cd "$PROJECT_ROOT/application"
 mkdir -p build
 cd build
-cmake .. > /dev/null
+
+# ROS2 환경 로드 (빌드 시 ROS2 감지를 위해)
+# CMake가 ROS2 패키지를 찾을 수 있도록 환경 변수 설정
+if [ -f /opt/ros/humble/setup.bash ]; then
+    source /opt/ros/humble/setup.bash > /dev/null 2>&1
+fi
+if [ -f "$PROJECT_ROOT/workspaces/micro_ros_ws/install/setup.bash" ]; then
+    source "$PROJECT_ROOT/workspaces/micro_ros_ws/install/setup.bash" > /dev/null 2>&1
+fi
+if [ -f "$PROJECT_ROOT/workspaces/px4_ros2_ws/install/setup.bash" ]; then
+    source "$PROJECT_ROOT/workspaces/px4_ros2_ws/install/setup.bash" > /dev/null 2>&1
+    # CMAKE_PREFIX_PATH에 px4_ros2_ws 추가 (CMake가 px4_msgs를 찾을 수 있도록)
+    export CMAKE_PREFIX_PATH="$PROJECT_ROOT/workspaces/px4_ros2_ws/install:$CMAKE_PREFIX_PATH"
+fi
+
+# ROS2 자동 감지 및 활성화
+ENABLE_ROS2_FLAG=""
+if command -v ros2 > /dev/null 2>&1; then
+    # ROS2가 설치되어 있으면 자동으로 활성화
+    ENABLE_ROS2_FLAG="-DENABLE_ROS2=ON"
+    echo "  → ROS2 감지됨: 자동 활성화"
+else
+    # ROS2가 없으면 비활성화
+    ENABLE_ROS2_FLAG="-DENABLE_ROS2=OFF"
+    echo "  → ROS2 미설치: 비활성화"
+fi
+
+cmake .. $ENABLE_ROS2_FLAG > /dev/null
 
 # 라이브러리 파일의 타임스탬프를 갱신하여 CMake가 변경을 감지하도록 함
 touch "$PROJECT_ROOT/thermal/src/build/libthermal_lib.a" 2>/dev/null || true

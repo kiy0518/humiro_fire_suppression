@@ -23,6 +23,7 @@ set(SOURCES
     lidar/distance_overlay.cpp
     targeting/aim_indicator.cpp
     targeting/hotspot_tracker.cpp
+    status/status_overlay.cpp
 )
 
 # OSD 라이브러리 생성

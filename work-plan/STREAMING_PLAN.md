@@ -1,6 +1,6 @@
 # 영상 스트리밍 시스템 개발 계획 (Streaming System Development Plan)
 
-작성일: 2026-01-01  
+작성일: 2025-01-01  
 **상태**: 개선 계획
 
 ---
@@ -310,6 +310,117 @@ void composeFrameWithPartialData() {
 
 ---
 
+## 시작 지점 (구현 순서)
+
+### Step 1: CameraManager 개선 (우선)
+**파일**: `thermal/src/camera_manager.h`, `thermal/src/camera_manager.cpp`
+
+1. **개별 카메라 초기화 메서드 추가**
+   - `bool initialize_rgb_camera()`: RGB 카메라만 초기화
+   - `bool initialize_thermal_camera()`: 열화상 카메라만 초기화
+   - 기존 `initialize()`는 두 메서드를 순차 호출하도록 변경
+
+2. **준비 상태 확인 메서드 추가**
+   - `bool is_rgb_ready() const`: RGB 카메라 준비 여부
+   - `bool is_thermal_ready() const`: 열화상 카메라 준비 여부
+
+3. **초기화 실패 시에도 계속 진행하도록 변경**
+   - 하나라도 성공하면 `initialize()`는 true 반환
+   - 실패한 카메라는 나중에 재연결 시도
+
+### Step 2: StreamingState 클래스 생성
+**파일**: `streaming/src/streaming_state.h`, `streaming/src/streaming_state.cpp`
+
+- 데이터 소스별 준비 상태 추적
+- `hasAnyData()`, `hasAllData()` 메서드 구현
+
+### Step 3: main.cpp 수정
+**파일**: `application/main.cpp`
+
+1. **카메라 초기화 실패해도 계속 진행**
+   - `camera_manager->initialize()` 실패해도 프로그램 종료하지 않음
+   - 준비된 카메라만 사용하여 스트리밍 시작
+
+2. **스트리밍 시작 조건 변경**
+   - 기존: 카메라 초기화 완료 후 스트리밍 시작
+   - 변경: 하나라도 준비되면 즉시 스트리밍 시작
+
+3. **스트리밍 상태 모니터링 루프 추가**
+   - 주기적으로 준비 상태 확인
+   - 새로 준비된 데이터 소스 자동 추가
+
+### Step 4: TargetingFrameCompositor 개선
+**파일**: `targeting/src/targeting_frame_compositor.h`, `targeting/src/targeting_frame_compositor.cpp`
+
+1. **부분 데이터 처리**
+   - RGB만 있을 때, 열화상만 있을 때 처리
+   - nullptr 체크 추가
+
+2. **플레이스홀더 표시**
+   - 준비되지 않은 데이터 소스에 대한 안내 메시지
+
+### Step 5: composite_thread 수정
+**파일**: `application/main.cpp` (composite_thread 함수)
+
+- 부분 데이터 처리 로직 적용
+- 준비된 데이터만 사용하여 프레임 합성
+
+---
+
+## 구체적인 시작 코드
+
+### 1단계: CameraManager에 메서드 추가
+
+```cpp
+// camera_manager.h에 추가
+bool initialize_rgb_camera();
+bool initialize_thermal_camera();
+bool is_rgb_ready() const { return cap_rgb_.isOpened(); }
+bool is_thermal_ready() const { return cap_thermal_.isOpened(); }
+```
+
+### 2단계: main.cpp에서 초기화 로직 변경
+
+```cpp
+// 기존 (line 342-355):
+if (!camera_manager->initialize()) {
+    // 실패 시 종료
+    return 1;
+}
+
+// 변경:
+camera_manager->initialize_rgb_camera();      // 실패해도 계속
+camera_manager->initialize_thermal_camera();  // 실패해도 계속
+
+if (!camera_manager->is_rgb_ready() && !camera_manager->is_thermal_ready()) {
+    // 둘 다 실패한 경우에만 종료
+    std::cerr << "모든 카메라 초기화 실패" << std::endl;
+    return 1;
+}
+```
+
+### 3단계: 스트리밍 시작 조건 변경
+
+```cpp
+// 기존 (line 415-423):
+// 스트리밍 서버 시작 (카메라 초기화 완료 후)
+
+// 변경:
+// 하나라도 준비되면 스트리밍 시작
+if (camera_manager->is_rgb_ready() || camera_manager->is_thermal_ready()) {
+    streaming_manager = new StreamingManager();
+    if (streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
+        streaming_manager->start();
+        std::cout << "  ✓ 스트리밍 시작 (";
+        if (camera_manager->is_rgb_ready()) std::cout << "RGB ";
+        if (camera_manager->is_thermal_ready()) std::cout << "열화상 ";
+        std::cout << ")" << std::endl;
+    }
+}
+```
+
+---
+
 ## 참고사항
 
 - 스트리밍은 RTSP와 HTTP 두 가지 방식 모두 지원
@@ -320,7 +431,6 @@ void composeFrameWithPartialData() {
 ---
 
 **작성자**: Claude Code Assistant  
-**버전**: v1.0  
+**버전**: v1.1 (구체적인 시작 지점 추가)  
 **작성일**: 2025-01-01  
 **다음 리뷰**: Phase 1 완료 시
-

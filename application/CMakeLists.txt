@@ -1,4 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
+
+# CMake 정책 설정 (경고 제거)
+if(POLICY CMP0074)
+    cmake_policy(SET CMP0074 NEW)
+endif()
+
 project(HumiroFireSuppression)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -55,6 +61,8 @@ set(OSD_DIR "${PROJECT_ROOT}/osd/src")
 set(OSD_BUILD_DIR "${OSD_DIR}/build")
 set(STREAMING_DIR "${PROJECT_ROOT}/streaming/src")
 set(STREAMING_BUILD_DIR "${STREAMING_DIR}/build")
+set(ROS2_DIR "${PROJECT_ROOT}/ros2/src")
+set(ROS2_BUILD_DIR "${ROS2_DIR}/build")
 
 # Include 디렉토리
 include_directories(${THERMAL_DIR})
@@ -64,17 +72,33 @@ include_directories(${OSD_DIR}/thermal)
 include_directories(${OSD_DIR}/lidar)
 include_directories(${OSD_DIR}/targeting)
 include_directories(${STREAMING_DIR})
+include_directories(${ROS2_DIR})
+include_directories(${ROS2_DIR}/status)
 
 # 소스 파일
 set(SOURCES
     main.cpp
 )
 
+# ROS2 옵션 (선택적) - add_executable 전에 확인 필요
+option(ENABLE_ROS2 "Enable ROS2 topic publishing" OFF)
+
+# ROS2 지원 추가 (선택적) - add_executable 전에 SOURCES에 추가
+if(ENABLE_ROS2)
+    # ROS2 소스 추가 (ROS2 통신 라이브러리 사용)
+    # status_ros2_subscriber는 ros2_comm_lib에 포함됨
+    list(APPEND SOURCES
+        ${THERMAL_DIR}/thermal_ros2_publisher.cpp
+        ${LIDAR_DIR}/lidar_ros2_publisher.cpp
+    )
+endif()
+
 # 라이브러리 링크 디렉토리
 link_directories(${THERMAL_BUILD_DIR})
 link_directories(${OSD_BUILD_DIR})
 link_directories(${TARGETING_BUILD_DIR})
 link_directories(${STREAMING_BUILD_DIR})
+link_directories(${ROS2_BUILD_DIR})
 
 # 실행 파일 생성
 add_executable(humiro_fire_suppression ${SOURCES})
@@ -96,10 +120,7 @@ endif()
 #   cd targeting/src/build && cmake .. && make targeting_lib  
 #   cd streaming/src/build && cmake .. && make streaming_lib
 
-# ROS2 옵션 (선택적)
-option(ENABLE_ROS2 "Enable ROS2 topic publishing" OFF)
-
-# ROS2 지원 추가 (선택적)
+# ROS2 지원 추가 (선택적) - add_executable 후에 설정
 if(ENABLE_ROS2)
     # ROS2 찾기
     find_package(ament_cmake REQUIRED)
@@ -110,17 +131,19 @@ if(ENABLE_ROS2)
     find_package(cv_bridge REQUIRED)
     find_package(pcl_conversions REQUIRED)
     find_package(PCL REQUIRED)
+    # PX4 uXRCE-DDS 메시지 (px4_msgs) - 필수
+    find_package(px4_msgs REQUIRED)
+    
+    if(NOT px4_msgs_FOUND)
+        message(FATAL_ERROR "px4_msgs is required but not found. Please install px4_msgs.")
+    endif()
     
     # ROS2 정의 추가
     add_definitions(-DENABLE_ROS2)
-    
-    # ROS2 소스 추가
-    list(APPEND SOURCES
-        ${THERMAL_DIR}/thermal_ros2_publisher.cpp
-        ${LIDAR_DIR}/lidar_ros2_publisher.cpp
-    )
+    add_definitions(-Dpx4_msgs_FOUND)
     
     message(STATUS "ROS2 support enabled")
+    message(STATUS "px4_msgs found: ${px4_msgs_DIR}")
 else()
     message(STATUS "ROS2 support disabled (use -DENABLE_ROS2=ON to enable)")
 endif()
@@ -143,6 +166,13 @@ target_link_libraries(humiro_fire_suppression
     pthread
 )
 
+# ROS2 통신 라이브러리 (선택적)
+if(ENABLE_ROS2)
+    # ros2_comm_lib 먼저 빌드
+    add_subdirectory(${ROS2_DIR} ${ROS2_BUILD_DIR})
+    target_link_libraries(humiro_fire_suppression ros2_comm_lib)
+endif()
+
 # ROS2 라이브러리 (선택적)
 if(ENABLE_ROS2)
     ament_target_dependencies(humiro_fire_suppression
@@ -154,6 +184,11 @@ if(ENABLE_ROS2)
         pcl_conversions
         PCL
     )
+    
+    # px4_msgs 링크 (있는 경우)
+    if(px4_msgs_FOUND)
+        ament_target_dependencies(humiro_fire_suppression px4_msgs)
+    endif()
 endif()
 
 # 컴파일 플래그

@@ -74,6 +74,10 @@ private:
     float cached_center_distance_;
     std::mutex distance_cache_mutex_;
     
+    // 메디안 필터용 거리 히스토리
+    std::vector<float> distance_history_;
+    static constexpr size_t MEDIAN_FILTER_SIZE = 7;  // 메디안 필터 윈도우 크기
+    
     // LiDAR 포인트 표시 플래그
     bool show_lidar_points_;
     std::mutex display_mutex_;

@@ -29,29 +29,79 @@
 
 ### 1. 기체 상태 (Drone Status)
 
-**상태 목록** (PX4 비행 모드 및 커스텀 상태):
-1. **대기** (IDLE) - 초기 상태, 명령 대기 (DISARMED 상태)
-2. **시동** (ARMING) - 시동 중 (ARMING 상태)
-3. **이륙** (TAKEOFF) - 이륙 중 (AUTO_TAKEOFF 모드)
+**상태 처리 방식**: PX4 토픽 정보와 VIM4 커스텀 상태를 분리하여 처리
+
+#### 1-1. PX4에서 직접 받을 수 있는 상태 (PX4 토픽 기반)
+
+다음 상태들은 PX4의 `/fmu/out/vehicle_status` 토픽에서 직접 확인 가능:
+
+1. **대기** (IDLE) - 초기 상태, 명령 대기
+   - **조건**: `is_armed == false` (DISARMED 상태)
+   - **소스**: PX4 `arming_state` 필드
+
+2. **시동** (ARMING) - 시동 중
+   - **조건**: `is_armed == true` + `nav_state` 전환 중
+   - **소스**: PX4 `arming_state` 필드
+
+3. **이륙** (TAKEOFF) - 이륙 중
+   - **조건**: `nav_state == 6` (AUTO_TAKEOFF)
+   - **소스**: PX4 `nav_state` 필드
+
 4. **이동중** (NAVIGATING) - 목적지로 이동 중
-   - AUTO_MISSION 모드 (QGC Mission 실행 중)
-   - OFFBOARD 모드 (자동모드 waypoint 이동 중)
-5. **목적지도착** (DESTINATION_REACHED) - 목적지 도착
-   - AUTO_MISSION 모드에서 waypoint 도착
-   - OFFBOARD 모드에서 목표 위치 도착
-6. **격발대기** (FIRE_READY) - 격발 준비 완료, 대기 중
-   - 목적지 도착 후 격발 명령 대기
-7. **격발중(자동조준)** (FIRING_AUTO_TARGETING) - 자동 타겟팅 및 격발 중
-   - OFFBOARD 모드에서 자동 타겟팅 활성화
-8. **임무완료** (MISSION_COMPLETE) - 임무 완료
-   - AUTO_MISSION 모드에서 모든 waypoint 완료
-9. **복귀중** (RETURNING) - 복귀 경로 이동 중
-   - AUTO_RTL 모드
-   - AUTO_MISSION 모드에서 RTL waypoint 실행
-10. **착륙** (LANDING) - 착륙 중
-    - AUTO_LAND 모드
-    - AUTO_RTL 모드에서 착륙 단계
-11. **시동끔** (DISARMED) - 시동 해제 완료
+   - **조건**: 
+     - `nav_state == 3` (AUTO_MISSION) - QGC Mission 실행 중
+     - `nav_state == 9` (OFFBOARD) - 기본 이동 상태 (VIM4 커스텀 상태가 없을 때)
+   - **소스**: PX4 `nav_state` 필드
+
+5. **복귀중** (RETURNING) - 복귀 경로 이동 중
+   - **조건**: `nav_state == 5` (AUTO_RTL)
+   - **소스**: PX4 `nav_state` 필드
+
+6. **착륙** (LANDING) - 착륙 중
+   - **조건**: 
+     - `nav_state == 7` (AUTO_LAND)
+     - `nav_state == 5` (AUTO_RTL) + 착륙 단계 감지
+   - **소스**: PX4 `nav_state` 필드
+
+7. **시동끔** (DISARMED) - 시동 해제 완료
+   - **조건**: `is_armed == false` (명시적 해제)
+   - **소스**: PX4 `arming_state` 필드
+
+#### 1-2. VIM4에서 생성하는 커스텀 상태 (OFFBOARD 모드 전용)
+
+다음 상태들은 VIM4의 자동 제어 시스템에서 생성하며, `/auto_mode/status` 토픽으로 전달:
+
+1. **목적지도착** (DESTINATION_REACHED) - 목적지 도착
+   - **조건**: OFFBOARD 모드 + VIM4 자동 제어 시스템에서 목적지 도착 감지
+   - **소스**: `/auto_mode/status` 토픽 ("DESTINATION_REACHED")
+   - **우선순위**: PX4 기본 상태(NAVIGATING)보다 우선
+
+2. **격발대기** (FIRE_READY) - 격발 준비 완료, 대기 중
+   - **조건**: OFFBOARD 모드 + 목적지 도착 후 격발 명령 대기
+   - **소스**: `/auto_mode/status` 토픽 ("FIRE_READY")
+   - **우선순위**: PX4 기본 상태보다 우선
+
+3. **격발중(자동조준)** (FIRING_AUTO_TARGETING) - 자동 타겟팅 및 격발 중
+   - **조건**: OFFBOARD 모드 + 자동 타겟팅 활성화
+   - **소스**: `/auto_mode/status` 토픽 ("FIRING_AUTO_TARGETING")
+   - **우선순위**: PX4 기본 상태보다 우선
+
+4. **임무완료** (MISSION_COMPLETE) - 임무 완료
+   - **조건**: OFFBOARD 모드 + VIM4 자동 제어 시스템에서 임무 완료 감지
+   - **소스**: `/auto_mode/status` 토픽 ("MISSION_COMPLETE")
+   - **우선순위**: PX4 기본 상태보다 우선
+
+5. **이동중** (NAVIGATING) - OFFBOARD 모드에서 waypoint 이동 중
+   - **조건**: OFFBOARD 모드 + VIM4 자동 제어 시스템에서 이동 중 감지
+   - **소스**: `/auto_mode/status` 토픽 ("NAVIGATING")
+   - **참고**: PX4에서도 `nav_state == 9` (OFFBOARD)로 알 수 있지만, VIM4 커스텀 상태가 우선
+
+#### 1-3. 상태 우선순위 규칙
+
+1. **OFFBOARD 모드가 아닐 때**: PX4 토픽 기반 상태만 사용
+2. **OFFBOARD 모드일 때**: 
+   - VIM4 커스텀 상태가 있으면 우선 사용 (`/auto_mode/status` 토픽)
+   - VIM4 커스텀 상태가 없으면 PX4 기본 상태 사용 (NAVIGATING)
 
 **PX4 비행 모드 매핑**:
 - `MAV_MODE_MANUAL_DISARMED` → 대기/시동끔
@@ -215,15 +265,20 @@ private:
 
 ### Phase 2: 데이터 연동 (2일)
 
-#### 2.1 PX4 FC 상태 정보 수신 (우선)
-- [ ] MAVLink `HEARTBEAT` 메시지 구독
-  - 비행 모드 (`custom_mode`, `base_mode`)
-  - 시동 상태 (`armed`)
-- [ ] ROS2 토픽 `/mavros/state` 구독
-  - `mode`: 현재 비행 모드 문자열
-  - `armed`: 시동 상태
-  - `connected`: FC 연결 상태
-- [ ] PX4 비행 모드를 커스텀 상태로 변환
+#### 2.1 PX4 FC 상태 정보 수신 (우선) ✅ 완료
+- [x] ROS2 토픽 `/fmu/out/vehicle_status` 구독 (uXRCE-DDS)
+  - `nav_state`: PX4 navigation state (uint8)
+  - `arming_state`: 시동 상태 (bool)
+  - `failsafe`: failsafe 상태
+- [x] PX4 `nav_state`를 모드 문자열로 변환
+  - `0` (MANUAL) → "MANUAL"
+  - `2` (POSCTL) → "POSCTL"
+  - `3` (AUTO_MISSION) → "AUTO_MISSION"
+  - `5` (AUTO_RTL) → "AUTO_RTL"
+  - `7` (AUTO_LAND) → "AUTO_LAND"
+  - `9` (OFFBOARD) → "OFFBOARD"
+  - 기타 모드 매핑
+- [x] PX4 비행 모드를 커스텀 상태로 변환
   - `AUTO_MISSION` → 이동중/목적지도착/임무완료
   - `AUTO_RTL` → 복귀중/착륙
   - `AUTO_LAND` → 착륙
@@ -294,6 +349,16 @@ osd/
 │   └── status/
 │       └── status_overlay.h
 └── CMakeLists.txt
+
+ros2/                          # ROS2 통신 모듈 (새로 추가)
+├── src/
+│   ├── status/                # 상태 모니터링 관련
+│   │   ├── status_ros2_subscriber.h
+│   │   └── status_ros2_subscriber.cpp
+│   ├── collision/             # 충돌 회피 관련 (향후 추가)
+│   ├── command/               # 명령 발행 관련 (향후 추가)
+│   └── CMakeLists.txt
+└── README.md
 ```
 
 ---
@@ -301,18 +366,19 @@ osd/
 ## 데이터 소스
 
 ### 1. 상태 정보 (PX4 FC - 모든 모드)
-- **소스**: PX4 Flight Controller (MAVLink)
+- **소스**: PX4 Flight Controller (uXRCE-DDS)
 - **전달 방식**: 
-  - ROS2 토픽 `/mavros/state` (주)
-  - MAVLink `HEARTBEAT` 메시지 (보조)
+  - ROS2 토픽 `/fmu/out/vehicle_status` (uXRCE-DDS, 주)
+  - 메시지 타입: `px4_msgs::msg::VehicleStatus`
 - **업데이트 주기**: 10Hz (100ms 간격)
 - **비행 모드 감지**: 
-  - `AUTO_MISSION`: QGC Mission 모드
-  - `AUTO_RTL`: 자동 복귀 모드
-  - `AUTO_LAND`: 자동 착륙 모드
-  - `AUTO_LOITER`: 자동 대기 모드
-  - `OFFBOARD`: 오프보드 모드 (자동모드 포함)
-  - `MANUAL`, `STABILIZED`, `POSCTL`: 수동 모드
+  - `nav_state = 3` (AUTO_MISSION): QGC Mission 모드
+  - `nav_state = 5` (AUTO_RTL): 자동 복귀 모드
+  - `nav_state = 7` (AUTO_LAND): 자동 착륙 모드
+  - `nav_state = 4` (AUTO_LOITER): 자동 대기 모드
+  - `nav_state = 9` (OFFBOARD): 오프보드 모드 (자동모드 포함)
+  - `nav_state = 0` (MANUAL), `1` (ALTCTL), `2` (POSCTL): 수동 모드
+- **참고**: MAVROS가 아닌 uXRCE-DDS를 통해 직접 PX4 데이터 수신
 
 ### 1-1. 상태 정보 (VIM4 자동 제어 시스템 - OFFBOARD 모드일 때만)
 - **소스**: `navigation/src/auto_mode/state_machine.cpp`
@@ -337,13 +403,21 @@ osd/
 - **업데이트 주기**: 시작 시 1회 또는 동적 변경 시
 
 ### 5. 배터리 상태
-- **소스**: PX4 FC (MAVLink `BATTERY_STATUS`)
-- **전달 방식**: ROS2 토픽 `/mavros/battery` 또는 상태 메시지에 포함
+- **소스**: PX4 FC (uXRCE-DDS)
+- **전달 방식**: ROS2 토픽 `/fmu/out/battery_status` (uXRCE-DDS)
+  - 메시지 타입: `px4_msgs::msg::BatteryStatus`
+  - `remaining`: 배터리 잔량 (0.0 ~ 1.0, 퍼센트로 변환)
+  - `voltage_v`: 전압 (V)
+  - `current_a`: 전류 (A)
 - **업데이트 주기**: 1Hz
 
 ### 6. GPS 상태
-- **소스**: PX4 FC (MAVLink `GPS_RAW_INT`)
-- **전달 방식**: ROS2 토픽 `/mavros/gpsstatus` 또는 상태 메시지에 포함
+- **소스**: PX4 FC (uXRCE-DDS)
+- **전달 방식**: ROS2 토픽 `/fmu/out/vehicle_gps_position` (uXRCE-DDS)
+  - 메시지 타입: `px4_msgs::msg::VehicleGpsPosition`
+  - `satellites_used`: GPS 위성 수 (uint8)
+  - `lat`, `lon`: 위도/경도 (1e-7 degrees)
+  - `fix_type`: GPS fix 타입
 - **업데이트 주기**: 1Hz
 
 ---
@@ -461,12 +535,14 @@ void StatusOverlay::draw(cv::Mat& frame) {
 
 ## 통합 순서
 
-1. **OSD 모듈에 추가**: `osd/src/status/` 디렉토리 생성 및 구현
-2. **프레임 컴포지터 통합**: `targeting/src/targeting_frame_compositor.cpp`에 `StatusOverlay` 추가
-3. **PX4 상태 수신**: `/mavros/state` 토픽 구독 및 비행 모드 파싱 (모든 모드 지원)
-4. **VIM4 자동 제어 시스템 상태 연동** (선택적): `navigation/src/auto_mode/state_machine.cpp`에서 상태 변경 시 토픽 발행 (OFFBOARD 모드일 때만)
-5. **데이터 소스 연동**: 각 데이터 소스에서 ROS2 토픽 발행 또는 파라미터 설정
-6. **테스트**: 
+1. ✅ **OSD 모듈에 추가**: `osd/src/status/` 디렉토리 생성 및 구현 (완료)
+2. ✅ **프레임 컴포지터 통합**: `targeting/src/targeting_frame_compositor.cpp`에 `StatusOverlay` 추가 (완료)
+3. ✅ **ROS2 통신 모듈 생성**: `ros2/src/status/` 디렉토리 생성 및 구현 (완료)
+4. ✅ **PX4 상태 수신**: `/fmu/out/vehicle_status` 토픽 구독 (uXRCE-DDS) 및 비행 모드 파싱 (완료)
+5. ✅ **배터리/GPS 수신**: `/fmu/out/battery_status`, `/fmu/out/vehicle_gps_position` 토픽 구독 (완료)
+6. ✅ **VIM4 자동 제어 시스템 상태 연동**: `/auto_mode/status` 토픽 구독 (완료)
+7. ✅ **데이터 소스 연동**: 각 데이터 소스에서 ROS2 토픽 발행 (완료)
+8. **테스트**: 
    - 각 비행 모드별 표시 확인 (MANUAL, AUTO_MISSION, AUTO_RTL, OFFBOARD 등)
    - QGC Mission 모드에서 상태 표시 확인
    - 자동모드에서 상태 표시 확인
@@ -513,24 +589,80 @@ void StatusOverlay::draw(cv::Mat& frame) {
 
 QGC에서 Mission을 업로드하고 실행하면:
 1. PX4가 `AUTO_MISSION` 모드로 전환
-2. `/mavros/state` 토픽의 `mode` 필드가 `"AUTO.MISSION"`으로 변경
-3. StatusOverlay가 이를 감지하여 "이동중" 상태로 표시
-4. Waypoint 도착 시 "목적지도착" 상태로 변경 (MAVLink `MISSION_ITEM_REACHED` 메시지 활용)
-5. 모든 Waypoint 완료 시 "임무완료" 상태로 변경
+2. `/fmu/out/vehicle_status` 토픽의 `nav_state` 필드가 `3` (AUTO_MISSION)으로 변경
+3. StatusROS2Subscriber가 `nav_state`를 "AUTO_MISSION" 문자열로 변환
+4. StatusOverlay가 이를 감지하여 "이동중" 상태로 표시
+5. Waypoint 도착 시 "목적지도착" 상태로 변경 (추가 토픽 구독 필요)
+6. 모든 Waypoint 완료 시 "임무완료" 상태로 변경
 
 ### VIM4 자동 제어 시스템 동작 (OFFBOARD)
 
 VIM4에서 ROS2를 통해 드론을 제어할 때:
 1. PX4가 `OFFBOARD` 모드로 전환
-2. `/mavros/state` 토픽의 `mode` 필드가 `"OFFBOARD"`로 변경
-3. StatusOverlay가 PX4 모드를 감지하고, 추가로 `/auto_mode/status` 토픽을 구독
-4. VIM4 자동 제어 시스템의 상태(시동, 이륙, 이동중, 격발대기 등)를 표시
-5. PX4 Mission 모드와는 별개로 동작하는 커스텀 자동 제어 시스템
+2. `/fmu/out/vehicle_status` 토픽의 `nav_state` 필드가 `9` (OFFBOARD)로 변경
+3. StatusROS2Subscriber가 `nav_state`를 "OFFBOARD" 문자열로 변환
+4. StatusOverlay의 `updatePx4State()`가 호출되어 `is_offboard_ = true`로 설정
+5. OFFBOARD 모드로 전환 시 기본적으로 `NAVIGATING` 상태로 설정 (PX4 기본값)
+6. VIM4 자동 제어 시스템이 `/auto_mode/status` 토픽으로 커스텀 상태 발행
+7. StatusROS2Subscriber가 `/auto_mode/status` 토픽을 구독하여 `updateAutoControlStatus()` 호출
+8. **상태 우선순위**: VIM4 커스텀 상태가 PX4 기본 상태보다 우선 적용됨
+9. PX4 Mission 모드와는 별개로 동작하는 커스텀 자동 제어 시스템
+
+**상태 처리 흐름**:
+```
+PX4 토픽 (/fmu/out/vehicle_status)
+  ↓
+updatePx4State() → PX4 기본 상태 결정 (OFFBOARD면 NAVIGATING)
+  ↓
+OFFBOARD 모드 감지
+  ↓
+VIM4 커스텀 토픽 (/auto_mode/status)
+  ↓
+updateAutoControlStatus() → VIM4 커스텀 상태로 덮어쓰기 (우선순위)
+  ↓
+최종 상태 표시
+```
+
+## ROS2 통신 모듈 구조
+
+### 구현 완료
+- **위치**: `ros2/src/status/`
+- **파일**: 
+  - `status_ros2_subscriber.h`
+  - `status_ros2_subscriber.cpp`
+- **기능**: 
+  - PX4 uXRCE-DDS 토픽 구독 (`/fmu/out/*`)
+  - StatusOverlay 업데이트
+  - 커스텀 토픽 구독 (`/auto_mode/status`, `/ammunition/current`, `/formation/current`)
+
+### 구독 토픽 목록
+| 토픽 | 메시지 타입 | 용도 | 상태 |
+|------|------------|------|------|
+| `/fmu/out/vehicle_status` | `px4_msgs::VehicleStatus` | PX4 비행 상태, 시동 상태 | ✅ |
+| `/fmu/out/battery_status` | `px4_msgs::BatteryStatus` | 배터리 잔량 (%) | ✅ |
+| `/fmu/out/vehicle_gps_position` | `px4_msgs::VehicleGpsPosition` | GPS 위치, 위성 수 | ✅ |
+| `/auto_mode/status` | `std_msgs::String` | VIM4 자동 제어 상태 | ✅ |
+| `/ammunition/current` | `std_msgs::Int32` | 소화탄 갯수 | ✅ |
+| `/formation/current` | `std_msgs::Int32` | 편대 번호 | ✅ |
+
+### 향후 확장 계획
+- **충돌 회피 모듈**: `ros2/src/collision/` (다른 드론 위치, 장애물 정보 구독)
+- **명령 발행 모듈**: `ros2/src/command/` (PX4로 명령 전송, `/fmu/in/*` 토픽)
+- **편대 제어 모듈**: `ros2/src/formation/` (편대 유지, 재구성 명령)
+
+---
+
+---
+
+## 관련 문서
+
+- **ROS2 통신 모듈**: `ROS2_COMMUNICATION_MODULE.md` 참조
+- **uXRCE-DDS 통신**: `ROS2_COMMUNICATION_EXPLANATION.md` 참조
 
 ---
 
 **작성자**: Claude Code Assistant  
-**버전**: v1.0  
+**버전**: v1.1  
 **작성일**: 2025-01-01  
-**다음 리뷰**: Phase 1 완료 시
+**최종 업데이트**: 2026-01-01 (ROS2 통신 모듈 구조 반영)
 

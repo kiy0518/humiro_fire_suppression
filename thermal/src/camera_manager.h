@@ -12,8 +12,21 @@ public:
     ~CameraManager();
     
     bool initialize();
+    
+    // 개별 카메라 초기화 (비동기식 스트리밍용)
+    bool initialize_rgb_camera();
+    bool initialize_thermal_camera();
+    
+    // 준비 상태 확인
+    bool is_rgb_ready() const { return cap_rgb_.isOpened(); }
+    bool is_thermal_ready() const { return cap_thermal_.isOpened(); }
+    
     bool read_rgb_frame(cv::Mat& frame);
     bool read_thermal_frame(cv::Mat& frame);
+    
+    // 재연결 메서드
+    bool reconnect_rgb_camera();
+    bool reconnect_thermal_camera();
     
     int get_thermal_camera_id() const { return thermal_camera_id_; }
     int get_rgb_camera_id() const { return rgb_camera_id_; }

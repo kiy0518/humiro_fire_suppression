@@ -24,45 +24,41 @@ CameraManager::~CameraManager() {
 }
 
 bool CameraManager::initialize() {
-    std::cout << "  → 카메라 정보 수집..." << std::endl;
+    // 개별 카메라 초기화 (비동기식)
+    bool rgb_ok = initialize_rgb_camera();
+    bool thermal_ok = initialize_thermal_camera();
     
-    // 모든 카메라 정보 수집
-    std::vector<CameraInfo> all_cameras;
-    for (int i = 0; i < 10; ++i) {
-        std::string device = "/dev/video" + std::to_string(i);
-        struct stat st;
-        if (stat(device.c_str(), &st) == 0) {
-            CameraInfo info = get_camera_info(device);
-            all_cameras.push_back(info);
-            std::cout << "    → " << device << ": " << info.name << std::endl;
-        }
+    // 하나라도 성공하면 true 반환
+    if (rgb_ok || thermal_ok) {
+        return true;
     }
     
-    // 열화상 카메라 찾기
-    if (!find_thermal_camera()) {
-        std::cout << "    ✗ 열화상 카메라를 찾을 수 없습니다" << std::endl;
-        return false;
+    // 둘 다 실패한 경우에만 false
+    return false;
+}
+
+bool CameraManager::initialize_rgb_camera() {
+    // 이미 초기화되어 있으면 스킵
+    if (cap_rgb_.isOpened()) {
+        return true;
     }
+    
+    std::cout << "  → RGB 카메라 초기화..." << std::endl;
     
     // RGB 카메라 찾기
     if (!find_rgb_camera()) {
         std::cout << "    ✗ RGB 카메라를 찾을 수 없습니다" << std::endl;
-        if (cap_thermal_.isOpened()) {
-            cap_thermal_.release();
-        }
         return false;
     }
     
-    // RGB 카메라 초기화
+    // RGB 카메라 열기
     cap_rgb_.open(rgb_camera_id_, cv::CAP_V4L2);
     if (!cap_rgb_.isOpened()) {
         std::cout << "    ✗ RGB 카메라 열기 실패" << std::endl;
-        if (cap_thermal_.isOpened()) {
-            cap_thermal_.release();
-        }
         return false;
     }
     
+    // RGB 카메라 설정
     cap_rgb_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
     cap_rgb_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
     // RGB 카메라 버퍼 최소화 (지연 감소)
@@ -72,57 +68,59 @@ bool CameraManager::initialize() {
         // 일부 카메라는 버퍼 크기 설정을 지원하지 않을 수 있음
     }
     
-    // 카메라 워밍업
-    std::cout << "  → 카메라 워밍업..." << std::endl;
+    // RGB 카메라 워밍업
     std::cout << "    → RGB 카메라 워밍업..." << std::endl;
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < 2; ++i) {
         cv::Mat frame;
         cap_rgb_.read(frame);
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    }
-    
-    std::cout << "    → 열화상 카메라 워밍업 (느린 응답 대비)..." << std::endl;
-    std::cout << "      → Lepton 3.5는 8-9 FPS로 느려서 타임아웃 경고가 나타날 수 있습니다 (정상 동작)" << std::endl;
-    for (int i = 0; i < 5; ++i) {
-        cv::Mat frame;
-        bool ret = cap_thermal_.read(frame);
-        if (ret) {
-            std::cout << "      → 프레임 " << (i+1) << "/5 읽기 성공" << std::endl;
-        } else {
-            std::cout << "      → 프레임 " << (i+1) << "/5 읽기 실패 (재시도 중...) - 정상 (카메라가 느림)" << std::endl;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     
     // 최종 테스트
-    std::cout << "    → 최종 테스트..." << std::endl;
-    cv::Mat rgb_frame, thermal_frame;
+    cv::Mat rgb_frame;
     bool rgb_ok = cap_rgb_.read(rgb_frame);
-    bool thermal_ok = false;
-    for (int i = 0; i < 3; ++i) {
-        thermal_ok = cap_thermal_.read(thermal_frame);
-        if (thermal_ok && !thermal_frame.empty()) {
-            break;
-        }
-        std::cout << "      → 열화상 읽기 시도 " << (i+1) << "/3... (타임아웃 경고는 정상)" << std::endl;
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    }
     
     if (!rgb_ok || rgb_frame.empty()) {
         std::cout << "    ✗ RGB 프레임 읽기 실패" << std::endl;
+        cap_rgb_.release();
         return false;
     }
     
-    std::cout << "    ✓ RGB: " << rgb_frame.cols << "x" << rgb_frame.rows << std::endl;
-    
-    if (!thermal_ok || thermal_frame.empty()) {
-        std::cout << "    ⚠ 열화상 프레임 읽기 실패 (나중에 재시도됨)" << std::endl;
-        std::cout << "    → RGB만 먼저 시작, 열화상은 백그라운드에서 재연결 시도" << std::endl;
-    } else {
-        std::cout << "    ✓ 열화상: " << thermal_frame.cols << "x" << thermal_frame.rows << std::endl;
+    std::cout << "    ✓ RGB 카메라 초기화 완료: " << rgb_frame.cols << "x" << rgb_frame.rows << std::endl;
+    return true;
+}
+
+bool CameraManager::initialize_thermal_camera() {
+    // 이미 초기화되어 있으면 스킵
+    if (cap_thermal_.isOpened()) {
+        return true;
     }
     
-    return true;
+    std::cout << "  → 열화상 카메라 초기화..." << std::endl;
+    
+    // 열화상 카메라 찾기 (이미 열기까지 수행함)
+    if (!find_thermal_camera()) {
+        std::cout << "    ✗ 열화상 카메라를 찾을 수 없습니다" << std::endl;
+        return false;
+    }
+    
+    // find_thermal_camera()에서 이미 열었으므로, 워밍업만 수행
+    std::cout << "    → 열화상 카메라 워밍업..." << std::endl;
+    std::cout << "      → Lepton 3.5는 8-9 FPS로 느려서 타임아웃 경고가 나타날 수 있습니다 (정상 동작)" << std::endl;
+    for (int i = 0; i < 2; ++i) {
+        cv::Mat frame;
+        bool ret = cap_thermal_.read(frame);
+        if (ret && !frame.empty()) {
+            std::cout << "      → 프레임 " << (i+1) << "/2 읽기 성공" << std::endl;
+            std::cout << "    ✓ 열화상 카메라 초기화 완료: " << frame.cols << "x" << frame.rows << std::endl;
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    // 워밍업 실패해도 연결은 유지 (나중에 재시도)
+    std::cout << "    ⚠ 열화상 프레임 읽기 실패 (연결은 유지, 나중에 재시도)" << std::endl;
+    return true;  // 연결은 성공했으므로 true 반환
 }
 
 bool CameraManager::find_thermal_camera() {
@@ -332,4 +330,77 @@ bool CameraManager::read_thermal_frame(cv::Mat& frame) {
         return false;
     }
     return cap_thermal_.read(frame) && !frame.empty();
+}
+
+bool CameraManager::reconnect_rgb_camera() {
+    std::cout << "  → RGB 카메라 재연결 시도..." << std::endl;
+    
+    // 기존 연결 해제
+    if (cap_rgb_.isOpened()) {
+        cap_rgb_.release();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    
+    // 재연결
+    cap_rgb_.open(rgb_camera_id_, cv::CAP_V4L2);
+    if (!cap_rgb_.isOpened()) {
+        std::cout << "    ✗ RGB 카메라 재연결 실패" << std::endl;
+        return false;
+    }
+    
+    // 설정 복원
+    cap_rgb_.set(cv::CAP_PROP_FRAME_WIDTH, 640);
+    cap_rgb_.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
+    try {
+        cap_rgb_.set(cv::CAP_PROP_BUFFERSIZE, 1);
+    } catch (...) {
+        // 무시
+    }
+    
+    // 빠른 테스트
+    cv::Mat test_frame;
+    for (int i = 0; i < 2; ++i) {
+        if (cap_rgb_.read(test_frame) && !test_frame.empty()) {
+            std::cout << "    ✓ RGB 카메라 재연결 성공" << std::endl;
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    
+    std::cout << "    ✗ RGB 카메라 프레임 읽기 실패" << std::endl;
+    return false;
+}
+
+bool CameraManager::reconnect_thermal_camera() {
+    std::cout << "  → 열화상 카메라 재연결 시도..." << std::endl;
+    
+    // 기존 연결 해제
+    if (cap_thermal_.isOpened()) {
+        cap_thermal_.release();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    
+    // 재연결
+    cap_thermal_.open(thermal_camera_id_, cv::CAP_V4L2);
+    if (!cap_thermal_.isOpened()) {
+        std::cout << "    ✗ 열화상 카메라 재연결 실패" << std::endl;
+        return false;
+    }
+    
+    // 설정 복원
+    cap_thermal_.set(cv::CAP_PROP_BUFFERSIZE, 1);
+    cap_thermal_.set(cv::CAP_PROP_FPS, 9);
+    
+    // 빠른 테스트 (열화상은 느리므로 더 많은 시도)
+    cv::Mat test_frame;
+    for (int i = 0; i < 3; ++i) {
+        if (cap_thermal_.read(test_frame) && !test_frame.empty()) {
+            std::cout << "    ✓ 열화상 카메라 재연결 성공" << std::endl;
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    
+    std::cout << "    ⚠ 열화상 카메라 프레임 읽기 실패 (나중에 재시도)" << std::endl;
+    return false;  // 실패해도 연결은 유지 (나중에 재시도)
 }

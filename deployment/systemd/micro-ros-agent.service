@@ -1,17 +1,18 @@
 [Unit]
 Description=Micro-ROS Agent for PX4 Communication
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=khadas
 Group=khadas
-WorkingDirectory=%h/humiro_fire_suppression
-Environment="HOME=%h"
+WorkingDirectory=/home/khadas/humiro_fire_suppression
+Environment="HOME=/home/khadas"
 Environment="ROS_DOMAIN_ID=0"
 Environment="ROS_NAMESPACE=drone1"
 Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
-ExecStart=%h/humiro_fire_suppression/scripts/runtime/start_micro_ros_agent_wrapper.sh
+ExecStart=/home/khadas/humiro_fire_suppression/scripts/runtime/start_micro_ros_agent_wrapper.sh
 Restart=always
 RestartSec=5
 StandardOutput=journal

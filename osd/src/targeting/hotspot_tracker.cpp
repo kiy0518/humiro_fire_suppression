@@ -31,17 +31,12 @@ void HotspotTracker::trackAndDraw(cv::Mat& frame, const ThermalData& data) {
         history_.erase(history_.begin());
     }
     
-    // 현재 Hotspot 표시
+    // 현재 Hotspot 표시 (원만 표시, 텍스트 제거)
     cv::Vec3b max_color = data.max_color;
     cv::circle(frame, cv::Point(data.hotspot_x, data.hotspot_y), 20, 
                cv::Scalar(max_color[0], max_color[1], max_color[2]), 2);
     
-    // 온도 텍스트 표시
-    std::string temp_text = std::to_string(data.max_val);
-    cv::putText(frame, temp_text, 
-                cv::Point(data.hotspot_x + 25, data.hotspot_y),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, 
-                cv::Scalar(max_color[0], max_color[1], max_color[2]), 1);
+    // 온도 텍스트 제거 (사용자 요청)
 }
 
 void HotspotTracker::drawTrackingHistory(cv::Mat& frame) {

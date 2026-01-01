@@ -12,6 +12,7 @@
 #include "../thermal/src/camera_manager.h"
 #include "../thermal/src/thermal_processor.h"
 #include "../osd/src/thermal/thermal_overlay.h"
+#include "../osd/src/status/status_overlay.h"
 #include "../thermal/src/thread_safe_queue.h"
 #include "../thermal/src/thermal_data.h"
 #include "../thermal/src/utils.h"
@@ -31,13 +32,15 @@
 #include <rclcpp/rclcpp.hpp>
 #include "../thermal/src/thermal_ros2_publisher.h"
 #include "../lidar/src/lidar_ros2_publisher.h"
+#include "../ros2/src/status/status_ros2_subscriber.h"
 #endif
 
 // 전역 변수
 std::atomic<bool> is_running(true);
 CameraManager* camera_manager = nullptr;
 ThermalProcessor* thermal_processor = nullptr;
-    ThermalOverlay* thermal_overlay = nullptr;
+ThermalOverlay* thermal_overlay = nullptr;
+StatusOverlay* status_overlay = nullptr;
 TargetingFrameCompositor* targeting_compositor = nullptr;
 StreamingManager* streaming_manager = nullptr;
 LidarInterface* lidar_interface = nullptr;
@@ -46,6 +49,7 @@ LidarInterface* lidar_interface = nullptr;
 rclcpp::Node::SharedPtr ros2_node = nullptr;
 ThermalROS2Publisher* thermal_ros2_publisher = nullptr;
 LidarROS2Publisher* lidar_ros2_publisher = nullptr;
+StatusROS2Subscriber* status_ros2_subscriber = nullptr;
 #endif
 
 ThreadSafeQueue<cv::Mat> rgb_frame_queue(RGB_FRAME_QUEUE_SIZE);
@@ -72,6 +76,8 @@ void signal_handler(int sig) {
 void rgb_capture_thread() {
     const double frame_interval = 1.0 / RGB_TARGET_FPS;
     auto last_frame_time = std::chrono::steady_clock::now();
+    int consecutive_failures = 0;
+    const int max_failures = 5;  // 5회 연속 실패 시 재연결
     
     while (is_running) {
         auto current_time = std::chrono::steady_clock::now();
@@ -93,6 +99,7 @@ void rgb_capture_thread() {
         
         cv::Mat frame;
         if (camera_manager->read_rgb_frame(frame)) {
+            consecutive_failures = 0;  // 성공 시 카운터 리셋
             if (frame.rows >= 200 && frame.cols >= 200) {
                 if (frame.rows != OUTPUT_HEIGHT || frame.cols != OUTPUT_WIDTH) {
                     cv::resize(frame, frame, cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT), 0, 0, cv::INTER_LINEAR);
@@ -100,7 +107,19 @@ void rgb_capture_thread() {
                 rgb_frame_queue.push(frame);
             }
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            consecutive_failures++;
+            if (consecutive_failures >= max_failures) {
+                std::cout << "  ⚠ RGB 카메라 읽기 실패 " << consecutive_failures 
+                          << "회 - 재연결 시도..." << std::endl;
+                if (camera_manager->reconnect_rgb_camera()) {
+                    consecutive_failures = 0;
+                } else {
+                    // 재연결 실패 시 잠시 대기 후 재시도
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
         }
     }
 }
@@ -108,7 +127,7 @@ void rgb_capture_thread() {
 // 열화상 캡처 스레드
 void thermal_capture_thread() {
     int consecutive_failures = 0;
-    const int max_failures = 3;
+    const int max_failures = 5;  // 5회 연속 실패 시 재연결
     
     while (is_running) {
         if (!camera_manager || !thermal_processor) {
@@ -118,7 +137,7 @@ void thermal_capture_thread() {
         
         cv::Mat frame;
         if (camera_manager->read_thermal_frame(frame)) {
-            consecutive_failures = 0;
+            consecutive_failures = 0;  // 성공 시 카운터 리셋
             thermal_processor->extract_thermal_data(frame, thermal_data);
             
 #ifdef ENABLE_ROS2
@@ -128,8 +147,8 @@ void thermal_capture_thread() {
                 if (!frame.empty()) {
                     thermal_ros2_publisher->publishThermalImage(frame);
                 }
-                // ROS2 스핀 (비동기)
-                rclcpp::spin_some(ros2_node);
+                // 발행자는 spin이 필요 없음 (비동기 발행)
+                // spin은 메인 루프에서 status_ros2_subscriber->spin()으로 통합 처리
             }
 #endif
         } else {
@@ -137,7 +156,12 @@ void thermal_capture_thread() {
             if (consecutive_failures >= max_failures) {
                 std::cout << "  ⚠ 열화상 읽기 실패 " << consecutive_failures 
                           << "회 - 재연결 시도..." << std::endl;
-                consecutive_failures = 0;
+                if (camera_manager->reconnect_thermal_camera()) {
+                    consecutive_failures = 0;
+                } else {
+                    // 재연결 실패 시 잠시 대기 후 재시도
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                }
             }
         }
         
@@ -170,8 +194,8 @@ void lidar_thread() {
                     if (front_dist > 0.0f) {
                         lidar_ros2_publisher->publishFrontDistance(front_dist);
                     }
-                    // ROS2 스핀 (비동기)
-                    rclcpp::spin_some(ros2_node);
+                    // 발행자는 spin이 필요 없음 (비동기 발행)
+                    // spin은 메인 루프에서 status_ros2_subscriber->spin()으로 통합 처리
                 }
 #endif
             }
@@ -182,7 +206,35 @@ void lidar_thread() {
     }
 }
 
-// 프레임 합성 스레드
+// 플레이스홀더 그리기 함수
+void drawPlaceholder(cv::Mat& frame, const std::string& message) {
+    if (frame.empty()) {
+        frame = cv::Mat(OUTPUT_HEIGHT, OUTPUT_WIDTH, CV_8UC3, cv::Scalar(0, 0, 0));
+    }
+    
+    // 중앙에 메시지 표시
+    int font_face = cv::FONT_HERSHEY_SIMPLEX;
+    double font_scale = 1.0;
+    int thickness = 2;
+    cv::Scalar text_color(255, 255, 255);  // 흰색
+    
+    cv::Size text_size = cv::getTextSize(message, font_face, font_scale, thickness, nullptr);
+    int text_x = (frame.cols - text_size.width) / 2;
+    int text_y = (frame.rows + text_size.height) / 2;
+    
+    // 배경 사각형 (반투명 검은색)
+    int padding = 20;
+    cv::Rect bg_rect(text_x - padding, text_y - text_size.height - padding,
+                     text_size.width + 2 * padding, text_size.height + 2 * padding);
+    cv::Mat overlay = frame.clone();
+    cv::rectangle(overlay, bg_rect, cv::Scalar(0, 0, 0), -1);
+    cv::addWeighted(overlay, 0.7, frame, 0.3, 0, frame);
+    
+    // 텍스트 그리기
+    cv::putText(frame, message, cv::Point(text_x, text_y), font_face, font_scale, text_color, thickness, cv::LINE_AA);
+}
+
+// 프레임 합성 스레드 (비동기식: 부분 데이터 처리)
 void composite_thread() {
     int frame_count = 0;
     auto last_time = std::chrono::steady_clock::now();
@@ -207,12 +259,9 @@ void composite_thread() {
             continue;
         }
         
-        // RGB 프레임 가져오기
+        // RGB 프레임 가져오기 (없어도 계속 진행)
         cv::Mat rgb_frame;
-        if (!rgb_frame_queue.try_pop(rgb_frame, 0)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            continue;
-        }
+        bool has_rgb = rgb_frame_queue.try_pop(rgb_frame, 0);
         
         // 큐에 더 있으면 모두 버리고 최신 것만 사용
         while (!rgb_frame_queue.empty()) {
@@ -220,28 +269,64 @@ void composite_thread() {
             rgb_frame_queue.try_pop(dummy, 0);
         }
         
-        if (rgb_frame.empty()) {
-            continue;
-        }
-        
-        // 프레임 크기 조정
-        cv::Mat output;
-        if (rgb_frame.rows != OUTPUT_HEIGHT || rgb_frame.cols != OUTPUT_WIDTH) {
-            cv::resize(rgb_frame, output, cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT), 0, 0, cv::INTER_LINEAR);
-        } else {
-            output = rgb_frame.clone();
-        }
-        
         // 열화상 데이터 가져오기 (스레드 안전 복사)
         ThermalData data = thermal_data.copy();
+        bool has_thermal = data.valid && !data.frame.empty();
         
-        // 기본 오버레이 (열화상 레이어, 로고)
-        if (OVERLAY_THERMAL && data.valid && !data.frame.empty()) {
+        // 출력 프레임 준비
+        cv::Mat output;
+        
+        if (has_rgb && !rgb_frame.empty()) {
+            // RGB 프레임이 있으면 사용
+            if (rgb_frame.rows != OUTPUT_HEIGHT || rgb_frame.cols != OUTPUT_WIDTH) {
+                cv::resize(rgb_frame, output, cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT), 0, 0, cv::INTER_LINEAR);
+            } else {
+                output = rgb_frame.clone();
+            }
+        } else if (has_thermal && !data.frame.empty()) {
+            // RGB가 없고 열화상만 있으면 열화상을 배경으로 사용
+            cv::Mat thermal_resized;
+            cv::resize(data.frame, thermal_resized, cv::Size(OUTPUT_WIDTH, OUTPUT_HEIGHT), 0, 0, cv::INTER_LINEAR);
+            // 열화상은 그레이스케일이므로 BGR로 변환
+            if (thermal_resized.channels() == 1) {
+                cv::cvtColor(thermal_resized, output, cv::COLOR_GRAY2BGR);
+            } else {
+                output = thermal_resized.clone();
+            }
+        } else {
+            // 둘 다 없으면 플레이스홀더 생성
+            output = cv::Mat(OUTPUT_HEIGHT, OUTPUT_WIDTH, CV_8UC3, cv::Scalar(0, 0, 0));
+            
+            // 준비 상태에 따라 메시지 결정
+            bool rgb_ready = camera_manager && camera_manager->is_rgb_ready();
+            bool thermal_ready = camera_manager && camera_manager->is_thermal_ready();
+            
+            if (!rgb_ready && !thermal_ready) {
+                drawPlaceholder(output, "카메라 초기화 중...");
+            } else if (!rgb_ready) {
+                drawPlaceholder(output, "RGB 카메라 초기화 중...");
+            } else if (!thermal_ready) {
+                drawPlaceholder(output, "열화상 카메라 초기화 중...");
+            } else {
+                drawPlaceholder(output, "프레임 대기 중...");
+            }
+        }
+        
+        // 열화상 오버레이 (열화상 데이터가 있고 RGB가 있을 때만)
+        if (has_rgb && has_thermal && OVERLAY_THERMAL) {
             thermal_overlay->overlayThermal(output, data.frame);
         }
-        thermal_overlay->overlayLogo(output);
+        
+        // 로고 오버레이 제거 (상태 정보가 우선)
+        // thermal_overlay->overlayLogo(output);
+        
+        // 상태 모니터링 OSD (상단 왼쪽)
+        if (status_overlay) {
+            status_overlay->draw(output);
+        }
         
         // 타겟팅 오버레이 (조준, 라이다, hotspot)
+        // 열화상 데이터가 없어도 라이다는 표시 가능
         targeting_compositor->compositeTargeting(output, data);
         
         cv::Mat composite = output;
@@ -306,6 +391,26 @@ int main(int argc, char* argv[]) {
     // GStreamer 초기화
     gst_init(&argc, &argv);
     
+#ifdef ENABLE_ROS2
+    // ROS2 초기화
+    std::cout << "\n[ROS2 초기화]" << std::endl;
+    try {
+        rclcpp::init(argc, argv);
+        ros2_node = rclcpp::Node::make_shared("humiro_fire_suppression");
+        std::cout << "  ✓ ROS2 노드 생성: humiro_fire_suppression" << std::endl;
+        std::cout << "  → uXRCE-DDS 토픽 구독 준비 완료" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
+        std::cerr << "  → ROS2 없이 계속 진행 (상태 표시는 기본값 사용)" << std::endl;
+        ros2_node = nullptr;
+    }
+#else
+    std::cout << "\n[ROS2 비활성화]" << std::endl;
+    std::cout << "  ⚠ ROS2가 비활성화되어 있습니다" << std::endl;
+    std::cout << "  → 상태 표시는 기본값만 사용됩니다" << std::endl;
+    std::cout << "  → ROS2 활성화: cmake -DENABLE_ROS2=ON .." << std::endl;
+#endif
+    
     std::cout << "\n[초기화]" << std::endl;
     
     // 카메라 프로세스 확인 (종료하지 않고 확인만)
@@ -319,20 +424,39 @@ int main(int argc, char* argv[]) {
     reset_all_usb_cameras();
     #endif
     
-    // 카메라 초기화
+    // 카메라 초기화 (비동기식: 개별 초기화)
+    std::cout << "\n[카메라 초기화]" << std::endl;
     camera_manager = new CameraManager();
-    if (!camera_manager->initialize()) {
-        std::cerr << "카메라 초기화 실패" << std::endl;
-        // 카메라 초기화 실패 시에도 리소스 정리
+    
+    // 개별 카메라 초기화 (하나라도 성공하면 계속 진행)
+    bool rgb_ok = camera_manager->initialize_rgb_camera();
+    bool thermal_ok = camera_manager->initialize_thermal_camera();
+    
+    // 둘 다 실패한 경우에만 종료
+    if (!rgb_ok && !thermal_ok) {
+        std::cerr << "  ✗ 모든 카메라 초기화 실패" << std::endl;
         if (camera_manager) {
             delete camera_manager;
             camera_manager = nullptr;
         }
-        // 카메라 디바이스 해제 대기 (다른 프로세스가 사용할 수 있도록)
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         std::cerr << "프로그램을 종료합니다. 카메라 상태를 확인해주세요." << std::endl;
         return 1;
     }
+    
+    // 준비된 카메라 상태 출력
+    std::cout << "\n[카메라 준비 상태]" << std::endl;
+    if (rgb_ok) {
+        std::cout << "  ✓ RGB 카메라 준비 완료" << std::endl;
+    } else {
+        std::cout << "  ⚠ RGB 카메라 초기화 실패 (나중에 재연결 시도)" << std::endl;
+    }
+    if (thermal_ok) {
+        std::cout << "  ✓ 열화상 카메라 준비 완료" << std::endl;
+    } else {
+        std::cout << "  ⚠ 열화상 카메라 초기화 실패 (나중에 재연결 시도)" << std::endl;
+    }
+    
     std::cout << "  ✓ 출력: " << OUTPUT_WIDTH << "x" << OUTPUT_HEIGHT 
               << " @ " << OUTPUT_FPS << "fps" << std::endl;
     
@@ -341,6 +465,14 @@ int main(int argc, char* argv[]) {
     
     // 기본 오버레이 (열화상 레이어, 로고)
     thermal_overlay = new ThermalOverlay();
+    
+    // 상태 모니터링 OSD (상단 표시)
+    status_overlay = new StatusOverlay();
+    status_overlay->setDroneName("1");  // 기본값: 숫자 1
+    status_overlay->setAmmunition(6, 6);  // 기본값: 총 6발
+    status_overlay->setFormation(1, 3);  // 기본값: 삼각편대 (3대)
+    status_overlay->setBattery(100);  // 기본값 (테스트용)
+    status_overlay->setGpsSatellites(0);  // 기본값 (ROS2에서 업데이트됨)
     
     // 타겟팅 프레임 합성 (조준, 라이다, hotspot)
     targeting_compositor = new TargetingFrameCompositor();
@@ -351,6 +483,20 @@ int main(int argc, char* argv[]) {
         thermal_ros2_publisher = new ThermalROS2Publisher(ros2_node);
         lidar_ros2_publisher = new LidarROS2Publisher(ros2_node);
         std::cout << "  ✓ ROS2 토픽 발행 활성화" << std::endl;
+        
+        // ROS2 구독자 초기화 (StatusOverlay 업데이트용)
+        if (status_overlay) {
+            std::cout << "\n[ROS2 상태 구독자 초기화]" << std::endl;
+            status_ros2_subscriber = new StatusROS2Subscriber(ros2_node, status_overlay);
+            std::cout << "  ✓ ROS2 상태 구독자 활성화" << std::endl;
+            std::cout << "  → 상태바 데이터가 ROS2 토픽과 실시간 연동됩니다" << std::endl;
+            std::cout << "  → 토픽 수신 확인: PX4가 연결되면 자동으로 메시지가 표시됩니다" << std::endl;
+        } else {
+            std::cerr << "  ⚠ status_overlay가 nullptr입니다. ROS2 구독자를 생성할 수 없습니다." << std::endl;
+        }
+    } else {
+        std::cerr << "  ⚠ ros2_node가 nullptr입니다. ROS2 구독자를 생성할 수 없습니다." << std::endl;
+        std::cerr << "    → ROS2가 제대로 초기화되었는지 확인하세요." << std::endl;
     }
 #endif
     
@@ -392,42 +538,83 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ x264enc" << std::endl;
     }
     
-    // 스트리밍 서버 시작
+    // 스트리밍 서버 시작 (하나라도 준비되면 즉시 시작)
     std::cout << "\n[스트리밍 서버 시작]" << std::endl;
-    streaming_manager = new StreamingManager();
-    if (!streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
-        std::cerr << "  ✗ 스트리밍 서버 초기화 실패" << std::endl;
+    
+    // 준비된 카메라 확인
+    bool rgb_ready = camera_manager->is_rgb_ready();
+    bool thermal_ready = camera_manager->is_thermal_ready();
+    
+    if (!rgb_ready && !thermal_ready) {
+        std::cerr << "  ✗ 스트리밍할 카메라가 없습니다" << std::endl;
         is_running = false;
     } else {
-        streaming_manager->start();
+        streaming_manager = new StreamingManager();
+        if (!streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
+            std::cerr << "  ✗ 스트리밍 서버 초기화 실패" << std::endl;
+            is_running = false;
+        } else {
+            streaming_manager->start();
+            
+            std::string rtsp_url = streaming_manager->getRTSPUrl();
+            std::string http_url = streaming_manager->getHTTPUrl();
+            
+            std::cout << "\n" << std::string(60, '=') << std::endl;
+            std::cout << "  ✓ RTSP 서버 시작됨" << std::endl;
+            if (ENABLE_HTTP_SERVER && !http_url.empty()) {
+                std::cout << "  ✓ HTTP 웹 서버 시작됨" << std::endl;
+            }
+            std::cout << "  → 준비된 데이터: ";
+            if (rgb_ready) std::cout << "RGB ";
+            if (thermal_ready) std::cout << "열화상 ";
+            std::cout << std::endl;
+            std::cout << std::string(60, '=') << std::endl;
+            std::cout << "\n  ★ RTSP URL: " << rtsp_url << std::endl;
+            if (!http_url.empty()) {
+                std::cout << "  ★ HTTP URL: " << http_url << std::endl;
+            }
+            std::cout << "  ★ FPS: " << OUTPUT_FPS << std::endl;
+            std::cout << "\n" << std::string(60, '-') << std::endl;
+            std::cout << "  QGC: RTSP URL → " << rtsp_url << std::endl;
+            std::cout << "  VLC: vlc " << rtsp_url << std::endl;
+            if (!http_url.empty()) {
+                std::cout << "  웹 브라우저: " << http_url << std::endl;
+            }
+            std::cout << std::string(60, '=') << std::endl;
+        }
     }
     
-    std::string rtsp_url = streaming_manager->getRTSPUrl();
-    std::string http_url = streaming_manager->getHTTPUrl();
-    
-    std::cout << "\n" << std::string(60, '=') << std::endl;
-    std::cout << "  ✓ RTSP 서버 시작됨" << std::endl;
-    if (ENABLE_HTTP_SERVER && !http_url.empty()) {
-        std::cout << "  ✓ HTTP 웹 서버 시작됨" << std::endl;
-    }
-    std::cout << std::string(60, '=') << std::endl;
-    std::cout << "\n  ★ RTSP URL: " << rtsp_url << std::endl;
-    if (!http_url.empty()) {
-        std::cout << "  ★ HTTP URL: " << http_url << std::endl;
-    }
-    std::cout << "  ★ FPS: " << OUTPUT_FPS << std::endl;
-    std::cout << "\n" << std::string(60, '-') << std::endl;
-    std::cout << "  QGC: RTSP URL → " << rtsp_url << std::endl;
-    std::cout << "  VLC: vlc " << rtsp_url << std::endl;
-    if (!http_url.empty()) {
-        std::cout << "  웹 브라우저: " << http_url << std::endl;
-    }
-    std::cout << std::string(60, '=') << std::endl;
     std::cout << "\n대기 중... (Ctrl+C: 종료)\n" << std::endl;
     
     // 메인 루프
     while (is_running) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+#ifdef ENABLE_ROS2
+        // ROS2 구독자 스핀 (상태 업데이트 - 상태바에 실시간 반영)
+        // status_ros2_subscriber->spin()은 내부적으로 rclcpp::spin_some을 호출하므로
+        // 다른 곳에서 같은 노드에 대해 spin을 호출하지 않도록 주의
+        if (status_ros2_subscriber && ros2_node) {
+            status_ros2_subscriber->spin();
+        } else {
+            // ROS2가 활성화되었지만 구독자가 없는 경우 경고 (한 번만)
+            static bool warned_spin = false;
+            if (!warned_spin) {
+                if (!ros2_node) {
+                    std::cerr << "  ⚠ ROS2 노드가 nullptr입니다. 토픽을 수신할 수 없습니다." << std::endl;
+                } else if (!status_ros2_subscriber) {
+                    std::cerr << "  ⚠ ROS2 구독자가 nullptr입니다. 토픽을 수신할 수 없습니다." << std::endl;
+                }
+                warned_spin = true;
+            }
+        }
+        
+        // ROS2 노드 유지 (rclcpp::ok() 체크)
+        if (ros2_node && !rclcpp::ok()) {
+            std::cerr << "  ⚠ ROS2 노드가 종료되었습니다" << std::endl;
+            break;
+        }
+#endif
     }
     
     std::cout << "\n[종료 중...]" << std::endl;
@@ -480,6 +667,10 @@ int main(int argc, char* argv[]) {
         delete thermal_overlay;
         thermal_overlay = nullptr;
     }
+    if (status_overlay) {
+        delete status_overlay;
+        status_overlay = nullptr;
+    }
     if (targeting_compositor) {
         delete targeting_compositor;
         targeting_compositor = nullptr;
@@ -490,9 +681,34 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "  ✓ 스트리밍 서버 리소스 해제 완료" << std::endl;
     
+#ifdef ENABLE_ROS2
+    // ROS2 구독자 해제
+    if (status_ros2_subscriber) {
+        delete status_ros2_subscriber;
+        status_ros2_subscriber = nullptr;
+        std::cout << "  ✓ ROS2 상태 구독자 해제 완료" << std::endl;
+    }
+    if (thermal_ros2_publisher) {
+        delete thermal_ros2_publisher;
+        thermal_ros2_publisher = nullptr;
+    }
+    if (lidar_ros2_publisher) {
+        delete lidar_ros2_publisher;
+        lidar_ros2_publisher = nullptr;
+    }
+#endif
+    
     // 기존 프로세스 정리 (다음 실행을 위해)
     std::cout << "  → 기존 프로세스 정리 중..." << std::endl;
     kill_existing_processes();
+    
+#ifdef ENABLE_ROS2
+    // ROS2 종료
+    if (rclcpp::ok()) {
+        rclcpp::shutdown();
+        std::cout << "  ✓ ROS2 종료 완료" << std::endl;
+    }
+#endif
     
     std::cout << "\n[완료] 모든 리소스 해제 완료" << std::endl;
     

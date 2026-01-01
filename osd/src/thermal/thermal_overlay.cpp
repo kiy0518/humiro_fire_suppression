@@ -118,8 +118,8 @@ void ThermalOverlay::overlayLogo(cv::Mat& frame) {
     try {
         int logo_h = logo_image_.rows;
         int logo_w = logo_image_.cols;
-        int pos_x = LOGO_POS_X;  // 왼쪽 여백
-        int pos_y = frame.rows - logo_h - 5;  // 하단 여백 (5픽셀)
+        int pos_x = frame.cols - logo_w - 5;  // 오른쪽 여백 (5픽셀)
+        int pos_y = 5;  // 상단 여백 (5픽셀)
         
         // 경계 체크
         if (pos_x < 0 || pos_y < 0 || 

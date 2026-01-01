@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <iostream>
 #include <chrono>
+#include <sstream>
+#include <iomanip>
 
 DistanceOverlay::DistanceOverlay()
     : lidar_angle_offset_(0.0f)
@@ -134,18 +136,50 @@ void DistanceOverlay::setLidarData(const std::vector<LidarPoint>& lidar_points) 
             }
         }
         
-        // 평균 거리 계산 및 캐시 업데이트
+        // 메디안 필터 적용: 평균 대신 메디안 사용 (이상치 제거 효과)
         // center_distances가 비어있으면 캐시를 업데이트하지 않음 (마지막 유효한 값 유지)
         // 이렇게 하면 데이터가 일시적으로 없을 때도 깜빡임이 발생하지 않음
         if (!center_distances.empty()) {
-            float avg_distance = 0.0f;
+            // 현재 프레임의 평균 거리 계산
+            float current_avg = 0.0f;
             for (float dist : center_distances) {
-                avg_distance += dist;
+                current_avg += dist;
             }
-            avg_distance /= center_distances.size();
+            current_avg /= center_distances.size();
             
+            // 메디안 필터 적용
             std::lock_guard<std::mutex> lock(distance_cache_mutex_);
-            cached_center_distance_ = avg_distance;
+            
+            // 히스토리에 현재 값 추가
+            distance_history_.push_back(current_avg);
+            
+            // 히스토리 크기 제한
+            if (distance_history_.size() > MEDIAN_FILTER_SIZE) {
+                distance_history_.erase(distance_history_.begin());
+            }
+            
+            // 메디안 값 계산
+            if (distance_history_.size() >= 3) {
+                // 최소 3개 이상의 값이 있을 때만 메디안 계산
+                std::vector<float> sorted_history = distance_history_;
+                std::sort(sorted_history.begin(), sorted_history.end());
+                
+                size_t size = sorted_history.size();
+                if (size % 2 == 0) {
+                    // 짝수 개: 중간 두 값의 평균
+                    cached_center_distance_ = (sorted_history[size / 2 - 1] + sorted_history[size / 2]) / 2.0f;
+                } else {
+                    // 홀수 개: 중간 값
+                    cached_center_distance_ = sorted_history[size / 2];
+                }
+            } else {
+                // 값이 부족하면 평균 사용
+                float sum = 0.0f;
+                for (float dist : distance_history_) {
+                    sum += dist;
+                }
+                cached_center_distance_ = sum / distance_history_.size();
+            }
         }
         // else: center_distances가 비어있으면 캐시를 업데이트하지 않아
         //       마지막 유효한 값이 계속 유지됨 (깜빡임 방지)
@@ -223,9 +257,9 @@ void DistanceOverlay::drawMinimap(cv::Mat& frame, const std::vector<LidarPoint>&
     const int MINIMAP_MARGIN = 10;  // 프레임 가장자리 여백
     const float BACKGROUND_ALPHA = 0.7f;  // 배경 투명도
 
-    // 미니맵 중심 위치 계산 (오른쪽 상단)
+    // 미니맵 중심 위치 계산 (오른쪽 하단)
     int minimap_center_x = frame.cols - MINIMAP_MARGIN - MINIMAP_RADIUS;
-    int minimap_center_y = MINIMAP_MARGIN + MINIMAP_RADIUS;
+    int minimap_center_y = frame.rows - MINIMAP_MARGIN - MINIMAP_RADIUS;
 
     // 미니맵 영역이 프레임을 벗어나지 않도록 체크
     if (minimap_center_x < MINIMAP_RADIUS || minimap_center_y < MINIMAP_RADIUS ||
@@ -325,10 +359,86 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
     
     // 유효한 거리 값이 있으면 표시
     if (center_distance > 0.0f) {
-        std::string dist_text = std::to_string(center_distance).substr(0, 4) + "m";
+        // 소수점 아래 2자리로 포맷팅
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(2) << center_distance;
+        std::string dist_text = oss.str() + "m";
         cv::Scalar text_color = getLidarColor(center_distance);
-        cv::putText(frame, dist_text, cv::Point(center_x - 30, 30),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.7, text_color, 2);
+        
+        // 텍스트 크기 및 위치 설정
+        double font_scale = 1.2;  // 글자 크기 증가 (0.7 → 1.2)
+        int thickness = 2;
+        int baseline = 0;
+        cv::Size text_size = cv::getTextSize(dist_text, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
+        
+        // 하단 중앙 위치 계산
+        int text_x = center_x - text_size.width / 2;
+        int text_y = frame.rows - 20;  // 하단 여백 20픽셀 (베이스라인 위치)
+        
+        // 텍스트 위치를 5픽셀 위로 조정
+        text_y -= 5;
+        
+        // 진회색 배경 그리기 (텍스트 주변에 패딩 추가 - 배경 크기 증가)
+        int padding = 15;  // 10 → 15로 증가
+        // 텍스트의 실제 위치: text_y는 베이스라인, 텍스트는 text_y - text_size.height부터 시작
+        int bg_x = text_x - padding;
+        int bg_y = text_y - text_size.height - baseline - padding;  // 텍스트 상단부터 배경 시작
+        int bg_width = text_size.width + padding * 2;
+        int bg_height = text_size.height + baseline + padding * 2;  // 텍스트 높이 + baseline + 패딩
+        
+        // 배경 영역이 프레임 범위 내인지 확인 및 조정
+        if (bg_x < 0) {
+            bg_width += bg_x;  // 너비 조정
+            bg_x = 0;
+        }
+        if (bg_y < 0) {
+            bg_height += bg_y;  // 높이 조정
+            bg_y = 0;
+        }
+        if (bg_x + bg_width > frame.cols) {
+            bg_width = frame.cols - bg_x;
+        }
+        if (bg_y + bg_height > frame.rows) {
+            bg_height = frame.rows - bg_y;
+        }
+        
+        // 배경 그리기 (텍스트보다 먼저 그려야 함) - 둥근 모서리
+        if (bg_width > 0 && bg_height > 0) {
+            // 진회색 배경 (BGR: 34, 34, 34)
+            cv::Scalar dark_gray(34, 34, 34);
+            int corner_radius = 3;  // 둥근 모서리 반경
+            
+            // 둥근 모서리 사각형 그리기
+            // OpenCV 4.5.0+ 버전에서는 cv::RoundedRectangle 사용 가능
+            // 호환성을 위해 직접 그리기
+            cv::Rect bg_rect(bg_x, bg_y, bg_width, bg_height);
+            
+            // 중앙 사각형 영역 채우기
+            cv::Rect inner_rect(bg_x + corner_radius, bg_y, 
+                               bg_width - corner_radius * 2, bg_height);
+            cv::rectangle(frame, inner_rect, dark_gray, -1);
+            
+            // 상단/하단 가로 영역 채우기
+            cv::Rect top_rect(bg_x, bg_y + corner_radius, 
+                             bg_width, bg_height - corner_radius * 2);
+            cv::rectangle(frame, top_rect, dark_gray, -1);
+            
+            // 네 모서리에 원 그리기 (둥근 모서리 효과)
+            cv::Point corners[4] = {
+                cv::Point(bg_x + corner_radius, bg_y + corner_radius),  // 좌상
+                cv::Point(bg_x + bg_width - corner_radius, bg_y + corner_radius),  // 우상
+                cv::Point(bg_x + corner_radius, bg_y + bg_height - corner_radius),  // 좌하
+                cv::Point(bg_x + bg_width - corner_radius, bg_y + bg_height - corner_radius)  // 우하
+            };
+            
+            for (int i = 0; i < 4; i++) {
+                cv::circle(frame, corners[i], corner_radius, dark_gray, -1);
+            }
+        }
+        
+        // 텍스트 그리기 (배경 위에, 고딕체)
+        cv::putText(frame, dist_text, cv::Point(text_x, text_y),
+                   cv::FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, cv::LINE_AA);
     }
 }
 
