@@ -49,4 +49,20 @@ void TargetingFrameCompositor::setLidarOrientation(float offset_degrees) {
     }
 }
 
+void TargetingFrameCompositor::setShowLidarPoints(bool show) {
+    if (distance_overlay_) {
+        distance_overlay_->setShowLidarPoints(show);
+    }
+}
 
+void TargetingFrameCompositor::setPointDecayRate(float decay) {
+    if (distance_overlay_) {
+        distance_overlay_->setPointDecayRate(decay);
+    }
+}
+
+void TargetingFrameCompositor::setPointMinConfidence(float threshold) {
+    if (distance_overlay_) {
+        distance_overlay_->setPointMinConfidence(threshold);
+    }
+}

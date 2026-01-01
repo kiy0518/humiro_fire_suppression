@@ -323,7 +323,14 @@ int main(int argc, char* argv[]) {
     camera_manager = new CameraManager();
     if (!camera_manager->initialize()) {
         std::cerr << "카메라 초기화 실패" << std::endl;
-        delete camera_manager;
+        // 카메라 초기화 실패 시에도 리소스 정리
+        if (camera_manager) {
+            delete camera_manager;
+            camera_manager = nullptr;
+        }
+        // 카메라 디바이스 해제 대기 (다른 프로세스가 사용할 수 있도록)
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::cerr << "프로그램을 종료합니다. 카메라 상태를 확인해주세요." << std::endl;
         return 1;
     }
     std::cout << "  ✓ 출력: " << OUTPUT_WIDTH << "x" << OUTPUT_HEIGHT 
@@ -333,19 +340,10 @@ int main(int argc, char* argv[]) {
     thermal_processor = new ThermalProcessor();
     
     // 기본 오버레이 (열화상 레이어, 로고)
-        thermal_overlay = new ThermalOverlay();
+    thermal_overlay = new ThermalOverlay();
     
     // 타겟팅 프레임 합성 (조준, 라이다, hotspot)
     targeting_compositor = new TargetingFrameCompositor();
-    
-#ifdef ENABLE_ROS2
-    // ROS2 발행자 초기화
-    if (ros2_node) {
-        thermal_ros2_publisher = new ThermalROS2Publisher(ros2_node);
-        lidar_ros2_publisher = new LidarROS2Publisher(ros2_node);
-        std::cout << "  ✓ ROS2 토픽 발행 활성화" << std::endl;
-    }
-#endif
     
 #ifdef ENABLE_ROS2
     // ROS2 발행자 초기화

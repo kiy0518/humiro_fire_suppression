@@ -45,25 +45,13 @@ void HotspotTracker::trackAndDraw(cv::Mat& frame, const ThermalData& data) {
 }
 
 void HotspotTracker::drawTrackingHistory(cv::Mat& frame) {
+    // 추적 경로 선 그리기 제거 (사용자 요청)
+    // 히스토리는 유지하되 화면에 선을 그리지 않음
     if (history_.size() < 2) {
         return;
     }
     
-    // 추적 경로 그리기 (최근 10개만)
-    size_t start_idx = (history_.size() > 10) ? history_.size() - 10 : 0;
-    
-    for (size_t i = start_idx; i < history_.size() - 1; i++) {
-        const auto& p1 = history_[i];
-        const auto& p2 = history_[i + 1];
-        
-        // 시간에 따른 색상 변화 (최근일수록 밝게)
-        float ratio = static_cast<float>(i - start_idx) / (history_.size() - start_idx - 1);
-        int alpha = static_cast<int>(255 * (1.0f - ratio * 0.5f));  // 255 → 127
-        
-        cv::line(frame, 
-                cv::Point(p1.x, p1.y), 
-                cv::Point(p2.x, p2.y),
-                cv::Scalar(0, alpha, alpha), 2, cv::LINE_AA);
-    }
+    // 선 그리기 코드 제거됨
+    // 히스토리 데이터는 유지 (필요시 다른 용도로 사용 가능)
 }
 

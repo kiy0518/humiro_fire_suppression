@@ -40,7 +40,24 @@ public:
      */
     void setLidarOrientation(float offset_degrees);
     
-    
+    /**
+     * LiDAR 포인트 표시 ON/OFF
+     * @param show true: 포인트 표시, false: 포인트 숨김 (기본값)
+     */
+    void setShowLidarPoints(bool show);
+
+    /**
+     * 포인트 페이드아웃 속도 설정
+     * @param decay 신뢰도 감소율 (0.0~1.0, 작을수록 빠르게 사라짐)
+     */
+    void setPointDecayRate(float decay);
+
+    /**
+     * 포인트 제거 임계값 설정
+     * @param threshold 최소 신뢰도 (0.0~1.0, 클수록 빠르게 제거)
+     */
+    void setPointMinConfidence(float threshold);
+
 private:
     DistanceOverlay* distance_overlay_;
     AimIndicator* aim_indicator_;
@@ -48,4 +65,3 @@ private:
 };
 
 #endif // TARGETING_FRAME_COMPOSITOR_H
-

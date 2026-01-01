@@ -207,9 +207,26 @@ bool CameraManager::find_thermal_camera() {
               << " (" << thermal_cameras[0].name << ")" << std::endl;
     
     // 열화상 카메라 초기화
+    // 다른 프로세스가 사용 중인지 확인
+    std::string device_path = thermal_cameras[0].device;
+    std::string check_cmd = "lsof " + device_path + " 2>/dev/null";
+    FILE* pipe = popen(check_cmd.c_str(), "r");
+    if (pipe) {
+        char buffer[256];
+        if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+            std::cout << "    ⚠ 경고: " << device_path << "가 다른 프로세스에서 사용 중일 수 있습니다" << std::endl;
+        }
+        pclose(pipe);
+    }
+    
     cap_thermal_.open(thermal_camera_id_, cv::CAP_V4L2);
     if (!cap_thermal_.isOpened()) {
         std::cout << "    ✗ 열화상 카메라 열기 실패" << std::endl;
+        std::cout << "    → 가능한 원인:" << std::endl;
+        std::cout << "      1. 다른 프로세스가 카메라를 사용 중" << std::endl;
+        std::cout << "      2. 카메라 디바이스 권한 문제 (sudo 필요할 수 있음)" << std::endl;
+        std::cout << "      3. 카메라 하드웨어 문제" << std::endl;
+        std::cout << "    → 확인 명령어: lsof " << device_path << std::endl;
         return false;
     }
     

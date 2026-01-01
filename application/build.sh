@@ -48,6 +48,31 @@ echo ""
 
 # 클린 수행
 if [ "$CLEAN_BUILD" = true ] || [ "$CLEAN_ONLY" = true ]; then
+    echo "[클린] 기존 프로세스 종료 중..."
+    # 실행 중인 humiro_fire_suppression 프로세스 종료
+    EXEC_NAME="humiro_fire_suppression"
+    PIDS=$(pgrep -f "$EXEC_NAME" 2>/dev/null || true)
+    if [ -n "$PIDS" ]; then
+        echo "  → 실행 중인 프로세스 발견: $PIDS"
+        for PID in $PIDS; do
+            if [ "$PID" != "$$" ]; then  # 자기 자신 제외
+                echo "    → 프로세스 종료: PID $PID"
+                kill -TERM "$PID" 2>/dev/null || true
+                sleep 0.5
+                # 강제 종료 (여전히 실행 중이면)
+                if kill -0 "$PID" 2>/dev/null; then
+                    echo "    → 강제 종료: PID $PID"
+                    kill -KILL "$PID" 2>/dev/null || true
+                fi
+            fi
+        done
+        sleep 1
+        echo "  ✓ 프로세스 종료 완료"
+    else
+        echo "  ✓ 실행 중인 프로세스 없음"
+    fi
+    echo ""
+    
     echo "[클린] 기존 빌드 제거 중..."
     rm -rf "$PROJECT_ROOT/thermal/src/build"
     rm -rf "$PROJECT_ROOT/osd/src/build"
