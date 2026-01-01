@@ -83,6 +83,8 @@ streaming/src/ (라이브러리로 변경, streaming_lib)
 - 핫스팟 자동 감지 (`thermal_processor.cpp`) ✅
 - RGB+Thermal 영상 정합 (`frame_compositor.cpp`) ✅
 - RTSP/HTTP 스트리밍 ✅
+- **개선 예정**: 비동기식 스트리밍 (준비되는 데이터부터 즉시 전송) ⏳
+  - 참조: `work-plan/STREAMING_PLAN.md`
 
 **핵심 코드**:
 ```cpp
