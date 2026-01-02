@@ -50,12 +50,16 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     std::cout << "  → ROS2 네임스페이스: " << node_->get_namespace() << std::endl;
     
     // PX4 uXRCE-DDS QoS 설정
-    // PX4는 일반적으로 BEST_EFFORT를 사용하므로 구독자도 BEST_EFFORT로 설정
-    rclcpp::QoS px4_qos(10);
+    // PX4는 BEST_EFFORT와 TRANSIENT_LOCAL을 사용하므로 구독자도 동일하게 설정
+    // History depth를 더 크게 설정 (배터리/GPS 메시지의 payload size 문제 해결)
+    // PX4는 UNKNOWN이지만, 구독자는 명시적으로 설정 필요
+    // 배터리 메시지의 payload size 에러를 방지하기 위해 depth를 증가
+    rclcpp::QoS px4_qos(100);  // depth를 10에서 100으로 증가 (payload size 문제 해결)
     px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
-    px4_qos.durability(rclcpp::DurabilityPolicy::Volatile);
+    px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);  // PX4 Publisher와 일치
+    px4_qos.history(rclcpp::HistoryPolicy::KeepLast);  // 명시적으로 설정
     
-    std::cout << "  [DEBUG] QoS 설정: Reliability=BestEffort, Durability=Volatile, Depth=10" << std::endl;
+    std::cout << "  [DEBUG] QoS 설정: Reliability=BestEffort, Durability=TransientLocal, History=KeepLast, Depth=10" << std::endl;
     
     // PX4 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_status_v1)
     // PX4 v1.14+에서는 vehicle_status_v1 토픽 사용
@@ -72,17 +76,28 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     }
     
     // 배터리 상태 구독 (uXRCE-DDS: /fmu/out/battery_status)
-    battery_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
-        "/fmu/out/battery_status", px4_qos,
-        std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /fmu/out/battery_status (uXRCE-DDS, BestEffort QoS)" << std::endl;
+    try {
+        battery_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
+            "/fmu/out/battery_status", px4_qos,
+            std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
+        std::cout << "  ✓ ROS2 구독: /fmu/out/battery_status (uXRCE-DDS, BestEffort QoS)" << std::endl;
+        std::cout << "    [DEBUG] 구독자 생성 완료: battery_sub_=" << (battery_sub_ ? "OK" : "NULL") << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ 배터리 구독자 생성 실패: " << e.what() << std::endl;
+    }
     
     // GPS 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_gps_position)
     // 실제 메시지 타입은 px4_msgs/msg/SensorGps
-    gps_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
-        "/fmu/out/vehicle_gps_position", px4_qos,
-        std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_gps_position (uXRCE-DDS, SensorGps, BestEffort QoS)" << std::endl;
+    try {
+        gps_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
+            "/fmu/out/vehicle_gps_position", px4_qos,
+            std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
+        std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_gps_position (uXRCE-DDS, SensorGps, BestEffort QoS)" << std::endl;
+        std::cout << "    [DEBUG] 구독자 생성 완료: gps_sub_=" << (gps_sub_ ? "OK" : "NULL") << std::endl;
+        std::cout << "    ⚠ 토픽 수신 대기 중... (PX4가 연결되고 GPS/배터리 데이터를 발행하면 자동으로 수신됩니다)" << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ GPS 구독자 생성 실패: " << e.what() << std::endl;
+    }
     
     // OFFBOARD 모드 상태 구독 (/offboard/status) - VIM4 커스텀 토픽
     offboard_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
@@ -242,54 +257,146 @@ void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleSta
 }
 
 void StatusROS2Subscriber::batteryCallback(const px4_msgs::msg::BatteryStatus::SharedPtr msg) {
+    // 디버깅: 콜백 호출 확인 (항상 출력)
+    static int callback_count = 0;
+    callback_count++;
+    
     if (!status_overlay_) {
+        std::cerr << "  ⚠ batteryCallback: status_overlay_가 nullptr입니다" << std::endl;
+        return;
+    }
+    
+    if (!msg) {
+        std::cerr << "  ⚠ batteryCallback: msg가 nullptr입니다" << std::endl;
         return;
     }
     
     // 배터리 퍼센트 계산 (remaining은 0.0 ~ 1.0)
-    int percentage = static_cast<int>(msg->remaining * 100.0);
+    // remaining이 유효한 값인지 확인 (invalid 값은 -1.0)
+    float remaining = msg->remaining;
+    if (remaining < 0.0f || remaining > 1.0f) {
+        // 유효하지 않은 값이면 voltage 기반으로 추정
+        // 일반적으로 4S 배터리는 16.8V (100%) ~ 14.0V (0%)
+        if (msg->voltage_v > 0.0f) {
+            float voltage = msg->voltage_v;
+            if (voltage >= 16.8f) {
+                remaining = 1.0f;
+            } else if (voltage <= 14.0f) {
+                remaining = 0.0f;
+            } else {
+                remaining = (voltage - 14.0f) / (16.8f - 14.0f);
+            }
+        } else {
+            return;  // voltage도 유효하지 않으면 업데이트하지 않음
+        }
+    }
+    
+    int percentage = static_cast<int>(remaining * 100.0f);
     if (percentage < 0) percentage = 0;
     if (percentage > 100) percentage = 100;
+    
+    // 첫 수신 확인 (항상 출력)
+    static bool first_received = false;
+    if (!first_received) {
+        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/battery_status 첫 메시지 수신!" << std::endl;
+        std::cout << "    [DEBUG] 메시지 필드 확인:" << std::endl;
+        std::cout << "      - voltage_v: " << msg->voltage_v << std::endl;
+        std::cout << "      - current_a: " << msg->current_a << std::endl;
+        std::cout << "      - remaining: " << msg->remaining << std::endl;
+        std::cout << "      - connected: " << (msg->connected ? "true" : "false") << std::endl;
+        std::cout << "    → 배터리: " << percentage << "% (voltage: " << msg->voltage_v 
+                  << "V, remaining: " << remaining << ")" << std::endl;
+        first_received = true;
+    }
     
     // StatusOverlay 업데이트 (상태바에 즉시 반영)
     status_overlay_->setBattery(percentage);
     
-    // 디버깅: 주기적으로 출력 (10초마다)
+    // 디버깅: 주기적으로 출력 (5초마다)
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
         now - last_battery_update_).count();
-    if (elapsed >= 10) {
+    if (elapsed >= 5) {
         std::cout << "  [배터리 업데이트] " << percentage << "% (voltage: " << msg->voltage_v 
-                  << "V, current: " << msg->current_a << "A)" << std::endl;
+                  << "V, current: " << msg->current_a << "A, remaining: " << remaining 
+                  << ", 콜백 호출: " << callback_count << "회)" << std::endl;
         last_battery_update_ = now;
     }
 }
 
 void StatusROS2Subscriber::gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg) {
-    if (!status_overlay_) {
+    // 디버깅: 콜백 호출 확인 (항상 출력)
+    static int callback_count = 0;
+    callback_count++;
+    
+    try {
+        if (!status_overlay_) {
+            std::cerr << "  ⚠ gpsCallback: status_overlay_가 nullptr입니다" << std::endl;
+            return;
+        }
+        
+        if (!msg) {
+            std::cerr << "  ⚠ gpsCallback: msg가 nullptr입니다" << std::endl;
+            return;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ gpsCallback 예외 (초기 검사): " << e.what() << std::endl;
         return;
     }
     
-    // GPS 위성 수 가져오기 (SensorGps 메시지 필드 확인 필요)
-    // SensorGps는 satellites_used 필드를 사용
-    int satellites = static_cast<int>(msg->satellites_used);
-    if (satellites < 0) satellites = 0;
-    if (satellites > 20) satellites = 20;  // 최대값 제한
+    // 첫 수신 확인 (항상 출력)
+    static bool first_received = false;
+    if (!first_received) {
+        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_gps_position 첫 메시지 수신!" << std::endl;
+        std::cout << "    [DEBUG] 메시지 필드 확인:" << std::endl;
+        std::cout << "      - latitude_deg: " << msg->latitude_deg << std::endl;
+        std::cout << "      - longitude_deg: " << msg->longitude_deg << std::endl;
+        std::cout << "      - fix_type: " << (int)msg->fix_type << std::endl;
+        std::cout << "      - satellites_used: " << (int)msg->satellites_used << std::endl;
+        std::cout << "      - hdop: " << msg->hdop << std::endl;
+        first_received = true;
+    }
+    
+    // GPS 위성 수 가져오기 (예외 처리)
+    int satellites = 0;
+    float hdop = 0.0f;
+    try {
+        satellites = static_cast<int>(msg->satellites_used);
+        if (satellites < 0) satellites = 0;
+        if (satellites > 20) satellites = 20;  // 최대값 제한
+        
+        // HDOP 값 가져오기
+        hdop = msg->hdop;
+        if (hdop < 0.0f) hdop = 0.0f;
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ gpsCallback 예외 (필드 접근): " << e.what() << std::endl;
+        return;
+    }
     
     // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    status_overlay_->setGpsSatellites(satellites);
+    try {
+        status_overlay_->setGpsInfo(satellites, hdop);
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ gpsCallback 예외 (StatusOverlay 업데이트): " << e.what() << std::endl;
+        return;
+    }
     
-    // 디버깅: 주기적으로 출력 (10초마다)
+    // 디버깅: 주기적으로 출력 (5초마다)
     auto now = std::chrono::steady_clock::now();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
         now - last_gps_update_).count();
-    if (elapsed >= 10) {
-        // GPS 상태 출력 (SensorGps 필드 확인 필요)
-        double lat = static_cast<double>(msg->latitude_deg);
-        double lon = static_cast<double>(msg->longitude_deg);
-        std::cout << "  [GPS 업데이트] 위도: " << lat << ", 경도: " << lon 
-                  << ", 위성: " << satellites << ", fix_type: " << (int)msg->fix_type << std::endl;
-        last_gps_update_ = now;
+    if (elapsed >= 5) {
+        try {
+            double lat = static_cast<double>(msg->latitude_deg);
+            double lon = static_cast<double>(msg->longitude_deg);
+            std::cout << "  [GPS 업데이트] 위도: " << lat << ", 경도: " << lon 
+                      << ", 위성: " << satellites << ", HDOP: " << hdop 
+                      << ", fix_type: " << (int)msg->fix_type 
+                      << " (콜백 호출: " << callback_count << "회)" << std::endl;
+            last_gps_update_ = now;
+        } catch (const std::exception& e) {
+            std::cerr << "  ✗ gpsCallback 예외 (주기적 출력): " << e.what() << std::endl;
+        }
     }
 }
 
