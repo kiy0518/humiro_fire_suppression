@@ -15,6 +15,12 @@
 #define THERMAL_CAMERA_KEYWORDS {"purethermal", "thermal", "lepton", "flir"}
 #define MAX_THERMAL_KEYWORDS 4
 
+// Lepton 3.5 Gain Mode 설정
+// 0 = HIGH_GAIN: -10°C ~ 140°C (높은 정밀도, 낮은 온도 범위)
+// 1 = LOW_GAIN: -10°C ~ 400°C (낮은 정밀도, 높은 온도 범위, 실온 기준)
+//                -10°C ~ 450°C (일반적)
+#define LEPTON_GAIN_MODE 0  // 0 = HIGH_GAIN, 1 = LOW_GAIN
+
 // 출력 해상도
 #define OUTPUT_WIDTH 640
 #define OUTPUT_HEIGHT 480

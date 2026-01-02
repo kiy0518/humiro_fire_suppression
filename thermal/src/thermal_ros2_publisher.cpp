@@ -25,14 +25,14 @@ void ThermalROS2Publisher::publishThermalData(const ThermalData& thermal_data) {
         return;
     }
     
-    // 최대 온도 발행
+    // 최대 온도 발행 (섭씨 온도)
     std_msgs::msg::Float32 max_temp_msg;
-    max_temp_msg.data = thermal_data.max_val;
+    max_temp_msg.data = thermal_data.max_temp_celsius;
     max_temp_pub_->publish(max_temp_msg);
     
-    // 최소 온도 발행
+    // 최소 온도 발행 (섭씨 온도)
     std_msgs::msg::Float32 min_temp_msg;
-    min_temp_msg.data = thermal_data.min_val;
+    min_temp_msg.data = thermal_data.min_temp_celsius;
     min_temp_pub_->publish(min_temp_msg);
     
     // 중심점 발행

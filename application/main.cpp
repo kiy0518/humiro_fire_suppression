@@ -326,13 +326,14 @@ void composite_thread() {
                 output = thermal_resized.clone();
             }
         } else {
-            // 둘 다 없으면 플레이스홀더 생성
+            // 둘 다 없으면 검은 배경 생성 (OSD 정보 표시용)
             output = cv::Mat(OUTPUT_HEIGHT, OUTPUT_WIDTH, CV_8UC3, cv::Scalar(0, 0, 0));
             
             // 준비 상태에 따라 메시지 결정
             bool rgb_ready = camera_manager && camera_manager->is_rgb_ready();
             bool thermal_ready = camera_manager && camera_manager->is_thermal_ready();
             
+            // 중앙에 로딩 메시지 표시
             if (!rgb_ready && !thermal_ready) {
                 drawPlaceholder(output, "카메라 초기화 중...");
             } else if (!rgb_ready) {
@@ -342,6 +343,7 @@ void composite_thread() {
             } else {
                 drawPlaceholder(output, "프레임 대기 중...");
             }
+            // OSD 정보는 아래에서 그려짐 (카메라 없어도 상태 정보 표시)
         }
         
         // 열화상 오버레이 (열화상 데이터가 있고 RGB가 있을 때만)
@@ -504,7 +506,7 @@ int main(int argc, char* argv[]) {
     status_overlay->setAmmunition(6, 6);  // 기본값: 총 6발
     status_overlay->setFormation(1, 3);  // 기본값: 삼각편대 (3대)
     status_overlay->setBattery(100);  // 기본값 (테스트용)
-    status_overlay->setGpsSatellites(0);  // 기본값 (ROS2에서 업데이트됨)
+    status_overlay->setGpsInfo(0, 0.0f);  // 기본값 (ROS2에서 업데이트됨)
     
     // 타겟팅 프레임 합성 (조준, 라이다, hotspot)
     targeting_compositor = new TargetingFrameCompositor();
@@ -571,50 +573,52 @@ int main(int argc, char* argv[]) {
         std::cout << "  ✓ x264enc" << std::endl;
     }
     
-    // 스트리밍 서버 시작 (하나라도 준비되면 즉시 시작)
+    // 스트리밍 서버 시작 (카메라 없어도 시작 - OSD 상태 정보 표시용)
     std::cout << "\n[스트리밍 서버 시작]" << std::endl;
     
     // 준비된 카메라 확인
     bool rgb_ready = camera_manager->is_rgb_ready();
     bool thermal_ready = camera_manager->is_thermal_ready();
     
-    if (!rgb_ready && !thermal_ready) {
-        std::cerr << "  ✗ 스트리밍할 카메라가 없습니다" << std::endl;
+    // 카메라가 없어도 스트리밍 서버 시작 (OSD 상태 정보 표시용)
+    streaming_manager = new StreamingManager();
+    if (!streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
+        std::cerr << "  ✗ 스트리밍 서버 초기화 실패" << std::endl;
         is_running = false;
     } else {
-        streaming_manager = new StreamingManager();
-        if (!streaming_manager->initialize(&frame_queue, &web_frame_queue)) {
-            std::cerr << "  ✗ 스트리밍 서버 초기화 실패" << std::endl;
-            is_running = false;
-        } else {
-            streaming_manager->start();
-            
-            std::string rtsp_url = streaming_manager->getRTSPUrl();
-            std::string http_url = streaming_manager->getHTTPUrl();
-            
-            std::cout << "\n" << std::string(60, '=') << std::endl;
-            std::cout << "  ✓ RTSP 서버 시작됨" << std::endl;
-            if (ENABLE_HTTP_SERVER && !http_url.empty()) {
-                std::cout << "  ✓ HTTP 웹 서버 시작됨" << std::endl;
-            }
-            std::cout << "  → 준비된 데이터: ";
-            if (rgb_ready) std::cout << "RGB ";
-            if (thermal_ready) std::cout << "열화상 ";
-            std::cout << std::endl;
-            std::cout << std::string(60, '=') << std::endl;
-            std::cout << "\n  ★ RTSP URL: " << rtsp_url << std::endl;
-            if (!http_url.empty()) {
-                std::cout << "  ★ HTTP URL: " << http_url << std::endl;
-            }
-            std::cout << "  ★ FPS: " << OUTPUT_FPS << std::endl;
-            std::cout << "\n" << std::string(60, '-') << std::endl;
-            std::cout << "  QGC: RTSP URL → " << rtsp_url << std::endl;
-            std::cout << "  VLC: vlc " << rtsp_url << std::endl;
-            if (!http_url.empty()) {
-                std::cout << "  웹 브라우저: " << http_url << std::endl;
-            }
-            std::cout << std::string(60, '=') << std::endl;
+        streaming_manager->start();
+        
+        std::string rtsp_url = streaming_manager->getRTSPUrl();
+        std::string http_url = streaming_manager->getHTTPUrl();
+        
+        std::cout << "\n" << std::string(60, '=') << std::endl;
+        std::cout << "  ✓ RTSP 서버 시작됨" << std::endl;
+        if (ENABLE_HTTP_SERVER && !http_url.empty()) {
+            std::cout << "  ✓ HTTP 웹 서버 시작됨" << std::endl;
         }
+        std::cout << "  → 준비된 데이터: ";
+        if (rgb_ready) std::cout << "RGB ";
+        if (thermal_ready) std::cout << "열화상 ";
+        if (!rgb_ready && !thermal_ready) {
+            std::cout << "없음 (OSD 상태 정보만 표시)";
+        }
+        std::cout << std::endl;
+        std::cout << std::string(60, '=') << std::endl;
+        std::cout << "\n  ★ RTSP URL: " << rtsp_url << std::endl;
+        if (!http_url.empty()) {
+            std::cout << "  ★ HTTP URL: " << http_url << std::endl;
+        }
+        std::cout << "  ★ FPS: " << OUTPUT_FPS << std::endl;
+        std::cout << "\n" << std::string(60, '-') << std::endl;
+        std::cout << "  QGC: RTSP URL → " << rtsp_url << std::endl;
+        std::cout << "  VLC: vlc " << rtsp_url << std::endl;
+        if (!http_url.empty()) {
+            std::cout << "  웹 브라우저: " << http_url << std::endl;
+        }
+        if (!rgb_ready && !thermal_ready) {
+            std::cout << "\n  ⚠ 카메라가 없습니다. OSD 상태 정보만 표시됩니다." << std::endl;
+        }
+        std::cout << std::string(60, '=') << std::endl;
     }
     
     std::cout << "\n대기 중... (Ctrl+C: 종료)\n" << std::endl;

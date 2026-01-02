@@ -73,10 +73,17 @@ public:
     void setBattery(int percentage);
     
     /**
-     * GPS 위성 수 설정
-     * @param count GPS 위성 수
+     * GPS 정보 설정
+     * @param satellites GPS 위성 수
+     * @param hdop HDOP 값 (Horizontal Dilution of Precision)
      */
-    void setGpsSatellites(int count);
+    void setGpsInfo(int satellites, float hdop);
+    
+    /**
+     * 최대 온도 설정
+     * @param temperature 최대 온도 (섭씨)
+     */
+    void setMaxTemperature(double temperature);
     
     /**
      * 상태 오버레이 그리기
@@ -115,10 +122,13 @@ private:
     int formation_total_;
     int battery_percentage_;
     int gps_satellites_;
+    float gps_hdop_;  // GPS HDOP 값
+    double max_temperature_;  // 최대 온도 (섭씨)
     
     // 표시 여부 플래그
     bool show_battery_;
     bool show_gps_;
+    bool show_temperature_;  // 온도 표시 여부
 };
 
 #endif // STATUS_OVERLAY_H

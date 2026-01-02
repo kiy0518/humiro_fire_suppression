@@ -10,8 +10,10 @@ struct ThermalData {
     int hotspot_y = -1;
     int center_x = -1;
     int center_y = -1;
-    double max_val = 0.0;
-    double min_val = 0.0;
+    double max_val = 0.0;      // 최대 픽셀 값 (0~255)
+    double min_val = 0.0;      // 최소 픽셀 값 (0~255)
+    double max_temp_celsius = 0.0;  // 최대 온도 (섭씨)
+    double min_temp_celsius = 0.0;  // 최소 온도 (섭씨)
     double distance = 0.0;
     cv::Vec3b color = cv::Vec3b(255, 255, 255);
     cv::Vec3b max_color = cv::Vec3b(0, 0, 255);
@@ -32,6 +34,8 @@ struct ThermalData {
           center_y(other.center_y),
           max_val(other.max_val),
           min_val(other.min_val),
+          max_temp_celsius(other.max_temp_celsius),
+          min_temp_celsius(other.min_temp_celsius),
           distance(other.distance),
           color(other.color),
           max_color(other.max_color),

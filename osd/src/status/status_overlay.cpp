@@ -2,6 +2,7 @@
 #include "../../thermal/src/config.h"
 #include <sstream>
 #include <algorithm>
+#include <iomanip>
 
 StatusOverlay::StatusOverlay()
     : current_status_(DroneStatus::IDLE)
@@ -16,8 +17,11 @@ StatusOverlay::StatusOverlay()
     , formation_total_(3)  // 기본 삼각편대
     , battery_percentage_(-1)
     , gps_satellites_(-1)
+    , gps_hdop_(-1.0f)
+    , max_temperature_(-1.0)
     , show_battery_(false)
     , show_gps_(false)
+    , show_temperature_(false)
 {
 }
 
@@ -105,10 +109,17 @@ void StatusOverlay::setBattery(int percentage) {
     show_battery_ = (percentage >= 0);
 }
 
-void StatusOverlay::setGpsSatellites(int count) {
+void StatusOverlay::setGpsInfo(int satellites, float hdop) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    gps_satellites_ = count;
-    show_gps_ = (count >= 0);
+    gps_satellites_ = satellites;
+    gps_hdop_ = hdop;
+    show_gps_ = (satellites >= 0 && hdop >= 0.0f);
+}
+
+void StatusOverlay::setMaxTemperature(double temperature) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    max_temperature_ = temperature;
+    show_temperature_ = (temperature >= 0.0);
 }
 
 StatusOverlay::DroneStatus StatusOverlay::convertPx4ModeToStatus(const std::string& px4_mode, bool is_armed) {
@@ -334,18 +345,21 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 ammo_color, FONT_THICKNESS, cv::LINE_AA);
     current_x += ammo_size.width + ITEM_SPACING;
     
-    // 4. GPS (아이콘 + 값, 선택적)
+    // 4. GPS (아이콘 + 값, 선택적) - 형식: G:위성수(hdop)
     if (show_gps_) {
         std::string gps_icon = "G";
         std::ostringstream gps_oss;
         gps_oss << gps_icon << ":" << gps_satellites_;
+        if (gps_hdop_ >= 0.0f) {
+            gps_oss << "(" << std::fixed << std::setprecision(1) << gps_hdop_ << ")";
+        }
         cv::Scalar gps_color = TEXT_COLOR;
-        if (gps_satellites_ >= 6) {
-            gps_color = cv::Scalar(0, 255, 0);  // 초록색
-        } else if (gps_satellites_ >= 3) {
-            gps_color = cv::Scalar(0, 255, 255);  // 노란색
+        if (gps_satellites_ >= 6 && gps_hdop_ < 2.0f) {
+            gps_color = cv::Scalar(0, 255, 0);  // 초록색 (좋은 신호)
+        } else if (gps_satellites_ >= 3 && gps_hdop_ < 5.0f) {
+            gps_color = cv::Scalar(0, 255, 255);  // 노란색 (보통)
         } else {
-            gps_color = cv::Scalar(0, 0, 255);  // 빨간색
+            gps_color = cv::Scalar(0, 0, 255);  // 빨간색 (나쁨)
         }
         cv::Size gps_size = cv::getTextSize(gps_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
         cv::putText(frame, gps_oss.str(),
@@ -390,17 +404,54 @@ void StatusOverlay::draw(cv::Mat& frame) {
         current_x += form_size.width + ITEM_SPACING;
     }
     
-    // 7. 상태 (마지막)
+    // 7. 상태 (마지막) - 라운드 사각형 배경 추가 (기체 번호와 동일한 스타일)
     // OFFBOARD 모드 + VIM4 커스텀 상태면 초록색, 그 외(일반 모드)면 흰색
     std::string status_text = getStatusText(current_status_);
+    cv::Size status_size = cv::getTextSize(status_text, FONT_FACE, 
+                                           FONT_SCALE, FONT_THICKNESS, &baseline);
+    
+    // 라운드 사각형 배경 크기 계산 (기체 번호와 동일한 스타일)
+    const int status_padding = 6;
+    const int status_corner_radius = 4;
+    int status_bg_width = status_size.width + status_padding * 2;
+    int status_bg_height = status_size.height + status_padding * 2;
+    int status_bg_x = current_x;
+    int status_bg_y = y;
+    
+    // 라운드 사각형 배경 그리기 (기체 번호와 동일한 스타일)
+    cv::Scalar status_bg_color(50, 50, 50);  // 어두운 회색 배경 (기체 번호와 동일)
+    // 중앙 사각형
+    cv::Rect status_center_rect(status_bg_x + status_corner_radius, status_bg_y, 
+                                status_bg_width - 2 * status_corner_radius, status_bg_height);
+    cv::rectangle(frame, status_center_rect, status_bg_color, -1);
+    // 좌측/우측 세로 영역
+    cv::Rect status_left_rect(status_bg_x, status_bg_y + status_corner_radius, 
+                              status_corner_radius, status_bg_height - 2 * status_corner_radius);
+    cv::rectangle(frame, status_left_rect, status_bg_color, -1);
+    cv::Rect status_right_rect(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_corner_radius, 
+                               status_corner_radius, status_bg_height - 2 * status_corner_radius);
+    cv::rectangle(frame, status_right_rect, status_bg_color, -1);
+    // 네 모서리 원
+    cv::circle(frame, cv::Point(status_bg_x + status_corner_radius, status_bg_y + status_corner_radius), 
+               status_corner_radius, status_bg_color, -1);
+    cv::circle(frame, cv::Point(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_corner_radius), 
+               status_corner_radius, status_bg_color, -1);
+    cv::circle(frame, cv::Point(status_bg_x + status_corner_radius, status_bg_y + status_bg_height - status_corner_radius), 
+               status_corner_radius, status_bg_color, -1);
+    cv::circle(frame, cv::Point(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_bg_height - status_corner_radius), 
+               status_corner_radius, status_bg_color, -1);
+    
+    // 상태 텍스트 색상 결정
     cv::Scalar status_color;
     if (is_offboard_ && is_offboard_custom_status_) {
         status_color = cv::Scalar(0, 255, 0);  // 초록색 (OFFBOARD 모드 + VIM4 커스텀 상태)
     } else {
         status_color = cv::Scalar(255, 255, 255);  // 흰색 (일반 모드 또는 PX4 기본 상태)
     }
+    
+    // 상태 텍스트 그리기
     cv::putText(frame, status_text,
-                cv::Point(current_x, text_y),
+                cv::Point(status_bg_x + status_padding, status_bg_y + status_size.height + status_padding),
                 FONT_FACE, FONT_SCALE, 
                 status_color, FONT_THICKNESS, cv::LINE_AA);
 }

@@ -105,6 +105,76 @@ ros2/
 | 7 | AUTO_LAND | 자동 착륙 모드 |
 | 9 | OFFBOARD | 오프보드 모드 |
 
+### QoS (Quality of Service) 설정
+
+**중요**: PX4 uXRCE-DDS 토픽을 구독할 때는 발행자와 동일한 QoS 설정을 사용해야 합니다.
+
+#### PX4 uXRCE-DDS QoS 설정
+
+PX4 16.0.0 이상에서는 모든 `/fmu/out/*` 토픽이 다음 QoS 설정을 사용합니다:
+
+| QoS 속성 | 값 | 설명 |
+|---------|-----|------|
+| **Reliability** | `BEST_EFFORT` | 최선 노력 전송 (일부 메시지 손실 허용) |
+| **Durability** | `TRANSIENT_LOCAL` | 마지막 발행된 메시지를 유지 (구독자 연결 시 전달) |
+| **History** | `KEEP_LAST` | 마지막 N개 메시지 유지 |
+| **Depth** | `10` | 큐 크기 |
+
+#### 구독자 QoS 설정
+
+VIM4 구독자는 반드시 PX4 발행자와 동일한 QoS를 사용해야 합니다:
+
+```cpp
+// status_ros2_subscriber.cpp
+rclcpp::QoS px4_qos(10);
+px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);  // 중요!
+```
+
+#### QoS 불일치 문제
+
+**증상**:
+- `ros2 topic list`에서는 토픽이 보이지만
+- `ros2 topic echo`로 메시지를 받지 못함
+- 구독자가 메시지를 수신하지 않음
+
+**원인**:
+- Durability 불일치: Publisher는 `TRANSIENT_LOCAL`, Subscriber는 `VOLATILE`
+- ROS2 DDS는 QoS가 일치하지 않으면 구독자와 발행자를 매칭하지 않음
+
+**해결**:
+- 구독자의 Durability를 `TransientLocal`로 변경
+- Reliability도 `BestEffort`로 일치시킴
+
+#### VIM4 커스텀 토픽 QoS
+
+VIM4에서 발행하는 커스텀 토픽은 기본 QoS를 사용합니다:
+
+```cpp
+// 기본 QoS (Reliable, Volatile)
+rclcpp::QoS default_qos(10);
+```
+
+**참고**: 
+- `/offboard/status`, `/ammunition/current`, `/formation/current` 등은 기본 QoS 사용
+- PX4 토픽과는 독립적으로 동작
+
+#### 디버깅 도구
+
+올바른 QoS로 토픽 테스트:
+
+```bash
+# PX4 토픽 echo (올바른 QoS 사용)
+ros2 topic echo /fmu/out/vehicle_status_v1 \
+  --qos-profile sensor_data \
+  --qos-durability transient_local
+
+# 또는 스크립트 사용
+./scripts/debug/ros2_topic_echo_px4.sh /fmu/out/vehicle_status_v1
+```
+
+**상세 내용**: `docs/QOS_COMPATIBILITY_FIX.md` 참조
+
 ---
 
 ## 향후 확장 계획

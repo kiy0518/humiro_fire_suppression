@@ -1,0 +1,37 @@
+[Unit]
+Description=Humiro Fire Suppression System
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=khadas
+Group=khadas
+WorkingDirectory=/home/khadas/humiro_fire_suppression/application/build
+
+# 환경 변수 로드
+EnvironmentFile=/home/khadas/humiro_fire_suppression/config/device_config.env
+
+# 실행 파일 경로 (wrapper 스크립트 사용)
+ExecStart=/home/khadas/humiro_fire_suppression/scripts/runtime/humiro_fire_suppression_wrapper.sh
+
+# 재시작 정책 (개발 중이므로 실패 시 재시작하지 않음)
+Restart=no
+
+# 표준 출력/에러를 로그 파일로 리다이렉트
+StandardOutput=append:/home/khadas/humiro_fire_suppression/logs/humiro-service.log
+StandardError=append:/home/khadas/humiro_fire_suppression/logs/humiro-service-error.log
+
+# 프로세스 종료 대기 시간 (초)
+TimeoutStopSec=10
+
+# 프로세스 종료 시 SIGTERM 전송
+KillMode=process
+KillSignal=SIGTERM
+
+# 리소스 제한 (선택사항)
+# LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+

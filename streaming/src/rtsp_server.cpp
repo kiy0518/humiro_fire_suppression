@@ -266,6 +266,7 @@ std::string RTSPServer::get_rtsp_url() const {
     const char* rtsp_ip = RTSP_IP;
     if (rtsp_ip && strlen(rtsp_ip) > 0) {
         ip = rtsp_ip;
+        
     } else {
         ip = get_local_ip();
     }
