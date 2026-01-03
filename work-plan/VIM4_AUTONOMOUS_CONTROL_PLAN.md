@@ -497,7 +497,7 @@ navigation/
 
 QGC에서 Mission을 업로드하고 실행하면:
 1. PX4가 `AUTO_MISSION` 모드로 전환
-2. `/mavros/state` 토픽의 `mode` 필드가 `"AUTO.MISSION"`으로 변경
+2. `/fmu/out/vehicle_status` 의 `nav_state` 필드가 AUTO_MISSION(14)으로 변경
 3. StatusOverlay가 이를 감지하여 "이동중" 상태로 표시
 4. Waypoint 도착 시 "목적지도착" 상태로 변경 (MAVLink `MISSION_ITEM_REACHED` 메시지 활용)
 5. 모든 Waypoint 완료 시 "임무완료" 상태로 변경
@@ -506,7 +506,7 @@ QGC에서 Mission을 업로드하고 실행하면:
 
 VIM4에서 ROS2를 통해 드론을 제어할 때:
 1. PX4가 `OFFBOARD` 모드로 전환
-2. `/mavros/state` 토픽의 `mode` 필드가 `"OFFBOARD"`로 변경
+2. `/fmu/out/vehicle_status` 의 `nav_state` 필드가 OFFBOARD(14)로 변경
 3. StatusOverlay가 PX4 모드를 감지하고, 추가로 `/offboard/status` 토픽을 구독
 4. VIM4 자동 제어 시스템의 상태(시동, 이륙, 이동중, 격발대기 등)를 표시
 5. PX4 Mission 모드와는 별개로 동작하는 커스텀 자동 제어 시스템

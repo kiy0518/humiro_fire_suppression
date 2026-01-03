@@ -85,3 +85,42 @@ target_compile_options(streaming_lib PRIVATE
     ${GSTREAMER_CFLAGS_OTHER}
 )
 
+
+# OSD 디렉토리
+set(OSD_DIR "${PROJECT_ROOT}/osd/src")
+include_directories(${OSD_DIR})
+
+# ROS2 (StatusOverlay가 ROS2 사용)
+if(DEFINED ENV{ROS_DISTRO})
+    find_package(ament_cmake QUIET)
+    if(ament_cmake_FOUND)
+        find_package(rclcpp REQUIRED)
+        find_package(std_msgs REQUIRED)
+        find_package(px4_msgs REQUIRED)
+        include_directories(${rclcpp_INCLUDE_DIRS})
+    endif()
+endif()
+
+# OSD 소스 파일들
+set(OSD_SOURCES
+    ${OSD_DIR}/status/status_overlay.cpp
+    ${OSD_DIR}/lidar/distance_overlay.cpp
+    ${PROJECT_ROOT}/thermal/src/utils.cpp
+)
+
+# test_osd_stream 실행 파일
+add_executable(test_osd_stream
+    test_osd_stream.cpp
+    ${OSD_SOURCES}
+)
+
+target_link_libraries(test_osd_stream
+    streaming_lib
+    ${OpenCV_LIBS}
+    pthread
+)
+
+# ROS2 링크 (StatusOverlay가 ROS2 구독자 포함)
+if(ament_cmake_FOUND)
+    ament_target_dependencies(test_osd_stream rclcpp std_msgs px4_msgs)
+endif()
