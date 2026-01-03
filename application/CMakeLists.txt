@@ -71,6 +71,7 @@ include_directories(${TARGETING_DIR})
 include_directories(${OSD_DIR}/thermal)
 include_directories(${OSD_DIR}/lidar)
 include_directories(${OSD_DIR}/targeting)
+include_directories(${OSD_DIR}/status)
 include_directories(${STREAMING_DIR})
 include_directories(${ROS2_DIR})
 include_directories(${ROS2_DIR}/status)
@@ -78,6 +79,8 @@ include_directories(${ROS2_DIR}/status)
 # 소스 파일
 set(SOURCES
     main.cpp
+    src/application_manager.cpp
+    src/frame_compositor.cpp
 )
 
 # ROS2 옵션 (선택적) - add_executable 전에 확인 필요

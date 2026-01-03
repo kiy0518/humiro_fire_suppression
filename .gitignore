@@ -35,3 +35,11 @@ __pycache__/
 *.backup
 *.bak
 *.bak2
+
+# ROS2 build artifacts
+install/
+*/install/
+*/*/install/
+log/
+*/log/
+*/*/log/

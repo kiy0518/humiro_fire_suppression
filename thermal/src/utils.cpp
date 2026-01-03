@@ -111,7 +111,14 @@ std::vector<CameraInfo> find_cameras_by_keywords(
             continue;
         }
         
-        CameraInfo info = get_camera_info(device);
+        CameraInfo info;
+        try {
+            info = get_camera_info(device);
+        } catch (...) {
+            // get_camera_info 실패 시 기본값 사용
+            info.id = i;
+            info.name = "Unknown";
+        }
         std::string name_lower = info.name;
         std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
         

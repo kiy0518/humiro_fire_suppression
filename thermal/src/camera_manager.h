@@ -40,6 +40,10 @@ private:
     bool find_thermal_camera();
     bool find_rgb_camera();
     bool test_camera(int camera_id, bool is_thermal);
+    
+    // 예외 처리 강화: 디바이스 존재 확인
+    bool device_exists(const std::string& device_path);
+    bool safe_open_camera(int camera_id, cv::VideoCapture& cap);
 };
 
 #endif // CAMERA_MANAGER_H
