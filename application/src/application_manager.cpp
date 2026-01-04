@@ -23,6 +23,7 @@
 
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
+#include <px4_msgs/msg/vehicle_command.hpp>
 #include "thermal_ros2_publisher.h"
 #include "lidar_ros2_publisher.h"
 #include "status_ros2_subscriber.h"
@@ -60,7 +61,8 @@ ApplicationManager::ApplicationManager()
       web_frame_queue_(WEB_FRAME_QUEUE_SIZE),
       is_running_(true),
       rgb_init_done_(false),
-      thermal_init_done_(false)
+      thermal_init_done_(false),
+      mission_running_(false)
 #ifdef ENABLE_ROS2
       , ros2_node_(nullptr),
       thermal_ros2_publisher_(nullptr),
@@ -354,6 +356,103 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
         
+        // FIRE_MISSION_STATUS 콜백 설정 (14550 포트)
+        custom_message_handler_->setFireMissionStatusCallback(
+            [this](const custom_message::FireMissionStatus& status) {
+                std::cout << "\n[DEBUG] ========== FIRE_MISSION_STATUS 수신 (14550) ==========" << std::endl;
+                std::cout << "[DEBUG] Phase: " << static_cast<int>(status.phase) << std::endl;
+                std::cout << "[DEBUG] Progress: " << static_cast<int>(status.progress) << "%" << std::endl;
+                std::cout << "[DEBUG] Distance: " << status.distance_to_target << " m" << std::endl;
+                std::cout << "[DEBUG] Status: " << status.status_text << std::endl;
+                std::cout << "[DEBUG] ==========================================" << std::endl;
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "Status: Phase=" << static_cast<int>(status.phase)
+                        << ", " << static_cast<int>(status.progress) << "%, "
+                        << status.distance_to_target << "m";
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
+            }
+        );
+        
+        // FIRE_SUPPRESSION_RESULT 콜백 설정 (14550 포트)
+        custom_message_handler_->setFireSuppressionResultCallback(
+            [this](const custom_message::FireSuppressionResult& result) {
+                std::cout << "\n[DEBUG] ========== FIRE_SUPPRESSION_RESULT 수신 (14550) ==========" << std::endl;
+                std::cout << "[DEBUG] Shot Number: " << static_cast<int>(result.shot_number) << std::endl;
+                std::cout << "[DEBUG] Temp Before: " << (result.temp_before / 10.0) << "C" << std::endl;
+                std::cout << "[DEBUG] Temp After: " << (result.temp_after / 10.0) << "C" << std::endl;
+                std::cout << "[DEBUG] Success: " << (result.success ? "Yes" : "No") << std::endl;
+                std::cout << "[DEBUG] ==========================================" << std::endl;
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "Result: Shot=" << static_cast<int>(result.shot_number)
+                        << ", " << (result.temp_before / 10.0) << "C->" << (result.temp_after / 10.0) << "C"
+                        << ", " << (result.success ? "Success" : "Failed");
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
+            }
+        );
+        
+        // COMMAND_LONG 콜백 설정 (ARM/DISARM 명령용)
+        custom_message_handler_->setCommandLongCallback(
+            [this](uint8_t target_system, uint8_t target_component, uint16_t command, float param1) {
+                std::cout << "\n[DEBUG] ========== COMMAND_LONG 수신 (14550) ==========" << std::endl;
+                std::cout << "[DEBUG] target_system: " << static_cast<int>(target_system) << std::endl;
+                std::cout << "[DEBUG] target_component: " << static_cast<int>(target_component) << std::endl;
+                std::cout << "[DEBUG] command: " << command << std::endl;
+                std::cout << "[DEBUG] param1: " << param1 << std::endl;
+                std::cout << "[DEBUG] ==========================================" << std::endl;
+                
+                // MAV_CMD_COMPONENT_ARM_DISARM (400) 처리
+                if (command == 400) {
+                    // param1 값 확인: 1.0 = ARM, 0.0 = DISARM
+                    std::cout << "[DEBUG] param1 값: " << param1 << " (1.0=ARM, 0.0=DISARM)" << std::endl;
+                    bool arm = (param1 >= 0.5f);  // 1.0 = ARM, 0.0 = DISARM
+                    std::cout << "[DEBUG] ARM/DISARM 명령 판단: " << (arm ? "ARM" : "DISARM") << " (param1 >= 0.5f = " << arm << ")" << std::endl;
+                    
+#ifdef ENABLE_ROS2
+                    if (offboard_manager_ && ros2_node_) {
+                        // OffboardManager를 통해 ARM/DISARM 처리
+                        // OffboardManager는 arm_handler_를 가지고 있지만, 직접 접근이 어려움
+                        // 대신 ROS2 토픽으로 직접 전송
+                        auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+                            "/fmu/in/vehicle_command", 10);
+                        
+                        px4_msgs::msg::VehicleCommand cmd;
+                        cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+                        cmd.param1 = param1;  // 1.0 = ARM, 0.0 = DISARM
+                        cmd.param2 = 0.0f;
+                        cmd.command = 400;  // MAV_CMD_COMPONENT_ARM_DISARM
+                        cmd.target_system = target_system;
+                        cmd.target_component = target_component;
+                        cmd.source_system = 1;
+                        cmd.source_component = 1;
+                        cmd.from_external = true;
+                        
+                        vehicle_command_pub->publish(cmd);
+                        std::cout << "[DEBUG] ✓ ARM/DISARM 명령 ROS2로 전송 완료 (param1=" << param1 << ")" << std::endl;
+                        
+                        if (status_overlay_) {
+                            std::string msg = arm ? "ARM Command" : "DISARM Command";
+                            std::cout << "[DEBUG] OSD 메시지 설정: " << msg << " (arm=" << arm << ", param1=" << param1 << ")" << std::endl;
+                            status_overlay_->setCustomMessage(msg, 3.0);
+                        }
+                    } else {
+                        std::cerr << "[DEBUG] ✗ OffboardManager 또는 ROS2 노드가 초기화되지 않음" << std::endl;
+                    }
+#else
+                    std::cerr << "[DEBUG] ✗ ROS2가 비활성화되어 있음" << std::endl;
+#endif
+                } else {
+                    std::cout << "[DEBUG] 알 수 없는 명령: " << command << std::endl;
+                }
+            }
+        );
+        
         // 메시지 송수신 시작
         if (custom_message_handler_->start()) {
             std::cout << "  ✓ 커스텀 메시지 송수신 시작 (포트 " << mavlink_port << ")" << std::endl;
@@ -423,6 +522,46 @@ void ApplicationManager::initializeCustomMessage() {
                 
                 if (status_overlay_) {
                     status_overlay_->setCustomMessage("[TEST] " + cmd_name, 3.0);
+                }
+            }
+        );
+        
+        // FIRE_MISSION_STATUS 콜백 설정
+        test_message_handler_->setFireMissionStatusCallback(
+            [this](const custom_message::FireMissionStatus& status) {
+                std::cout << "\n[TEST PORT] ========== FIRE_MISSION_STATUS 수신 (15000) ==========" << std::endl;
+                std::cout << "[TEST PORT] Phase: " << static_cast<int>(status.phase) << std::endl;
+                std::cout << "[TEST PORT] Progress: " << static_cast<int>(status.progress) << "%" << std::endl;
+                std::cout << "[TEST PORT] Distance: " << status.distance_to_target << " m" << std::endl;
+                std::cout << "[TEST PORT] Status: " << status.status_text << std::endl;
+                std::cout << "[TEST PORT] ==========================================" << std::endl;
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "[TEST] Status: Phase=" << static_cast<int>(status.phase)
+                        << ", " << static_cast<int>(status.progress) << "%, "
+                        << status.distance_to_target << "m";
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
+            }
+        );
+        
+        // FIRE_SUPPRESSION_RESULT 콜백 설정
+        test_message_handler_->setFireSuppressionResultCallback(
+            [this](const custom_message::FireSuppressionResult& result) {
+                std::cout << "\n[TEST PORT] ========== FIRE_SUPPRESSION_RESULT 수신 (15000) ==========" << std::endl;
+                std::cout << "[TEST PORT] Shot Number: " << static_cast<int>(result.shot_number) << std::endl;
+                std::cout << "[TEST PORT] Temp Before: " << (result.temp_before / 10.0) << "°C" << std::endl;
+                std::cout << "[TEST PORT] Temp After: " << (result.temp_after / 10.0) << "°C" << std::endl;
+                std::cout << "[TEST PORT] Success: " << (result.success ? "Yes" : "No") << std::endl;
+                std::cout << "[TEST PORT] ==========================================" << std::endl;
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "[TEST] Result: Shot=" << static_cast<int>(result.shot_number)
+                        << ", " << (result.temp_before / 10.0) << "C->" << (result.temp_after / 10.0) << "C"
+                        << ", " << (result.success ? "Success" : "Failed");
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
                 }
             }
         );
@@ -860,6 +999,22 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         return;
     }
 
+    // 중복 실행 방지: 이미 미션이 실행 중이면 무시
+    bool expected = false;
+    if (!mission_running_.compare_exchange_strong(expected, true)) {
+        std::cout << "\n[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (mission_running_=true)" << std::endl;
+        return;
+    }
+    
+    // OffboardManager 상태 확인: 이미 미션이 실행 중이면 무시
+    MissionState current_state = offboard_manager_->getCurrentState();
+    if (current_state != MissionState::IDLE) {
+        std::cout << "\n[미션 실행 건너뜀] OffboardManager가 이미 실행 중입니다 (state: " 
+                  << OffboardManager::getStateName(current_state) << ")" << std::endl;
+        mission_running_.store(false);  // 플래그 리셋
+        return;
+    }
+
     std::cout << "\n[미션 실행 시작] Arming -> 이륙 -> 목표 위치 이동" << std::endl;
 
     // 미션 설정 구성
@@ -885,7 +1040,17 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
     // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
     std::thread mission_thread([this, config, start]() {
-        bool success = offboard_manager_->executeMission(config);
+        bool success = false;
+        try {
+            success = offboard_manager_->executeMission(config);
+        } catch (const std::exception& e) {
+            std::cerr << "[미션 실행 오류] " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[미션 실행 오류] 알 수 없는 예외 발생" << std::endl;
+        }
+
+        // 미션 완료/실패 시 플래그 리셋
+        mission_running_.store(false);
 
         if (success) {
             std::cout << "\n[미션 성공] 목표 위치 도착" << std::endl;

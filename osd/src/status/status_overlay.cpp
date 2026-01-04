@@ -128,10 +128,16 @@ void StatusOverlay::setMaxTemperature(double temperature) {
 
 void StatusOverlay::setCustomMessage(const std::string& message, double timeout_seconds) {
     std::lock_guard<std::mutex> lock(data_mutex_);
+    
+    std::cout << "[StatusOverlay] [STEP 5] setCustomMessage 호출: \"" << message 
+              << "\", timeout=" << timeout_seconds << "초" << std::endl;
+    
     custom_message_ = message;
     custom_message_timeout_ = timeout_seconds;
     custom_message_time_ = std::chrono::steady_clock::now();
     show_custom_message_ = true;
+    
+    std::cout << "[StatusOverlay] [STEP 5] ✓ 커스텀 메시지 설정 완료 (OSD 표시 활성화)" << std::endl;
 }
 
 void StatusOverlay::clearCustomMessage() {
@@ -481,11 +487,22 @@ void StatusOverlay::draw(cv::Mat& frame) {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - custom_message_time_).count() / 1000.0;
             if (elapsed >= custom_message_timeout_) {
+                static bool timeout_logged = false;
+                if (!timeout_logged) {
+                    std::cout << "[StatusOverlay] [STEP 6] 커스텀 메시지 타임아웃 (표시 중지)" << std::endl;
+                    timeout_logged = true;
+                }
                 show_custom_message_ = false;
             }
         }
         
         if (show_custom_message_) {
+            static int render_count = 0;
+            render_count++;
+            if (render_count <= 5 || render_count % 60 == 0) {  // 처음 5번 + 60프레임마다
+                std::cout << "[StatusOverlay] [STEP 6] OSD 렌더링: \"" << custom_message_ 
+                          << "\" (프레임 #" << render_count << ")" << std::endl;
+            }
             const int MARGIN_BOTTOM = 10;
             const int MARGIN_LEFT_MSG = 10;
             const double MSG_FONT_SCALE = 0.7;

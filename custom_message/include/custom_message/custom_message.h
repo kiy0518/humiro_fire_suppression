@@ -54,6 +54,16 @@ using FireLaunchControlCallback = std::function<void(const FireLaunchControl& co
 using FireSuppressionResultCallback = std::function<void(const FireSuppressionResult& result)>;
 
 /**
+ * @brief COMMAND_LONG 콜백 함수 타입
+ *
+ * @param target_system 대상 시스템 ID
+ * @param target_component 대상 컴포넌트 ID
+ * @param command 명령 코드 (MAV_CMD_COMPONENT_ARM_DISARM = 400)
+ * @param param1 첫 번째 파라미터 (ARM: 1.0, DISARM: 0.0)
+ */
+using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t target_component, uint16_t command, float param1)>;
+
+/**
  * @brief 커스텀 MAVLink 메시지 송수신기
  *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하고 파싱하여
@@ -139,6 +149,13 @@ public:
      * @param callback 콜백 함수
      */
     void setFireSuppressionResultCallback(FireSuppressionResultCallback callback);
+
+    /**
+     * @brief COMMAND_LONG 콜백 등록
+     *
+     * @param callback 콜백 함수
+     */
+    void setCommandLongCallback(CommandLongCallback callback);
 
     // ========== 송신 함수 ==========
 

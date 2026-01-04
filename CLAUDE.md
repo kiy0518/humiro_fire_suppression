@@ -6,6 +6,8 @@
 **프로젝트 진행률**: 75% (Phase 1 완료)
 **총 코드량**: 10,500+ LOC
 
+**프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
+
 ---
 
 ## 프로젝트 개요
@@ -160,6 +162,8 @@ git push origin v0.3.0
 새로운 태그부터 v0.x.x 형태를 따릅니다.
 
 ## 프로젝트 구조
+
+**프로젝트 루트**: `/home/khadas/humiro_fire_suppression`
 
 ```
 humiro_fire_suppression/
@@ -353,9 +357,11 @@ public:
 
 ## 빌드 방법
 
+**프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
+
 ### Thermal 시스템
 ```bash
-cd ~/humiro_fire_suppression/thermal/src
+cd /home/khadas/humiro_fire_suppression/thermal/src
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
@@ -364,7 +370,7 @@ make -j$(nproc)
 
 ### LiDAR 시스템
 ```bash
-cd ~/humiro_fire_suppression/lidar
+cd /home/khadas/humiro_fire_suppression/lidar
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
@@ -373,14 +379,14 @@ make -j$(nproc)
 
 ### Navigation 시스템
 ```bash
-cd ~/humiro_fire_suppression/navigation
+cd /home/khadas/humiro_fire_suppression/navigation
 ./build.sh
 # 출력: build/test_arm, build/test_mission 등
 ```
 
 ### Application (통합)
 ```bash
-cd ~/humiro_fire_suppression/application
+cd /home/khadas/humiro_fire_suppression/application
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
@@ -483,8 +489,9 @@ private:
 
 ### 경로 관리
 - ❌ 절대 경로 하드코딩 금지
-- ✅ 환경 변수 사용
+- ✅ 환경 변수 사용 (`PROJECT_ROOT`, `HOME` 등)
 - ✅ 상대 경로 (실행 파일 기준)
+- **프로젝트 루트**: `/home/khadas/humiro_fire_suppression`
 
 ### 테스트
 - 모든 핵심 기능에 단위 테스트

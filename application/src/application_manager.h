@@ -109,6 +109,7 @@ private:
     std::atomic<bool> is_running_;
     std::atomic<bool> rgb_init_done_;
     std::atomic<bool> thermal_init_done_;
+    std::atomic<bool> mission_running_;  // 미션 실행 중 플래그 (중복 실행 방지)
     
     // 내부 메서드
     void initializeROS2(int argc, char* argv[]);

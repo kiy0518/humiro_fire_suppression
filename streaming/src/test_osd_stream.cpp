@@ -72,7 +72,7 @@ int main(int argc, char* argv[]) {
     MissionOverlay mission_overlay;
 
     // 커스텀 메시지 송수신기
-    custom_message::CustomMessage custom_msg(14550, 14550, "0.0.0.0", "127.0.0.1", 1, 1);
+    custom_message::CustomMessage custom_msg(15000, 15001, "0.0.0.0", "127.0.0.1", 1, 1);
 
     // 커스텀 메시지 콜백 등록
     custom_msg.setFireMissionStartCallback([&](const custom_message::FireMissionStart& start) {
@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to start custom message receiver" << std::endl;
         return 1;
     }
-    std::cout << "Custom message receiver started on port 14550" << std::endl;
+    std::cout << "Custom message receiver started on port 15000" << std::endl;
 
     // 테스트 데이터
     std::cout << "Setting up test data..." << std::endl;

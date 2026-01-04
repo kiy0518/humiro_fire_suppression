@@ -49,7 +49,7 @@ enum class LaunchCommand : uint8_t {
  *
  * GO 버튼을 누를 때 전송되는 미션 시작 명령
  */
-struct FireMissionStart {
+struct __attribute__((packed)) FireMissionStart {
     uint8_t target_system;        // System ID
     uint8_t target_component;     // Component ID
     int32_t target_lat;           // Target latitude * 1e7
@@ -67,7 +67,7 @@ struct FireMissionStart {
  *
  * 주기적으로 전송되는 미션 상태 정보
  */
-struct FireMissionStatus {
+struct __attribute__((packed)) FireMissionStatus {
     uint8_t phase;                // Current mission phase (FIRE_MISSION_PHASE)
     uint8_t progress;             // Progress 0-100%
     uint8_t remaining_projectiles;// Projectiles left
@@ -84,7 +84,7 @@ struct FireMissionStatus {
  *
  * 발사 확인, 중단, 상태 요청 등의 제어 명령
  */
-struct FireLaunchControl {
+struct __attribute__((packed)) FireLaunchControl {
     uint8_t target_system;        // System ID
     uint8_t target_component;     // Component ID
     uint8_t command;              // 0=confirm, 1=abort, 2=request_status
@@ -98,7 +98,7 @@ struct FireLaunchControl {
  *
  * 발사 후 결과 정보
  */
-struct FireSuppressionResult {
+struct __attribute__((packed)) FireSuppressionResult {
     uint8_t shot_number;          // Shot number
     int16_t temp_before;          // Temp before (°C * 10)
     int16_t temp_after;           // Temp after (°C * 10)

@@ -45,3 +45,10 @@ install(TARGETS ${PROJECT_NAME}
 install(FILES ${HEADERS}
     DESTINATION include/custom_message
 )
+
+# Examples
+add_executable(test_message_sender examples/test_message_sender.cpp)
+target_link_libraries(test_message_sender 
+    custom_message
+    Threads::Threads
+)

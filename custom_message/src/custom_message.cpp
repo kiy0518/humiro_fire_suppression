@@ -6,6 +6,7 @@
 #include "custom_message/custom_message.h"
 #include <iostream>
 #include <cstring>
+#include <exception>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -15,8 +16,8 @@
 
 namespace custom_message {
 
-// MAVLink 헤더 구조체
-struct MAVLinkHeader {
+// MAVLink 헤더 구조체 (패딩 없음)
+struct __attribute__((packed)) MAVLinkHeader {
     uint8_t magic;          // 0xFD (MAVLink 2.0)
     uint8_t len;            // 페이로드 길이
     uint8_t incompat_flags; // 호환성 플래그
@@ -35,8 +36,8 @@ constexpr size_t MAVLINK_CHECKSUM_LEN = 2;
 constexpr uint8_t MAVLINK_MAGIC = 0xFD;
 
 // 간단한 CRC16 계산 (MAVLink 2.0)
-uint16_t calculateCRC16(const uint8_t* data, size_t len) {
-    uint16_t crc = 0xFFFF;
+uint16_t calculateCRC16(const uint8_t* data, size_t len, uint16_t initial_crc = 0xFFFF) {
+    uint16_t crc = initial_crc;
 
     for (size_t i = 0; i < len; i++) {
         uint8_t tmp = data[i] ^ (crc & 0xFF);
@@ -192,6 +193,10 @@ public:
         suppression_result_callback_ = callback;
     }
 
+    void setCommandLongCallback(CommandLongCallback callback) {
+        command_long_callback_ = callback;
+    }
+
     bool sendFireMissionStart(const FireMissionStart& start) {
         return sendMessage(MessageType::FIRE_MISSION_START, &start, sizeof(FireMissionStart));
     }
@@ -261,8 +266,21 @@ private:
         // 페이로드 복사
         memcpy(buffer + MAVLINK_HEADER_LEN, payload, payload_len);
 
-        // 체크섬 계산 (헤더 + 페이로드)
+        // CRC_EXTRA 값 (메시지 ID별로 다름)
+        uint8_t crc_extra = 0;
+        switch (msg_id) {
+            case 12900: crc_extra = 100; break;  // FIRE_MISSION_START
+            case 12901: crc_extra = 101; break;  // FIRE_MISSION_STATUS
+            case 12902: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
+            case 12903: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
+            default: crc_extra = 0; break;
+        }
+
+        // 체크섬 계산 (헤더 + 페이로드 + CRC_EXTRA)
         uint16_t crc = calculateCRC16(buffer + 1, MAVLINK_HEADER_LEN - 1 + payload_len);
+        // CRC_EXTRA 추가
+        uint8_t crc_extra_byte = crc_extra;
+        crc = calculateCRC16(&crc_extra_byte, 1, crc);
         buffer[MAVLINK_HEADER_LEN + payload_len] = crc & 0xFF;
         buffer[MAVLINK_HEADER_LEN + payload_len + 1] = (crc >> 8) & 0xFF;
 
@@ -302,6 +320,7 @@ private:
         uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
+        static int receive_count = 0;
 
         while (running_) {
             ssize_t received = recvfrom(receive_socket_fd_, buffer, sizeof(buffer), 0,
@@ -317,44 +336,190 @@ private:
                 continue;
             }
 
-            if (received < MAVLINK_HEADER_LEN) {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.parse_error_count++;
+            // received가 0이면 무시 (빈 패킷)
+            if (received == 0) {
                 continue;
             }
 
-            parseMAVLinkMessage(buffer, received);
+            receive_count++;
+            // 처음 몇 개 메시지에 대해 디버그 출력
+            // COMMAND_LONG(76)은 항상 출력
+            if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
+                // 헤더에서 MSG_ID 확인 (buffer[7] = msgid, buffer[8] = msgid_ext[0], buffer[9] = msgid_ext[1])
+                uint32_t msg_id_check = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) | 
+                                       (static_cast<uint32_t>(buffer[9]) << 16);
+                if (msg_id_check == 76) {
+                    std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
+                              << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
+                              << std::dec << ", MSG_ID=76 (COMMAND_LONG), 포트: " << receive_port_ << std::endl;
+                } else if (receive_count <= 10) {
+                    std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
+                              << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
+                              << std::dec << ", MSG_ID=" << msg_id_check << ", 포트: " << receive_port_ << std::endl;
+                }
+            } else if (receive_count <= 10) {
+                std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
+                          << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
+                          << std::dec << ", 포트: " << receive_port_ << std::endl;
+            }
+
+            // received는 양수이므로 size_t로 캐스팅하여 비교 (경고 해결)
+            if (static_cast<size_t>(received) < MAVLINK_HEADER_LEN) {
+                std::lock_guard<std::mutex> lock(stats_mutex_);
+                stats_.parse_error_count++;
+                if (receive_count <= 5) {
+                    std::cerr << "[CustomMessage] 헤더 길이 부족: " << received << " < " << MAVLINK_HEADER_LEN << std::endl;
+                }
+                continue;
+            }
+
+            // 예외 처리: 메시지 파싱 오류가 발생해도 영상 스트림은 계속 작동해야 함
+            try {
+                parseMAVLinkMessage(buffer, received);
+            } catch (const std::exception& e) {
+                std::lock_guard<std::mutex> lock(stats_mutex_);
+                stats_.parse_error_count++;
+                static int exception_count = 0;
+                exception_count++;
+                if (exception_count <= 5) {
+                    std::cerr << "[CustomMessage] 메시지 파싱 예외 발생 (무시하고 계속): " << e.what() << std::endl;
+                }
+            } catch (...) {
+                std::lock_guard<std::mutex> lock(stats_mutex_);
+                stats_.parse_error_count++;
+                static int unknown_exception_count = 0;
+                unknown_exception_count++;
+                if (unknown_exception_count <= 5) {
+                    std::cerr << "[CustomMessage] 알 수 없는 예외 발생 (무시하고 계속)" << std::endl;
+                }
+            }
         }
     }
 
     void parseMAVLinkMessage(const uint8_t* buffer, size_t len) {
+        // 안전성 검증: 버퍼가 nullptr이거나 길이가 0이면 즉시 반환
+        if (!buffer || len == 0) {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            return;
+        }
+
+        // 디버그: 수신된 메시지의 첫 바이트 확인
         if (buffer[0] != MAVLINK_MAGIC) {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            if (stats_.parse_error_count % 10 == 1) {  // 10개마다 한 번씩만 출력
+                std::cerr << "[CustomMessage] 잘못된 MAVLink magic: 0x" 
+                          << std::hex << static_cast<int>(buffer[0]) 
+                          << " (예상: 0x" << static_cast<int>(MAVLINK_MAGIC) << ")" << std::dec << std::endl;
+            }
+            return;
+        }
+
+        // 최소 길이 검증 (헤더 + 최소 페이로드 + CRC)
+        if (len < MAVLINK_HEADER_LEN + MAVLINK_CHECKSUM_LEN) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
             return;
         }
 
         const MAVLinkHeader* header = reinterpret_cast<const MAVLinkHeader*>(buffer);
-
-        uint32_t msg_id = header->msgid | (static_cast<uint32_t>(header->msgid_ext[0]) << 8) |
-                         (static_cast<uint32_t>(header->msgid_ext[1]) << 16);
-
-        const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
         size_t payload_len = header->len;
 
-        // 체크섬 검증
-        uint16_t received_crc = buffer[MAVLINK_HEADER_LEN + payload_len] |
-                               (static_cast<uint16_t>(buffer[MAVLINK_HEADER_LEN + payload_len + 1]) << 8);
-        uint16_t calculated_crc = calculateCRC16(buffer + 1, MAVLINK_HEADER_LEN - 1 + payload_len);
-
-        if (received_crc != calculated_crc) {
+        // 페이로드 길이 검증 (헤더 + 페이로드 + CRC)
+        if (len < MAVLINK_HEADER_LEN + payload_len + MAVLINK_CHECKSUM_LEN) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
             return;
         }
 
-        // 메시지 타입별 파싱
+        uint32_t msg_id = header->msgid | (static_cast<uint32_t>(header->msgid_ext[0]) << 8) |
+                         (static_cast<uint32_t>(header->msgid_ext[1]) << 16);
+
+        const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
+
+        // MSG_ID=0이거나 유효하지 않은 메시지는 조용히 무시 (다른 소스의 잘못된 메시지 또는 네트워크 노이즈)
+        // CRC 검증 전에 필터링하여 불필요한 처리 방지
+        // COMMAND_LONG(76)도 허용 (ARM/DISARM 명령용)
+        if (msg_id == 0 || (msg_id != 76 && (msg_id < 12900 || msg_id > 12903))) {
+            // 유효하지 않은 메시지는 통계만 업데이트하고 조용히 무시
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            // COMMAND_LONG(76)은 디버그 로그 출력 (ARM 명령 확인용)
+            if (msg_id == 76) {
+                std::cerr << "[CustomMessage] [STEP 2] ⚠ COMMAND_LONG 메시지 필터링됨 (예상치 못한 상황)" << std::endl;
+            }
+            // 디버그 로그는 출력하지 않음 (너무 많은 노이즈 방지)
+            return;
+        }
+        
+        // COMMAND_LONG 메시지 디버그 출력
+        if (msg_id == 76) {
+            static int command_long_count = 0;
+            command_long_count++;
+            if (command_long_count <= 5) {
+                std::cout << "[CustomMessage] [STEP 2] COMMAND_LONG 메시지 수신: MSG_ID=" << msg_id 
+                          << ", payload_len=" << payload_len << std::endl;
+            }
+        }
+
+        static int parse_count = 0;
+        parse_count++;
+        if (parse_count <= 10) {
+            std::cout << "[CustomMessage] [STEP 2] 메시지 파싱: MSG_ID=" << msg_id 
+                      << ", payload_len=" << payload_len << std::endl;
+        }
+
+        // CRC_EXTRA 값 (메시지 ID별로 다름)
+        uint8_t crc_extra = 0;
         switch (msg_id) {
+            case 76:    crc_extra = 19;  break;  // COMMAND_LONG (표준 MAVLink)
+            case 12900: crc_extra = 100; break;  // FIRE_MISSION_START
+            case 12901: crc_extra = 101; break;  // FIRE_MISSION_STATUS
+            case 12902: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
+            case 12903: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
+            default: crc_extra = 0; break;
+        }
+
+        // 체크섬 검증 (헤더 + 페이로드 + CRC_EXTRA)
+        // 버퍼 범위 검증 (이미 위에서 검증했지만 안전을 위해 다시 확인)
+        if (MAVLINK_HEADER_LEN + payload_len + MAVLINK_CHECKSUM_LEN > len) {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            return;
+        }
+        
+        uint16_t received_crc = buffer[MAVLINK_HEADER_LEN + payload_len] |
+                               (static_cast<uint16_t>(buffer[MAVLINK_HEADER_LEN + payload_len + 1]) << 8);
+        uint16_t calculated_crc = calculateCRC16(buffer + 1, MAVLINK_HEADER_LEN - 1 + payload_len);
+        // CRC_EXTRA 추가
+        uint8_t crc_extra_byte = crc_extra;
+        calculated_crc = calculateCRC16(&crc_extra_byte, 1, calculated_crc);
+
+        if (received_crc != calculated_crc) {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            // CRC 불일치 로그는 처음 몇 개만 출력 (너무 많은 로그 방지)
+            static int crc_error_count = 0;
+            crc_error_count++;
+            if (crc_error_count <= 5) {
+                std::cerr << "[CustomMessage] [STEP 2] ✗ CRC 불일치: 수신=0x" << std::hex << received_crc
+                          << ", 계산=0x" << calculated_crc 
+                          << ", MSG_ID=" << std::dec << msg_id << std::endl;
+            }
+            return;
+        }
+
+        if (parse_count <= 10) {
+            std::cout << "[CustomMessage] [STEP 2] ✓ CRC 검증 통과" << std::endl;
+        }
+
+        // 메시지 타입별 파싱 (이미 위에서 유효성 검사 완료)
+        switch (msg_id) {
+            case 76:  // COMMAND_LONG (표준 MAVLink 메시지)
+                parseCommandLong(payload, payload_len);
+                break;
+
             case static_cast<uint32_t>(MessageType::FIRE_MISSION_START):
                 parseFireMissionStart(payload, payload_len);
                 break;
@@ -372,8 +537,13 @@ private:
                 break;
 
             default:
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.unknown_message_count++;
+                {
+                    std::lock_guard<std::mutex> lock(stats_mutex_);
+                    stats_.unknown_message_count++;
+                    if (stats_.unknown_message_count % 10 == 1) {  // 10개마다 한 번씩만 출력
+                        std::cerr << "[CustomMessage] 알 수 없는 메시지 ID: " << msg_id << std::endl;
+                    }
+                }
                 break;
         }
     }
@@ -382,6 +552,8 @@ private:
         if (len < sizeof(FireMissionStart)) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
+            std::cerr << "[CustomMessage] FIRE_MISSION_START 페이로드 길이 부족: " 
+                      << len << " < " << sizeof(FireMissionStart) << std::endl;
             return;
         }
 
@@ -393,8 +565,16 @@ private:
             stats_.mission_start_received++;
         }
 
+        std::cout << "[CustomMessage] [STEP 3] FIRE_MISSION_START 파싱 완료: "
+                  << "lat=" << (start.target_lat / 1e7) << ", lon=" << (start.target_lon / 1e7)
+                  << ", alt=" << start.target_alt << std::endl;
+
         if (mission_start_callback_) {
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
             mission_start_callback_(start);
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
         }
     }
 
@@ -402,6 +582,8 @@ private:
         if (len < sizeof(FireMissionStatus)) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
+            std::cerr << "[CustomMessage] FIRE_MISSION_STATUS 페이로드 길이 부족: " 
+                      << len << " < " << sizeof(FireMissionStatus) << std::endl;
             return;
         }
 
@@ -413,8 +595,17 @@ private:
             stats_.mission_status_received++;
         }
 
+        std::cout << "[CustomMessage] [STEP 3] FIRE_MISSION_STATUS 파싱 완료: "
+                  << "phase=" << static_cast<int>(status.phase) 
+                  << ", progress=" << static_cast<int>(status.progress)
+                  << "%, distance=" << status.distance_to_target << "m" << std::endl;
+
         if (mission_status_callback_) {
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
             mission_status_callback_(status);
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
         }
     }
 
@@ -422,6 +613,8 @@ private:
         if (len < sizeof(FireLaunchControl)) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
+            std::cerr << "[CustomMessage] FIRE_LAUNCH_CONTROL 페이로드 길이 부족: " 
+                      << len << " < " << sizeof(FireLaunchControl) << std::endl;
             return;
         }
 
@@ -433,8 +626,18 @@ private:
             stats_.launch_control_received++;
         }
 
+        std::string cmd_name = (control.command == 0) ? "CONFIRM" : 
+                              (control.command == 1) ? "ABORT" : 
+                              (control.command == 2) ? "REQUEST_STATUS" : "UNKNOWN";
+        std::cout << "[CustomMessage] [STEP 3] FIRE_LAUNCH_CONTROL 파싱 완료: command=" 
+                  << static_cast<int>(control.command) << " (" << cmd_name << ")" << std::endl;
+
         if (launch_control_callback_) {
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
             launch_control_callback_(control);
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
         }
     }
 
@@ -442,6 +645,8 @@ private:
         if (len < sizeof(FireSuppressionResult)) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
+            std::cerr << "[CustomMessage] FIRE_SUPPRESSION_RESULT 페이로드 길이 부족: " 
+                      << len << " < " << sizeof(FireSuppressionResult) << std::endl;
             return;
         }
 
@@ -453,8 +658,65 @@ private:
             stats_.suppression_result_received++;
         }
 
+        std::cout << "[CustomMessage] [STEP 3] FIRE_SUPPRESSION_RESULT 파싱 완료: "
+                  << "shot=" << static_cast<int>(result.shot_number)
+                  << ", temp_before=" << (result.temp_before / 10.0) << "°C"
+                  << ", temp_after=" << (result.temp_after / 10.0) << "°C"
+                  << ", success=" << (result.success ? "true" : "false") << std::endl;
+
         if (suppression_result_callback_) {
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
             suppression_result_callback_(result);
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
+        }
+    }
+
+    void parseCommandLong(const uint8_t* payload, size_t len) {
+        // COMMAND_LONG 페이로드 구조: target_system(1) + target_component(1) + command(2) + confirmation(1) + param1-7(28) = 33 bytes
+        const size_t COMMAND_LONG_PAYLOAD_LEN = 33;
+        if (len < COMMAND_LONG_PAYLOAD_LEN) {
+            std::lock_guard<std::mutex> lock(stats_mutex_);
+            stats_.parse_error_count++;
+            std::cerr << "[CustomMessage] COMMAND_LONG 페이로드 길이 부족: " 
+                      << len << " < " << COMMAND_LONG_PAYLOAD_LEN << std::endl;
+            return;
+        }
+
+        uint8_t target_system = payload[0];
+        uint8_t target_component = payload[1];
+        uint16_t command = payload[2] | (static_cast<uint16_t>(payload[3]) << 8);
+        // confirmation은 무시 (payload[4])
+        // param1은 payload[5]부터 시작 (little-endian float, 4 bytes)
+        float param1;
+        // 엔디안 안전하게 파싱 (little-endian)
+        uint32_t param1_bits = static_cast<uint32_t>(payload[5]) |
+                              (static_cast<uint32_t>(payload[6]) << 8) |
+                              (static_cast<uint32_t>(payload[7]) << 16) |
+                              (static_cast<uint32_t>(payload[8]) << 24);
+        memcpy(&param1, &param1_bits, sizeof(float));
+
+        std::cout << "[CustomMessage] [STEP 3] COMMAND_LONG 파싱 완료: "
+                  << "target_system=" << static_cast<int>(target_system)
+                  << ", target_component=" << static_cast<int>(target_component)
+                  << ", command=" << command
+                  << ", param1=" << param1 
+                  << " (raw bytes: " << std::hex 
+                  << static_cast<int>(payload[5]) << " " 
+                  << static_cast<int>(payload[6]) << " " 
+                  << static_cast<int>(payload[7]) << " " 
+                  << static_cast<int>(payload[8]) << std::dec << ")" << std::endl;
+
+        // COMMAND_LONG은 표준 MAVLink 메시지이므로 MAVLink 라우터가 자동으로 FC로 전달함
+        // VIM4에서는 메시지를 파싱하고 콜백만 호출
+
+        if (command_long_callback_) {
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
+            command_long_callback_(target_system, target_component, command, param1);
+            std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
         }
     }
 
@@ -478,6 +740,7 @@ private:
     FireMissionStatusCallback mission_status_callback_;
     FireLaunchControlCallback launch_control_callback_;
     FireSuppressionResultCallback suppression_result_callback_;
+    CommandLongCallback command_long_callback_;
 
     CustomMessage::Statistics stats_;
 };
@@ -526,6 +789,10 @@ void CustomMessage::setFireLaunchControlCallback(FireLaunchControlCallback callb
 
 void CustomMessage::setFireSuppressionResultCallback(FireSuppressionResultCallback callback) {
     impl_->setFireSuppressionResultCallback(callback);
+}
+
+void CustomMessage::setCommandLongCallback(CommandLongCallback callback) {
+    impl_->setCommandLongCallback(callback);
 }
 
 bool CustomMessage::sendFireMissionStart(const FireMissionStart& start) {

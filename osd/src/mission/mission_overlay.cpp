@@ -171,12 +171,12 @@ void MissionOverlay::drawMissionStatus(cv::Mat& frame) {
         y += line_height;
     }
 
-    // Status Text
-    if (strlen(current_status_.status_text) > 0) {
-        std::string status_text(current_status_.status_text);
-        cv::putText(frame, status_text, cv::Point(STATUS_X, y),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
-    }
+    // Status Text (한글 제거 - 영어만 표시)
+    // if (strlen(current_status_.status_text) > 0) {
+    //     std::string status_text(current_status_.status_text);
+    //     cv::putText(frame, status_text, cv::Point(STATUS_X, y),
+    //                 cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
+    // }
 }
 
 void MissionOverlay::drawSuppressionResult(cv::Mat& frame) {

@@ -17,6 +17,14 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
 
 bool OffboardManager::executeMission(const MissionConfig& config)
 {
+    // 이미 미션이 실행 중이면 중복 실행 방지
+    if (current_state_ != MissionState::IDLE) {
+        RCLCPP_WARN(node_->get_logger(), 
+                   "Mission already running (current state: %s). Ignoring new mission request.",
+                   getStateName(current_state_).c_str());
+        return false;
+    }
+
     mission_config_ = config;
 
     RCLCPP_INFO(node_->get_logger(), "======================================");
