@@ -2,6 +2,7 @@
 #include <opencv2/opencv.hpp>
 #include <thread>
 #include <chrono>
+#include <gst/gst.h>
 #include "rtsp_server.h"
 #include "../../thermal/src/thread_safe_queue.h"
 #include "../../osd/src/status/status_overlay.h"
@@ -36,7 +37,10 @@ cv::Mat createDummyFrame(int width, int height, int frameCount) {
     return frame;
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // GStreamer 초기화
+    gst_init(&argc, &argv);
+
     std::cout << "=================================" << std::endl;
     std::cout << "  OSD + Custom Message Test" << std::endl;
     std::cout << "=================================" << std::endl;
