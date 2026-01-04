@@ -62,6 +62,7 @@ set(OSD_BUILD_DIR "${OSD_DIR}/build")
 set(STREAMING_DIR "${PROJECT_ROOT}/streaming/src")
 set(STREAMING_BUILD_DIR "${STREAMING_DIR}/build")
 set(ROS2_DIR "${PROJECT_ROOT}/ros2/src")
+set(NAVIGATION_DIR "${PROJECT_ROOT}/navigation/src/offboard/autonomous")
 set(ROS2_BUILD_DIR "${ROS2_DIR}/build")
 set(CUSTOM_MESSAGE_DIR "${PROJECT_ROOT}/custom_message")
 set(CUSTOM_MESSAGE_BUILD_DIR "${CUSTOM_MESSAGE_DIR}/build")
@@ -182,6 +183,16 @@ if(ENABLE_ROS2)
     # ros2_comm_lib 먼저 빌드
     add_subdirectory(${ROS2_DIR} ${ROS2_BUILD_DIR})
     target_link_libraries(humiro_fire_suppression ros2_comm_lib)
+
+    # OffboardManager 소스 파일 추가
+    target_sources(humiro_fire_suppression PRIVATE
+        ${NAVIGATION_DIR}/offboard_manager.cpp
+        ${NAVIGATION_DIR}/arm_handler.cpp
+        ${NAVIGATION_DIR}/takeoff_handler.cpp
+        ${NAVIGATION_DIR}/waypoint_handler.cpp
+        ${NAVIGATION_DIR}/distance_adjuster.cpp
+        ${NAVIGATION_DIR}/rtl_handler.cpp
+    )
 endif()
 
 # ROS2 라이브러리 (선택적)

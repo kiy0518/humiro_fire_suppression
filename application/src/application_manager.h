@@ -19,6 +19,7 @@ class LidarInterface;
 class FrameCompositor;
 
 namespace custom_message {
+struct FireMissionStart;
 class CustomMessage;
 }
 
@@ -27,6 +28,7 @@ class CustomMessage;
 class ThermalROS2Publisher;
 class LidarROS2Publisher;
 class StatusROS2Subscriber;
+class OffboardManager;  // 추가: 자율 비행 관리자
 #endif
 
 /**
@@ -85,6 +87,7 @@ private:
     ThermalROS2Publisher* thermal_ros2_publisher_;
     LidarROS2Publisher* lidar_ros2_publisher_;
     StatusROS2Subscriber* status_ros2_subscriber_;
+    OffboardManager* offboard_manager_;  // 추가: 자율 비행 관리자
 #endif
     
     // 큐
@@ -125,7 +128,9 @@ private:
     // 정리 메서드
     void cleanupComponents();
     void cleanupROS2();
+    
+    // 미션 실행 (추가)
+    void executeMission(const custom_message::FireMissionStart& start);
 };
 
 #endif // APPLICATION_MANAGER_H
-

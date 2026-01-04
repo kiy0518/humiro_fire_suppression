@@ -26,6 +26,7 @@
 #include "thermal_ros2_publisher.h"
 #include "lidar_ros2_publisher.h"
 #include "status_ros2_subscriber.h"
+#include "../../navigation/src/offboard/autonomous/offboard_manager.h"
 #endif
 
 // 전역 시그널 핸들러용 포인터
@@ -178,6 +179,12 @@ void ApplicationManager::initializeComponents() {
         if (status_overlay_) {
             std::cout << "\n[ROS2 상태 구독자 초기화]" << std::endl;
             status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_);
+        
+        // OffboardManager 생성
+        // OffboardManager 생성
+        std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
+        offboard_manager_ = new OffboardManager(ros2_node_);
+        std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
             std::cout << "  ✓ ROS2 상태 구독자 활성화" << std::endl;
         }
     }
@@ -275,6 +282,9 @@ void ApplicationManager::initializeCustomMessage() {
                         << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
                         << (start.target_lon / 1e7) << ") Alt:" << start.target_alt << "m";
                     status_overlay_->setCustomMessage(oss.str(), 5.0);
+
+                // 미션 실행
+                executeMission(start);
                 }
             }
         );
@@ -469,10 +479,12 @@ void ApplicationManager::cleanupComponents() {
 
 void ApplicationManager::cleanupROS2() {
 #ifdef ENABLE_ROS2
+    if (offboard_manager_) delete offboard_manager_;
     if (status_ros2_subscriber_) delete status_ros2_subscriber_;
     if (thermal_ros2_publisher_) delete thermal_ros2_publisher_;
     if (lidar_ros2_publisher_) delete lidar_ros2_publisher_;
     
+    offboard_manager_ = nullptr;
     status_ros2_subscriber_ = nullptr;
     thermal_ros2_publisher_ = nullptr;
     lidar_ros2_publisher_ = nullptr;
@@ -761,3 +773,105 @@ void ApplicationManager::initializeStreaming() {
     }
 }
 
+
+void ApplicationManager::executeMission(const custom_message::FireMissionStart& start) {
+#ifdef ENABLE_ROS2
+    if (!offboard_manager_) {
+        std::cerr << "[Error] OffboardManager가 초기화되지 않았습니다" << std::endl;
+        return;
+    }
+
+    std::cout << "\n[미션 실행 시작] Arming -> 이륙 -> 목표 위치 이동" << std::endl;
+
+    // 미션 설정 구성
+    MissionConfig config;
+    
+    // 목표 위치 설정 (lat/lon을 1e7로 나누어 degrees로 변환)
+    config.target_waypoint.latitude = start.target_lat / 1e7;
+    config.target_waypoint.longitude = start.target_lon / 1e7;
+    config.target_waypoint.altitude = start.target_alt;
+    
+    // 이륙 고도 설정
+    config.takeoff_altitude = start.target_alt;
+    
+    // 목표 거리 설정 (10m)
+    config.target_distance = 10.0f;
+    config.distance_tolerance = 1.0f;
+    config.hover_duration_sec = 5.0f;
+
+    std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m" << std::endl;
+    std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
+              << config.target_waypoint.longitude << ", " << config.target_waypoint.altitude << ")" << std::endl;
+    std::cout << "  - 목표 거리: " << config.target_distance << " m" << std::endl;
+
+    // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
+    std::thread mission_thread([this, config, start]() {
+        bool success = offboard_manager_->executeMission(config);
+
+        if (success) {
+            std::cout << "\n[미션 성공] 목표 위치 도착" << std::endl;
+            
+            // 미션 상태 전송
+            if (custom_message_handler_) {
+                custom_message::FireMissionStatus status;
+                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_READY_TO_FIRE);
+                status.progress = 90;
+                status.remaining_projectiles = 10;
+                status.distance_to_target = 0.0f;
+                status.thermal_max_temp = 0;
+                std::strncpy(status.status_text, "Arrived at target", sizeof(status.status_text) - 1);
+                custom_message_handler_->sendFireMissionStatus(status);
+            }
+            
+            // Auto fire 모드일 경우
+            if (start.auto_fire) {
+                std::cout << "[자동 발사 모드] 발사 시뮬레이션 시작" << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                
+                // 발사 결과 전송
+                if (custom_message_handler_) {
+                    custom_message::FireSuppressionResult result;
+                    result.shot_number = 1;
+                    result.temp_before = 800;  // 80.0°C
+                    result.temp_after = 250;   // 25.0°C
+                    result.success = 1;
+                    custom_message_handler_->sendFireSuppressionResult(result);
+                    std::cout << "[발사 완료] 결과 전송 완료" << std::endl;
+                }
+            }
+            
+            // 완료 상태 전송
+            if (custom_message_handler_) {
+                custom_message::FireMissionStatus status;
+                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_COMPLETE);
+                status.progress = 100;
+                status.remaining_projectiles = 9;
+                status.distance_to_target = 0.0f;
+                status.thermal_max_temp = 0;
+                std::strncpy(status.status_text, "Mission complete", sizeof(status.status_text) - 1);
+                custom_message_handler_->sendFireMissionStatus(status);
+            }
+            
+        } else {
+            std::cerr << "\n[미션 실패]" << std::endl;
+            
+            // 실패 상태 전송
+            if (custom_message_handler_) {
+                custom_message::FireMissionStatus status;
+                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_IDLE);
+                status.progress = 0;
+                status.remaining_projectiles = 10;
+                status.distance_to_target = 0.0f;
+                status.thermal_max_temp = 0;
+                std::strncpy(status.status_text, "Mission failed", sizeof(status.status_text) - 1);
+                custom_message_handler_->sendFireMissionStatus(status);
+            }
+        }
+    });
+    
+    // 스레드 분리 (백그라운드 실행)
+    mission_thread.detach();
+#else
+    std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+#endif
+}
