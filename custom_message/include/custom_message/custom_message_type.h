@@ -6,8 +6,8 @@
  * XML mavlink 정의 파일과 완전 동기화
  *
  * @author Humiro Fire Suppression Team
- * @date 2026-01-04
- * @version 3.0 - XML 정의 완전 동기화
+ * @date 2026-01-05
+ * @version 3.1 - FIRE_SET_MODE 메시지 추가
  */
 
 #ifndef CUSTOM_MESSAGE_TYPE_H
@@ -39,6 +39,21 @@ enum class LaunchCommand : uint8_t {
     LAUNCH_CMD_CONFIRM = 0,         // Confirm launch
     LAUNCH_CMD_ABORT = 1,           // Abort launch
     LAUNCH_CMD_REQUEST_STATUS = 2   // Request current status
+};
+
+/**
+ * @brief PX4 비행 모드 열거형
+ * FIRE_SET_MODE 메시지의 px4_mode 필드 값
+ */
+enum class PX4Mode : uint8_t {
+    PX4_MODE_MANUAL = 1,       // Manual mode
+    PX4_MODE_ALTCTL = 2,       // Altitude control
+    PX4_MODE_POSCTL = 3,       // Position control
+    PX4_MODE_AUTO = 4,         // Auto (mission, loiter, RTL 등)
+    PX4_MODE_ACRO = 5,         // Acro mode
+    PX4_MODE_OFFBOARD = 6,     // Offboard mode
+    PX4_MODE_STABILIZED = 7,   // Stabilized mode
+    PX4_MODE_RATTITUDE = 8     // Rattitude mode
 };
 
 /**
@@ -106,6 +121,21 @@ struct __attribute__((packed)) FireSuppressionResult {
 };
 
 /**
+ * @brief PX4 비행 모드 설정 메시지 (FIRE_SET_MODE)
+ *
+ * Message ID: 12904
+ * Direction: QGC → VIM4
+ *
+ * PX4 비행 모드를 변경하는 명령
+ * VIM4가 수신하면 ROS2를 통해 FC에 전달
+ */
+struct __attribute__((packed)) FireSetMode {
+    uint8_t target_system;        // System ID (FC)
+    uint8_t target_component;     // Component ID (FC)
+    uint8_t px4_mode;             // PX4 mode (1-8, see PX4Mode enum)
+};
+
+/**
  * @brief 메시지 타입 열거형
  */
 enum class MessageType {
@@ -113,6 +143,7 @@ enum class MessageType {
     FIRE_MISSION_STATUS = 12901,     // VIM4 → QGC
     FIRE_LAUNCH_CONTROL = 12902,     // QGC ↔ VIM4
     FIRE_SUPPRESSION_RESULT = 12903, // VIM4 → QGC
+    FIRE_SET_MODE = 12904,           // QGC → VIM4 (NEW)
     UNKNOWN = 0
 };
 
