@@ -63,6 +63,8 @@ set(STREAMING_DIR "${PROJECT_ROOT}/streaming/src")
 set(STREAMING_BUILD_DIR "${STREAMING_DIR}/build")
 set(ROS2_DIR "${PROJECT_ROOT}/ros2/src")
 set(ROS2_BUILD_DIR "${ROS2_DIR}/build")
+set(CUSTOM_MESSAGE_DIR "${PROJECT_ROOT}/custom_message")
+set(CUSTOM_MESSAGE_BUILD_DIR "${CUSTOM_MESSAGE_DIR}/build")
 
 # Include 디렉토리
 include_directories(${THERMAL_DIR})
@@ -75,6 +77,7 @@ include_directories(${OSD_DIR}/status)
 include_directories(${STREAMING_DIR})
 include_directories(${ROS2_DIR})
 include_directories(${ROS2_DIR}/status)
+include_directories(${CUSTOM_MESSAGE_DIR}/include)
 
 # 소스 파일
 set(SOURCES
@@ -102,6 +105,7 @@ link_directories(${OSD_BUILD_DIR})
 link_directories(${TARGETING_BUILD_DIR})
 link_directories(${STREAMING_BUILD_DIR})
 link_directories(${ROS2_BUILD_DIR})
+link_directories(${CUSTOM_MESSAGE_BUILD_DIR})
 
 # 실행 파일 생성
 add_executable(humiro_fire_suppression ${SOURCES})
@@ -151,6 +155,9 @@ else()
     message(STATUS "ROS2 support disabled (use -DENABLE_ROS2=ON to enable)")
 endif()
 
+# 커스텀 메시지 라이브러리 먼저 빌드
+add_subdirectory(${CUSTOM_MESSAGE_DIR} ${CUSTOM_MESSAGE_BUILD_DIR})
+
 # 링크 라이브러리
 # streaming_lib이 정적 라이브러리이므로, streaming_lib이 의존하는 모든 라이브러리를 링크해야 함
 # targeting_lib이 osd_lib을 참조하므로, 순환 의존성을 해결하기 위해 --start-group/--end-group 사용
@@ -162,6 +169,7 @@ target_link_libraries(humiro_fire_suppression
     targeting_lib
     -Wl,--end-group
     streaming_lib
+    custom_message  # 커스텀 메시지 라이브러리
     ${GSTREAMER_LIBRARIES}  # streaming_lib과 utils.cpp용
     ${GSTREAMER_RTSP_LIBRARY}  # streaming_lib용
     ${GSTREAMER_APP_LIBRARY}  # streaming_lib용

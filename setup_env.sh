@@ -66,5 +66,6 @@ if [ -d "$MICRO_ROS_WS/install/micro_ros_agent/lib" ]; then
     export LD_LIBRARY_PATH="$MICRO_ROS_WS/install/micro_ros_agent/lib:$LD_LIBRARY_PATH"
 fi
 
-echo "✓ 환경 변수 설정 완료"
-echo "  PROJECT_ROOT: $PROJECT_ROOT"
+# 환경 변수 설정 완료 메시지 제거 (조용한 모드)
+# echo "✓ 환경 변수 설정 완료"
+# echo "  PROJECT_ROOT: $PROJECT_ROOT"

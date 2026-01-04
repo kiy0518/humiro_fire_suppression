@@ -18,6 +18,10 @@ class StreamingManager;
 class LidarInterface;
 class FrameCompositor;
 
+namespace custom_message {
+class CustomMessage;
+}
+
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
 class ThermalROS2Publisher;
@@ -74,6 +78,7 @@ private:
     StreamingManager* streaming_manager_;
     LidarInterface* lidar_interface_;
     FrameCompositor* frame_compositor_;
+    custom_message::CustomMessage* custom_message_handler_;
     
 #ifdef ENABLE_ROS2
     rclcpp::Node::SharedPtr ros2_node_;
@@ -105,6 +110,7 @@ private:
     void initializeROS2(int argc, char* argv[]);
     void initializeComponents();
     void initializeStreaming();
+    void initializeCustomMessage();
     void startThreads();
     void stopThreads();
     

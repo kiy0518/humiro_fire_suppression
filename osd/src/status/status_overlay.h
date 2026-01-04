@@ -86,6 +86,18 @@ public:
     void setMaxTemperature(double temperature);
     
     /**
+     * QGC 커스텀 메시지 설정
+     * @param message 메시지 텍스트
+     * @param timeout_seconds 메시지 표시 시간 (초, 0이면 무제한)
+     */
+    void setCustomMessage(const std::string& message, double timeout_seconds = 5.0);
+    
+    /**
+     * QGC 커스텀 메시지 지우기
+     */
+    void clearCustomMessage();
+    
+    /**
      * 상태 오버레이 그리기
      * @param frame 출력 프레임 (수정됨)
      */
@@ -129,6 +141,12 @@ private:
     bool show_battery_;
     bool show_gps_;
     bool show_temperature_;  // 온도 표시 여부
+    
+    // QGC 커스텀 메시지
+    std::string custom_message_;
+    double custom_message_timeout_;  // 메시지 만료 시간 (초)
+    std::chrono::steady_clock::time_point custom_message_time_;  // 메시지 설정 시간
+    bool show_custom_message_;  // 커스텀 메시지 표시 여부
 };
 
 #endif // STATUS_OVERLAY_H

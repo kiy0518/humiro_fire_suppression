@@ -3,6 +3,7 @@
 #include <sstream>
 #include <algorithm>
 #include <iomanip>
+#include <chrono>
 
 StatusOverlay::StatusOverlay()
     : current_status_(DroneStatus::IDLE)
@@ -22,6 +23,9 @@ StatusOverlay::StatusOverlay()
     , show_battery_(false)
     , show_gps_(false)
     , show_temperature_(false)
+    , custom_message_("")
+    , custom_message_timeout_(0.0)
+    , show_custom_message_(false)
 {
 }
 
@@ -120,6 +124,20 @@ void StatusOverlay::setMaxTemperature(double temperature) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     max_temperature_ = temperature;
     show_temperature_ = (temperature >= 0.0);
+}
+
+void StatusOverlay::setCustomMessage(const std::string& message, double timeout_seconds) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    custom_message_ = message;
+    custom_message_timeout_ = timeout_seconds;
+    custom_message_time_ = std::chrono::steady_clock::now();
+    show_custom_message_ = true;
+}
+
+void StatusOverlay::clearCustomMessage() {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    custom_message_ = "";
+    show_custom_message_ = false;
 }
 
 StatusOverlay::DroneStatus StatusOverlay::convertPx4ModeToStatus(const std::string& px4_mode, bool is_armed) {
@@ -454,5 +472,49 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 cv::Point(status_bg_x + status_padding, status_bg_y + status_size.height + status_padding),
                 FONT_FACE, FONT_SCALE, 
                 status_color, FONT_THICKNESS, cv::LINE_AA);
+    
+    // QGC 커스텀 메시지 표시 (왼쪽 하단)
+    if (show_custom_message_ && !custom_message_.empty()) {
+        // 타임아웃 확인
+        if (custom_message_timeout_ > 0.0) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - custom_message_time_).count() / 1000.0;
+            if (elapsed >= custom_message_timeout_) {
+                show_custom_message_ = false;
+            }
+        }
+        
+        if (show_custom_message_) {
+            const int MARGIN_BOTTOM = 10;
+            const int MARGIN_LEFT_MSG = 10;
+            const double MSG_FONT_SCALE = 0.7;
+            const int MSG_FONT_THICKNESS = 2;
+            const cv::Scalar MSG_BG_COLOR(0, 0, 0);  // 검은색 배경
+            const cv::Scalar MSG_TEXT_COLOR(0, 255, 0);  // 초록색 텍스트 (QGC 메시지)
+            const int MSG_PADDING = 8;
+            const int MSG_CORNER_RADIUS = 5;
+            
+            // 텍스트 크기 계산
+            int msg_baseline = 0;
+            cv::Size msg_size = cv::getTextSize(custom_message_, FONT_FACE, 
+                                                MSG_FONT_SCALE, MSG_FONT_THICKNESS, &msg_baseline);
+            
+            // 배경 크기
+            int msg_bg_width = msg_size.width + MSG_PADDING * 2;
+            int msg_bg_height = msg_size.height + MSG_PADDING * 2;
+            int msg_bg_x = MARGIN_LEFT_MSG;
+            int msg_bg_y = frame.rows - msg_bg_height - MARGIN_BOTTOM;
+            
+            // 배경 그리기 (둥근 모서리)
+            drawBackground(frame, msg_bg_x, msg_bg_y, msg_bg_width, msg_bg_height);
+            
+            // 텍스트 그리기
+            cv::putText(frame, custom_message_,
+                        cv::Point(msg_bg_x + MSG_PADDING, msg_bg_y + msg_size.height + MSG_PADDING),
+                        FONT_FACE, MSG_FONT_SCALE,
+                        MSG_TEXT_COLOR, MSG_FONT_THICKNESS, cv::LINE_AA);
+        }
+    }
 }
 

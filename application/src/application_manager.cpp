@@ -10,10 +10,16 @@
 #include "lidar_config.h"
 #include "utils.h"
 #include "config.h"
+#include "custom_message/custom_message.h"
+#include "custom_message/custom_message_type.h"
 #include <iostream>
 #include <signal.h>
 #include <gst/gst.h>
 #include <opencv2/core/utils/logger.hpp>
+#include <iomanip>
+#include <sstream>
+#include <chrono>
+#include <ctime>
 
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
@@ -46,6 +52,7 @@ ApplicationManager::ApplicationManager()
       streaming_manager_(nullptr),
       lidar_interface_(nullptr),
       frame_compositor_(nullptr),
+      custom_message_handler_(nullptr),
       rgb_frame_queue_(RGB_FRAME_QUEUE_SIZE),
       frame_queue_(FRAME_QUEUE_SIZE),
       web_frame_queue_(WEB_FRAME_QUEUE_SIZE),
@@ -185,6 +192,168 @@ void ApplicationManager::initializeComponents() {
     } else {
         std::cout << "  ⚠ 라이다 연결 실패" << std::endl;
     }
+    
+    // 커스텀 메시지 초기화
+    initializeCustomMessage();
+}
+
+void ApplicationManager::initializeCustomMessage() {
+    std::cout << "\n[커스텀 메시지 초기화]" << std::endl;
+    
+    try {
+        // 포트 설정 (환경 변수 또는 기본값)
+        // 우선순위: QGC_UDP_PORT (device_config.env) > MAVLINK_PORT > 기본값 14550
+        uint16_t mavlink_port = 14550;
+        const char* port_env = std::getenv("QGC_UDP_PORT");  // device_config.env에서 로드
+        if (!port_env) {
+            port_env = std::getenv("MAVLINK_PORT");  // 대체 환경 변수
+        }
+        if (port_env) {
+            try {
+                mavlink_port = static_cast<uint16_t>(std::stoi(port_env));
+                std::cout << "  → 포트 설정: " << mavlink_port 
+                          << (std::getenv("QGC_UDP_PORT") ? " (QGC_UDP_PORT)" : " (MAVLINK_PORT)") 
+                          << std::endl;
+            } catch (...) {
+                std::cerr << "  ⚠ 잘못된 포트 환경 변수, 기본값 14550 사용" << std::endl;
+            }
+        }
+        
+        // 대상 주소 설정 (환경 변수 또는 기본값)
+        // MAVLINK_TARGET 환경 변수가 있으면 사용, 없으면 브로드캐스트 (255.255.255.255)
+        std::string target_address = "255.255.255.255";  // 브로드캐스트 (모든 QGC 수신 가능)
+        const char* target_env = std::getenv("MAVLINK_TARGET");
+        if (target_env) {
+            target_address = target_env;
+            std::cout << "  → 환경 변수 MAVLINK_TARGET 사용: " << target_address << std::endl;
+        }
+        
+        // CustomMessage 생성
+        custom_message_handler_ = new custom_message::CustomMessage(
+            mavlink_port,  // 수신 포트
+            mavlink_port,  // 송신 포트
+            "0.0.0.0",  // 바인드 주소 (모든 인터페이스)
+            target_address,  // 대상 주소 (QGC 또는 브로드캐스트)
+            1,  // 시스템 ID
+            1   // 컴포넌트 ID
+        );
+        
+        // FIRE_MISSION_START 콜백 설정
+        custom_message_handler_->setFireMissionStartCallback(
+            [this](const custom_message::FireMissionStart& start) {
+                // 타임스탬프 생성
+                auto now = std::chrono::system_clock::now();
+                auto time_t = std::chrono::system_clock::to_time_t(now);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+                
+                // 상세 디버그 출력
+                std::cout << "\n[DEBUG] ========== FIRE_MISSION_START 수신 ==========" << std::endl;
+                std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
+                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
+                std::cout << "[DEBUG] 송신자 정보:" << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(start.target_system) << std::endl;
+                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(start.target_component) << std::endl;
+                std::cout << "[DEBUG] 목표 위치:" << std::endl;
+                std::cout << "[DEBUG]   - 위도 (lat): " << std::fixed << std::setprecision(7) 
+                          << (start.target_lat / 1e7) << "° (" << start.target_lat << " * 1e7)" << std::endl;
+                std::cout << "[DEBUG]   - 경도 (lon): " << std::fixed << std::setprecision(7) 
+                          << (start.target_lon / 1e7) << "° (" << start.target_lon << " * 1e7)" << std::endl;
+                std::cout << "[DEBUG]   - 고도 (alt): " << std::fixed << std::setprecision(2) 
+                          << start.target_alt << " m (MSL)" << std::endl;
+                std::cout << "[DEBUG] 미션 설정:" << std::endl;
+                std::cout << "[DEBUG]   - 자동 발사 (auto_fire): " << (start.auto_fire ? "예" : "아니오") 
+                          << " (" << static_cast<int>(start.auto_fire) << ")" << std::endl;
+                std::cout << "[DEBUG]   - 최대 발사 횟수 (max_projectiles): " 
+                          << static_cast<int>(start.max_projectiles) << std::endl;
+                std::cout << "[DEBUG] ==============================================" << std::endl;
+                
+                // OSD 표시
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "Mission Start: (" 
+                        << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
+                        << (start.target_lon / 1e7) << ") Alt:" << start.target_alt << "m";
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
+            }
+        );
+        
+        // FIRE_LAUNCH_CONTROL 콜백 설정
+        custom_message_handler_->setFireLaunchControlCallback(
+            [this](const custom_message::FireLaunchControl& control) {
+                // 타임스탬프 생성
+                auto now = std::chrono::system_clock::now();
+                auto time_t = std::chrono::system_clock::to_time_t(now);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+                
+                // 명령어 이름
+                std::string cmd_name;
+                std::string cmd_desc;
+                switch (control.command) {
+                    case 0:  // CONFIRM
+                        cmd_name = "CONFIRM";
+                        cmd_desc = "발사 확인";
+                        break;
+                    case 1:  // ABORT
+                        cmd_name = "ABORT";
+                        cmd_desc = "발사 중단";
+                        break;
+                    case 2:  // REQUEST_STATUS
+                        cmd_name = "REQUEST_STATUS";
+                        cmd_desc = "상태 요청";
+                        break;
+                    default:
+                        cmd_name = "UNKNOWN";
+                        cmd_desc = "알 수 없는 명령";
+                        break;
+                }
+                
+                // 상세 디버그 출력
+                std::cout << "\n[DEBUG] ========== FIRE_LAUNCH_CONTROL 수신 ==========" << std::endl;
+                std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
+                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
+                std::cout << "[DEBUG] 송신자 정보:" << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(control.target_system) << std::endl;
+                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(control.target_component) << std::endl;
+                std::cout << "[DEBUG] 명령 정보:" << std::endl;
+                std::cout << "[DEBUG]   - command: " << cmd_name << " (" << static_cast<int>(control.command) << ") - " << cmd_desc << std::endl;
+                std::cout << "[DEBUG] ==============================================" << std::endl;
+                
+                // OSD 표시
+                if (status_overlay_) {
+                    std::string msg;
+                    switch (control.command) {
+                        case 0:  // CONFIRM
+                            msg = "Launch Confirmed";
+                            break;
+                        case 1:  // ABORT
+                            msg = "Launch Aborted";
+                            break;
+                        case 2:  // REQUEST_STATUS
+                            msg = "Status Requested";
+                            break;
+                        default:
+                            msg = "Launch Control";
+                            break;
+                    }
+                    status_overlay_->setCustomMessage(msg, 3.0);
+                }
+            }
+        );
+        
+        // 메시지 송수신 시작
+        if (custom_message_handler_->start()) {
+            std::cout << "  ✓ 커스텀 메시지 송수신 시작 (포트 " << mavlink_port << ")" << std::endl;
+            std::cout << "  → 대상 주소: " << target_address << std::endl;
+        } else {
+            std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "  ✗ 커스텀 메시지 초기화 실패: " << e.what() << std::endl;
+        custom_message_handler_ = nullptr;
+    }
 }
 
 void ApplicationManager::startThreads() {
@@ -277,6 +446,12 @@ void ApplicationManager::cleanupComponents() {
         lidar_interface_->stop();
         delete lidar_interface_;
         lidar_interface_ = nullptr;
+    }
+    
+    if (custom_message_handler_) {
+        custom_message_handler_->stop();
+        delete custom_message_handler_;
+        custom_message_handler_ = nullptr;
     }
     
     if (thermal_processor_) delete thermal_processor_;

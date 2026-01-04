@@ -17,14 +17,6 @@ set(LIDAR_DIR "${PROJECT_ROOT}/lidar/src")
 include_directories(${THERMAL_DIR})
 include_directories(${LIDAR_DIR})
 
-# FreeType 찾기 (선택사항)
-find_package(Freetype QUIET)
-if(FREETYPE_FOUND)
-    add_definitions(-DHAVE_FREETYPE)
-    message(STATUS "FreeType found: ${FREETYPE_LIBRARIES}")
-else()
-    message(STATUS "FreeType not found, using PIL fallback for Korean text")
-endif()
 
 # 소스 파일
 set(SOURCES
@@ -33,7 +25,6 @@ set(SOURCES
     targeting/aim_indicator.cpp
     targeting/hotspot_tracker.cpp
     status/status_overlay.cpp
-    utils/korean_text_renderer.cpp
 )
 
 # OSD 라이브러리 생성
@@ -45,9 +36,4 @@ target_link_libraries(osd_lib
     pthread
 )
 
-# FreeType 링크 (있는 경우)
-if(FREETYPE_FOUND)
-    target_link_libraries(osd_lib ${FREETYPE_LIBRARIES})
-    target_include_directories(osd_lib PRIVATE ${FREETYPE_INCLUDE_DIRS})
-endif()
 
