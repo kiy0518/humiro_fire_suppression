@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
     gst_init(&argc, &argv);
 
     std::cout << "=================================" << std::endl;
-    std::cout << "  OSD + Custom Message Test" << std::endl;
+    std::cout << "  OSD + Dual Port Test (14550 + 15000)" << std::endl;
     std::cout << "=================================" << std::endl;
 
     const int width = 1280;
@@ -71,40 +71,86 @@ int main(int argc, char* argv[]) {
     DistanceOverlay distance_overlay;
     MissionOverlay mission_overlay;
 
-    // 커스텀 메시지 송수신기
-    custom_message::CustomMessage custom_msg(15000, 15001, "0.0.0.0", "127.0.0.1", 1, 1);
+    // 커스텀 메시지 송수신기 - 14550 포트 (FC/MAVLink router)
+    custom_message::CustomMessage custom_msg_fc(14550, 14560, "0.0.0.0", "127.0.0.1", 1, 1);
 
-    // 커스텀 메시지 콜백 등록
-    custom_msg.setFireMissionStartCallback([&](const custom_message::FireMissionStart& start) {
-        std::cout << "[CustomMsg] Mission Start received: target="
+    // 커스텀 메시지 송수신기 - 15000 포트 (테스트용)
+    custom_message::CustomMessage custom_msg_test(15000, 15001, "0.0.0.0", "127.0.0.1", 1, 1);
+
+    // 14550 포트 콜백 등록 (FC/일반 메시지)
+    custom_msg_fc.setFireMissionStartCallback([&](const custom_message::FireMissionStart& start) {
+        std::cout << "[FC:14550] Mission Start received: target="
                   << start.target_lat / 1e7 << "," << start.target_lon / 1e7
                   << " auto_fire=" << static_cast<int>(start.auto_fire) << std::endl;
         mission_overlay.updateMissionStart(start);
     });
 
-    custom_msg.setFireMissionStatusCallback([&](const custom_message::FireMissionStatus& status) {
-        std::cout << "[CustomMsg] Mission Status: phase=" << static_cast<int>(status.phase)
+    custom_msg_fc.setFireMissionStatusCallback([&](const custom_message::FireMissionStatus& status) {
+        std::cout << "[FC:14550] Mission Status: phase=" << static_cast<int>(status.phase)
                   << " progress=" << static_cast<int>(status.progress) << "%" << std::endl;
         mission_overlay.updateMissionStatus(status);
     });
 
-    custom_msg.setFireLaunchControlCallback([&](const custom_message::FireLaunchControl& control) {
-        std::cout << "[CustomMsg] Launch Control: command=" << static_cast<int>(control.command) << std::endl;
+    custom_msg_fc.setFireLaunchControlCallback([&](const custom_message::FireLaunchControl& control) {
+        std::cout << "[FC:14550] Launch Control: command=" << static_cast<int>(control.command) << std::endl;
     });
 
-    custom_msg.setFireSuppressionResultCallback([&](const custom_message::FireSuppressionResult& result) {
-        std::cout << "[CustomMsg] Suppression Result: shot=" << static_cast<int>(result.shot_number)
+    custom_msg_fc.setFireSuppressionResultCallback([&](const custom_message::FireSuppressionResult& result) {
+        std::cout << "[FC:14550] Suppression Result: shot=" << static_cast<int>(result.shot_number)
                   << " success=" << static_cast<int>(result.success)
                   << " temp: " << result.temp_before / 10.0 << "C -> " << result.temp_after / 10.0 << "C" << std::endl;
         mission_overlay.updateSuppressionResult(result);
     });
 
-    // 커스텀 메시지 수신 시작
-    if (!custom_msg.start()) {
-        std::cerr << "Failed to start custom message receiver" << std::endl;
+    // 15000 포트 콜백 등록 (테스트용, [TEST] 접두사)
+    custom_msg_test.setFireMissionStartCallback([&](const custom_message::FireMissionStart& start) {
+        std::cout << "[TEST:15000] Mission Start received: target="
+                  << start.target_lat / 1e7 << "," << start.target_lon / 1e7
+                  << " auto_fire=" << static_cast<int>(start.auto_fire) << std::endl;
+        
+        // [TEST] 접두사와 함께 동일한 데이터 업데이트
+        mission_overlay.updateMissionStart(start);
+    });
+
+    custom_msg_test.setFireMissionStatusCallback([&](const custom_message::FireMissionStatus& status) {
+        std::cout << "[TEST:15000] Mission Status: phase=" << static_cast<int>(status.phase)
+                  << " progress=" << static_cast<int>(status.progress) << "%" << std::endl;
+        
+        // [TEST] 접두사를 포함한 상태 업데이트
+        custom_message::FireMissionStatus test_status = status;
+        std::string prefix = "[TEST] ";
+        std::string original_text(test_status.status_text);
+        std::string new_text = prefix + original_text;
+        strncpy(test_status.status_text, new_text.c_str(), sizeof(test_status.status_text) - 1);
+        test_status.status_text[sizeof(test_status.status_text) - 1] = 0;
+        
+        mission_overlay.updateMissionStatus(test_status);
+    });
+
+    custom_msg_test.setFireLaunchControlCallback([&](const custom_message::FireLaunchControl& control) {
+        std::cout << "[TEST:15000] Launch Control: command=" << static_cast<int>(control.command) << std::endl;
+    });
+
+    custom_msg_test.setFireSuppressionResultCallback([&](const custom_message::FireSuppressionResult& result) {
+        std::cout << "[TEST:15000] Suppression Result: shot=" << static_cast<int>(result.shot_number)
+                  << " success=" << static_cast<int>(result.success)
+                  << " temp: " << result.temp_before / 10.0 << "C -> " << result.temp_after / 10.0 << "C" << std::endl;
+        mission_overlay.updateSuppressionResult(result);
+    });
+
+    // 14550 포트 커스텀 메시지 수신 시작
+    if (!custom_msg_fc.start()) {
+        std::cerr << "Failed to start custom message receiver on port 14550" << std::endl;
         return 1;
     }
-    std::cout << "Custom message receiver started on port 15000" << std::endl;
+    std::cout << "Custom message receiver started on port 14550 (FC/MAVLink router)" << std::endl;
+
+    // 15000 포트 커스텀 메시지 수신 시작
+    if (!custom_msg_test.start()) {
+        std::cerr << "Failed to start custom message receiver on port 15000" << std::endl;
+        return 1;
+    }
+    std::cout << "Custom message receiver started on port 15000 (Test)" << std::endl;
 
     // 테스트 데이터
     std::cout << "Setting up test data..." << std::endl;
@@ -130,7 +176,7 @@ int main(int argc, char* argv[]) {
     auto startTime = std::chrono::steady_clock::now();
 
     // 미션 시뮬레이션을 위한 변수
-    int mission_phase = 0;  // 0=IDLE, 1=NAVIGATING, 2=SCANNING, etc.
+    int mission_phase = 0;
     int mission_progress = 0;
     int shot_count = 0;
 
@@ -177,7 +223,7 @@ int main(int argc, char* argv[]) {
             }
             distance_overlay.setLidarData(test_points);
 
-            // 테스트 미션 상태 전송 (시뮬레이션)
+            // 테스트 미션 상태 전송 (시뮬레이션) - 15000 포트로
             custom_message::FireMissionStatus status{};
             status.phase = mission_phase;
             status.progress = mission_progress;
@@ -186,7 +232,7 @@ int main(int argc, char* argv[]) {
             status.thermal_max_temp = 450 + (mission_phase * 50);
             snprintf(status.status_text, sizeof(status.status_text), "Test mission in progress");
 
-            custom_msg.sendFireMissionStatus(status);
+            custom_msg_test.sendFireMissionStatus(status);
 
             // 미션 진행 시뮬레이션
             mission_progress += 10;
@@ -205,7 +251,7 @@ int main(int argc, char* argv[]) {
                     result.temp_after = 350;
                     result.success = 1;
 
-                    custom_msg.sendFireSuppressionResult(result);
+                    custom_msg_test.sendFireSuppressionResult(result);
                 }
             }
 
@@ -214,16 +260,19 @@ int main(int argc, char* argv[]) {
                       << ", Phase: " << mission_phase
                       << ", Progress: " << mission_progress << "%" << std::endl;
 
-            // 통계 출력
-            auto stats = custom_msg.getStatistics();
-            std::cout << "  [Stats] Status sent=" << stats.mission_status_sent
-                      << ", Result sent=" << stats.suppression_result_sent
-                      << ", Status recv=" << stats.mission_status_received
-                      << ", Errors=" << stats.send_error_count << std::endl;
+            // 통계 출력 (14550 + 15000)
+            auto stats_fc = custom_msg_fc.getStatistics();
+            auto stats_test = custom_msg_test.getStatistics();
+            std::cout << "  [FC:14550] Status recv=" << stats_fc.mission_status_received
+                      << ", Errors=" << stats_fc.send_error_count << std::endl;
+            std::cout << "  [TEST:15000] Status sent=" << stats_test.mission_status_sent
+                      << ", Result sent=" << stats_test.suppression_result_sent
+                      << ", Errors=" << stats_test.send_error_count << std::endl;
         }
     }
 
-    custom_msg.stop();
+    custom_msg_fc.stop();
+    custom_msg_test.stop();
     rtsp_server.stop();
     return 0;
 }
