@@ -44,3 +44,7 @@ log/
 */log/
 */*/log/
 custom_message/examples/test_message_sender
+# 백업 파일 제외
+*.backup
+*.before_*
+*~
