@@ -264,7 +264,7 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[DEBUG] 미션 설정:" << std::endl;
                 std::cout << "[DEBUG]   - 자동 발사 (auto_fire): " << (start.auto_fire ? "예" : "아니오") 
                           << " (" << static_cast<int>(start.auto_fire) << ")" << std::endl;
-                std::cout << "[DEBUG]   - 최대 발사 횟수 (max_projectiles): " 
+                std::cout << "[DEBUG]   - 최대 발사 횟수 (max_projectiles): "
                           << static_cast<int>(start.max_projectiles) << std::endl;
                 std::cout << "[DEBUG] ==============================================" << std::endl;
                 
