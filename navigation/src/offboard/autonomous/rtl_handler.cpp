@@ -14,12 +14,18 @@ RTLHandler::RTLHandler(rclcpp::Node::SharedPtr node)
         "/fmu/out/vehicle_status", 10,
         std::bind(&RTLHandler::vehicleStatusCallback, this, std::placeholders::_1));
 
+    // PX4 uXRCE-DDS QoS 설정 (BestEffort + TransientLocal)
+    rclcpp::QoS px4_qos(10);
+    px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+    px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
+    px4_qos.history(rclcpp::HistoryPolicy::KeepLast);
+
     vehicle_global_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
-        "/fmu/out/vehicle_global_position", 10,
+        "/fmu/out/vehicle_global_position", px4_qos,
         std::bind(&RTLHandler::vehicleGlobalPositionCallback, this, std::placeholders::_1));
 
     vehicle_local_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-        "/fmu/out/vehicle_local_position", 10,
+        "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&RTLHandler::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
     RCLCPP_INFO(node_->get_logger(), "RTLHandler initialized");

@@ -54,6 +54,7 @@ ApplicationManager::ApplicationManager()
       lidar_interface_(nullptr),
       frame_compositor_(nullptr),
       custom_message_handler_(nullptr),
+      test_message_handler_(nullptr),
       rgb_frame_queue_(RGB_FRAME_QUEUE_SIZE),
       frame_queue_(FRAME_QUEUE_SIZE),
       web_frame_queue_(WEB_FRAME_QUEUE_SIZE),
@@ -360,6 +361,79 @@ void ApplicationManager::initializeCustomMessage() {
         } else {
             std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;
         }
+
+        // ===== 테스트용 메시지 핸들러 추가 (15000 포트) =====
+        std::cout << "\n[테스트 메시지 핸들러 초기화]" << std::endl;
+        
+        test_message_handler_ = new custom_message::CustomMessage(
+            15000,  // 수신 포트 (테스트용)
+            15000,  // 송신 포트 (테스트용)
+            "0.0.0.0",  // 바인드 주소
+            target_address,  // 대상 주소
+            1,  // 시스템 ID
+            1   // 컴포넌트 ID
+        );
+        
+        // FIRE_MISSION_START 콜백 설정 (동일 로직)
+        test_message_handler_->setFireMissionStartCallback(
+            [this](const custom_message::FireMissionStart& start) {
+                auto now = std::chrono::system_clock::now();
+                auto time_t = std::chrono::system_clock::to_time_t(now);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+                
+                std::cout << "\n[TEST PORT] ========== FIRE_MISSION_START 수신 (15000) ==========" << std::endl;
+                std::cout << "[TEST PORT] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
+                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
+                std::cout << "[TEST PORT] 목표 위치:" << std::endl;
+                std::cout << "[TEST PORT]   - 위도: " << std::fixed << std::setprecision(7) 
+                          << (start.target_lat / 1e7) << "°" << std::endl;
+                std::cout << "[TEST PORT]   - 경도: " << std::fixed << std::setprecision(7) 
+                          << (start.target_lon / 1e7) << "°" << std::endl;
+                std::cout << "[TEST PORT]   - 고도: " << std::fixed << std::setprecision(2) 
+                          << start.target_alt << " m" << std::endl;
+                std::cout << "[TEST PORT] Auto Fire: " << (start.auto_fire ? "예" : "아니오") << std::endl;
+                std::cout << "[TEST PORT] ==========================================" << std::endl;
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "[TEST] Mission: (" 
+                        << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
+                        << (start.target_lon / 1e7) << ") " << start.target_alt << "m";
+                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
+                
+                // 미션 실행 (주석 처리 - 테스트용은 OSD만 표시)
+                // executeMission(start);
+            }
+        );
+        
+        // FIRE_LAUNCH_CONTROL 콜백 설정
+        test_message_handler_->setFireLaunchControlCallback(
+            [this](const custom_message::FireLaunchControl& control) {
+                std::string cmd_name;
+                switch (control.command) {
+                    case 0: cmd_name = "CONFIRM"; break;
+                    case 1: cmd_name = "ABORT"; break;
+                    case 2: cmd_name = "REQUEST_STATUS"; break;
+                    default: cmd_name = "UNKNOWN"; break;
+                }
+                
+                std::cout << "\n[TEST PORT] FIRE_LAUNCH_CONTROL 수신 (15000): " << cmd_name << std::endl;
+                
+                if (status_overlay_) {
+                    status_overlay_->setCustomMessage("[TEST] " + cmd_name, 3.0);
+                }
+            }
+        );
+        
+        // 테스트 메시지 송수신 시작
+        if (test_message_handler_->start()) {
+            std::cout << "  ✓ 테스트 메시지 송수신 시작 (포트 15000)" << std::endl;
+        } else {
+            std::cout << "  ⚠ 테스트 메시지 시작 실패" << std::endl;
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "  ✗ 커스텀 메시지 초기화 실패: " << e.what() << std::endl;
         custom_message_handler_ = nullptr;
@@ -462,6 +536,11 @@ void ApplicationManager::cleanupComponents() {
         custom_message_handler_->stop();
         delete custom_message_handler_;
         custom_message_handler_ = nullptr;
+    }
+    if (test_message_handler_) {
+        test_message_handler_->stop();
+        delete test_message_handler_;
+        test_message_handler_ = nullptr;
     }
     
     if (thermal_processor_) delete thermal_processor_;

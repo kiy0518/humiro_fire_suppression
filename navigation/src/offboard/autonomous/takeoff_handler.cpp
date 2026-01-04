@@ -16,8 +16,14 @@ TakeoffHandler::TakeoffHandler(rclcpp::Node::SharedPtr node)
         "/fmu/in/vehicle_command", 10);
 
     // Subscribers 초기화
+    // PX4 uXRCE-DDS QoS 설정 (BestEffort + TransientLocal)
+    rclcpp::QoS px4_qos(10);
+    px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+    px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
+    px4_qos.history(rclcpp::HistoryPolicy::KeepLast);
+
     vehicle_local_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-        "/fmu/out/vehicle_local_position", 10,
+        "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&TakeoffHandler::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
     // OFFBOARD 모드 heartbeat 타이머 (2Hz)

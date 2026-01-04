@@ -61,20 +61,20 @@ GstElement* RTSPServer::create_media_element(GstRTSPMediaFactory* factory, const
     return pipeline;
 }
 
-// 미디어 구성 완료 콜백
-void RTSPServer::media_configured(GstRTSPMediaFactory* factory, GstRTSPMedia* media) {
-    // 미디어가 구성되었을 때 호출됨
-    // 새로운 클라이언트 연결 시 호출됨
-    std::cout << "  ✓ RTSP: New client connected (pipeline created)" << std::endl;
-}
+// 주의: 최신 GStreamer에서는 GstRTSPMediaFactory에 
+// "media-configured"와 "media-unprepared" 시그널이 없으므로 
+// 이 콜백 함수들은 사용되지 않습니다.
+// 필요시 create_media_element에서 생성된 GstRTSPMedia 객체에 직접 시그널을 연결할 수 있습니다.
 
-// 미디어 해제 콜백 (클라이언트 연결 해제 시 호출)
-void RTSPServer::media_unprepared(GstRTSPMedia* media) {
-    // 클라이언트 연결이 끊어졌을 때 호출됨
-    // shared=FALSE로 설정했으므로 각 클라이언트의 파이프라인이 독립적으로 정리됨
-    // 파이프라인의 RTSPData는 g_object_set_data_full의 destroy 함수에서 자동 정리됨
-    std::cout << "  ✓ RTSP: Client disconnected, pipeline and thread cleaned up" << std::endl;
-}
+// 미디어 구성 완료 콜백 (사용 안 함 - 최신 GStreamer에서 시그널 없음)
+// void RTSPServer::media_configured(GstRTSPMediaFactory* factory, GstRTSPMedia* media) {
+//     std::cout << "  ✓ RTSP: New client connected (pipeline created)" << std::endl;
+// }
+
+// 미디어 해제 콜백 (사용 안 함 - 최신 GStreamer에서 시그널 없음)
+// void RTSPServer::media_unprepared(GstRTSPMedia* media) {
+//     std::cout << "  ✓ RTSP: Client disconnected, pipeline and thread cleaned up" << std::endl;
+// }
 
 // 프레임 푸시 스레드
 void RTSPServer::push_frames_thread(RTSPData* data) {
@@ -203,9 +203,10 @@ bool RTSPServer::initialize(ThreadSafeQueue<cv::Mat>* frame_queue) {
     GstRTSPMediaFactoryClass* klass = GST_RTSP_MEDIA_FACTORY_GET_CLASS(factory_);
     klass->create_element = create_media_element;
     
-    // 미디어 상태 변경 콜백 등록
-    g_signal_connect(factory_, "media-configured", G_CALLBACK(media_configured), nullptr);
-    g_signal_connect(factory_, "media-unprepared", G_CALLBACK(media_unprepared), nullptr);
+    // 주의: 최신 GStreamer 버전에서는 GstRTSPMediaFactory에 
+    // "media-configured"와 "media-unprepared" 시그널이 없습니다.
+    // 이 시그널들은 단순히 로그 출력용이므로 제거해도 기능에는 영향이 없습니다.
+    // 필요시 create_media_element에서 생성된 GstRTSPMedia 객체에 직접 시그널을 연결할 수 있습니다.
     
     GstRTSPMountPoints* mounts = gst_rtsp_server_get_mount_points(server_);
     gst_rtsp_mount_points_add_factory(mounts, RTSP_MOUNT_POINT, factory_);

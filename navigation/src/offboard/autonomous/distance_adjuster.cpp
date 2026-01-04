@@ -17,8 +17,14 @@ DistanceAdjuster::DistanceAdjuster(rclcpp::Node::SharedPtr node)
         "/lidar/front_distance", 10,
         std::bind(&DistanceAdjuster::frontDistanceCallback, this, std::placeholders::_1));
 
+    // PX4 uXRCE-DDS QoS 설정 (BestEffort + TransientLocal)
+    rclcpp::QoS px4_qos(10);
+    px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
+    px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
+    px4_qos.history(rclcpp::HistoryPolicy::KeepLast);
+
     vehicle_local_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-        "/fmu/out/vehicle_local_position", 10,
+        "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&DistanceAdjuster::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
     // OFFBOARD 모드 heartbeat 타이머 (2Hz)

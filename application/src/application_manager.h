@@ -80,7 +80,8 @@ private:
     StreamingManager* streaming_manager_;
     LidarInterface* lidar_interface_;
     FrameCompositor* frame_compositor_;
-    custom_message::CustomMessage* custom_message_handler_;
+    custom_message::CustomMessage* custom_message_handler_;  // QGC 연결용 (14550)
+    custom_message::CustomMessage* test_message_handler_;    // 테스트용 (14551)
     
 #ifdef ENABLE_ROS2
     rclcpp::Node::SharedPtr ros2_node_;
