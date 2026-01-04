@@ -14,8 +14,10 @@ get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
 # Include 디렉토리
 set(THERMAL_DIR "${PROJECT_ROOT}/thermal/src")
 set(LIDAR_DIR "${PROJECT_ROOT}/lidar/src")
+set(CUSTOM_MESSAGE_DIR "${PROJECT_ROOT}/custom_message")
 include_directories(${THERMAL_DIR})
 include_directories(${LIDAR_DIR})
+include_directories(${CUSTOM_MESSAGE_DIR}/include)
 
 
 # 소스 파일
@@ -25,6 +27,7 @@ set(SOURCES
     targeting/aim_indicator.cpp
     targeting/hotspot_tracker.cpp
     status/status_overlay.cpp
+    mission/mission_overlay.cpp
 )
 
 # OSD 라이브러리 생성

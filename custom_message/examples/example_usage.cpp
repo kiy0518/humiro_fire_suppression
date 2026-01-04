@@ -50,9 +50,6 @@ int main(int argc, char* argv[]) {
     });
 
     msg_handler.setFireMissionStatusCallback([](const FireMissionStatus& status) {
-        const char* phase_names[] = {
-            "대기", "이동중", "스캔중", "발사준비", "진압중", "검증중", "완료"
-        };
         std::cout << "[수신] 미션 상태 - "
                   << "단계: " << phase_names[status.phase] << " (" << static_cast<int>(status.phase) << ")"
                   << ", 진행률: " << static_cast<int>(status.progress) << "%"

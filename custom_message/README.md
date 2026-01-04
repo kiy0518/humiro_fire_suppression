@@ -54,9 +54,9 @@ int main() {
 
 | 메시지 ID | 메시지 이름 | 방향 | 설명 |
 |-----------|------------|------|------|
-| 12900 | FIRE_MISSION_START | QGC → VIM4 | 화재 진압 미션 시작 |
+| 12900 | FIRE_MISSION_COMMAND | QGC → VIM4 | 화재 진압 미션 명령 |
 | 12901 | FIRE_MISSION_STATUS | VIM4 → QGC | 미션 진행 상태 |
-| 12902 | FIRE_LAUNCH_CONTROL | QGC ↔ VIM4 | 발사 제어 |
+| 12902 | FIRE_THERMAL_DATA | QGC ↔ VIM4 | 열화상 데이터 |
 | 12903 | FIRE_SUPPRESSION_RESULT | VIM4 → QGC | 발사 결과 |
 
 ---
@@ -79,15 +79,15 @@ CustomMessage(
 ### 주요 메서드
 
 **수신 콜백 등록**:
-- `setFireMissionStartCallback()` - 미션 시작
+- `setFireMissionCommandCallback()` - 미션 명령
 - `setFireMissionStatusCallback()` - 미션 상태
-- `setFireLaunchControlCallback()` - 발사 제어
+- `setFireThermalDataCallback()` - 열화상 데이터
 - `setFireSuppressionResultCallback()` - 진압 결과
 
 **송신**:
-- `sendFireMissionStart()` - 미션 시작 전송
+- `sendFireMissionCommand()` - 미션 명령 전송
 - `sendFireMissionStatus()` - 미션 상태 전송
-- `sendFireLaunchControl()` - 발사 제어 전송
+- `sendFireThermalData()` - 열화상 데이터 전송
 - `sendFireSuppressionResult()` - 진압 결과 전송
 
 **제어**:

@@ -34,21 +34,16 @@ constexpr size_t MAVLINK_HEADER_LEN = 10;
 constexpr size_t MAVLINK_CHECKSUM_LEN = 2;
 constexpr uint8_t MAVLINK_MAGIC = 0xFD;
 
-// 간단한 CRC24 계산 (MAVLink 2.0)
-uint32_t calculateCRC24(const uint8_t* data, size_t len) {
-    uint32_t crc = 0xFFFFFFFF;
-    const uint32_t polynomial = 0x1864CFB;
-    
+// 간단한 CRC16 계산 (MAVLink 2.0)
+uint16_t calculateCRC16(const uint8_t* data, size_t len) {
+    uint16_t crc = 0xFFFF;
+
     for (size_t i = 0; i < len; i++) {
-        crc ^= static_cast<uint32_t>(data[i]) << 16;
-        for (int j = 0; j < 8; j++) {
-            crc <<= 1;
-            if (crc & 0x1000000) {
-                crc ^= polynomial;
-            }
-        }
+        uint8_t tmp = data[i] ^ (crc & 0xFF);
+        tmp ^= (tmp << 4);
+        crc = (crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4);
     }
-    return crc & 0xFFFFFF;
+    return crc;
 }
 
 class CustomMessageImpl {
@@ -122,7 +117,7 @@ public:
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
         addr.sin_port = htons(receive_port_);
-        
+
         if (bind_address_ == "0.0.0.0") {
             addr.sin_addr.s_addr = INADDR_ANY;
         } else {
@@ -257,7 +252,7 @@ private:
         header->seq = sequence_number_++;
         header->sysid = system_id_;
         header->compid = component_id_;
-        
+
         uint32_t msg_id = static_cast<uint32_t>(msg_type);
         header->msgid = msg_id & 0xFF;
         header->msgid_ext[0] = (msg_id >> 8) & 0xFF;
@@ -267,7 +262,7 @@ private:
         memcpy(buffer + MAVLINK_HEADER_LEN, payload, payload_len);
 
         // 체크섬 계산 (헤더 + 페이로드)
-        uint32_t crc = calculateCRC24(buffer, MAVLINK_HEADER_LEN + payload_len);
+        uint16_t crc = calculateCRC16(buffer + 1, MAVLINK_HEADER_LEN - 1 + payload_len);
         buffer[MAVLINK_HEADER_LEN + payload_len] = crc & 0xFF;
         buffer[MAVLINK_HEADER_LEN + payload_len + 1] = (crc >> 8) & 0xFF;
 
@@ -311,7 +306,7 @@ private:
         while (running_) {
             ssize_t received = recvfrom(receive_socket_fd_, buffer, sizeof(buffer), 0,
                                        (struct sockaddr*)&client_addr, &client_addr_len);
-            
+
             if (received < 0) {
                 if (errno == EINTR || errno == EAGAIN) {
                     continue;
@@ -340,7 +335,7 @@ private:
         }
 
         const MAVLinkHeader* header = reinterpret_cast<const MAVLinkHeader*>(buffer);
-        
+
         uint32_t msg_id = header->msgid | (static_cast<uint32_t>(header->msgid_ext[0]) << 8) |
                          (static_cast<uint32_t>(header->msgid_ext[1]) << 16);
 
@@ -348,11 +343,11 @@ private:
         size_t payload_len = header->len;
 
         // 체크섬 검증
-        uint32_t received_crc = buffer[MAVLINK_HEADER_LEN + payload_len] |
-                               (static_cast<uint32_t>(buffer[MAVLINK_HEADER_LEN + payload_len + 1]) << 8);
-        uint32_t calculated_crc = calculateCRC24(buffer, MAVLINK_HEADER_LEN + payload_len);
-        
-        if ((received_crc & 0xFFFF) != (calculated_crc & 0xFFFF)) {
+        uint16_t received_crc = buffer[MAVLINK_HEADER_LEN + payload_len] |
+                               (static_cast<uint16_t>(buffer[MAVLINK_HEADER_LEN + payload_len + 1]) << 8);
+        uint16_t calculated_crc = calculateCRC16(buffer + 1, MAVLINK_HEADER_LEN - 1 + payload_len);
+
+        if (received_crc != calculated_crc) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
             return;
@@ -363,7 +358,7 @@ private:
             case static_cast<uint32_t>(MessageType::FIRE_MISSION_START):
                 parseFireMissionStart(payload, payload_len);
                 break;
-            
+
             case static_cast<uint32_t>(MessageType::FIRE_MISSION_STATUS):
                 parseFireMissionStatus(payload, payload_len);
                 break;
@@ -375,7 +370,7 @@ private:
             case static_cast<uint32_t>(MessageType::FIRE_SUPPRESSION_RESULT):
                 parseFireSuppressionResult(payload, payload_len);
                 break;
-            
+
             default:
                 std::lock_guard<std::mutex> lock(stats_mutex_);
                 stats_.unknown_message_count++;
@@ -562,4 +557,3 @@ void CustomMessage::resetStatistics() {
 }
 
 } // namespace custom_message
-

@@ -1,11 +1,13 @@
 /**
  * @file custom_message.h
- * @brief 커스텀 MAVLink 메시지 송수신 라이브러리
- * 
+ * @brief 커스텀 MAVLink 메시지 송수신 라이브러리 (XML 정의 기반)
+ *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하는 라이브러리
- * 
+ * XML mavlink 정의 파일과 완전 동기화
+ *
  * @author Humiro Fire Suppression Team
- * @date 2026-01-03
+ * @date 2026-01-04
+ * @version 3.0 - XML 정의 완전 동기화
  */
 
 #ifndef CUSTOM_MESSAGE_H
@@ -25,35 +27,35 @@ class CustomMessageImpl;
 
 /**
  * @brief 미션 시작 콜백 함수 타입
- * 
+ *
  * @param start 미션 시작 메시지
  */
 using FireMissionStartCallback = std::function<void(const FireMissionStart& start)>;
 
 /**
  * @brief 미션 상태 콜백 함수 타입
- * 
+ *
  * @param status 미션 상태 메시지
  */
 using FireMissionStatusCallback = std::function<void(const FireMissionStatus& status)>;
 
 /**
  * @brief 발사 제어 콜백 함수 타입
- * 
+ *
  * @param control 발사 제어 메시지
  */
 using FireLaunchControlCallback = std::function<void(const FireLaunchControl& control)>;
 
 /**
  * @brief 진압 결과 콜백 함수 타입
- * 
+ *
  * @param result 진압 결과 메시지
  */
 using FireSuppressionResultCallback = std::function<void(const FireSuppressionResult& result)>;
 
 /**
  * @brief 커스텀 MAVLink 메시지 송수신기
- * 
+ *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하고 파싱하여
  * 등록된 콜백 함수를 호출합니다.
  */
@@ -61,7 +63,7 @@ class CustomMessage {
 public:
     /**
      * @brief 생성자
-     * 
+     *
      * @param receive_port UDP 수신 포트 (기본값: 14550)
      * @param send_port UDP 송신 포트 (기본값: 14550)
      * @param bind_address 바인드 주소 (기본값: "0.0.0.0")
@@ -77,7 +79,7 @@ public:
         uint8_t system_id = 1,
         uint8_t component_id = 1
     );
-    
+
     /**
      * @brief 소멸자
      */
@@ -91,7 +93,7 @@ public:
 
     /**
      * @brief 메시지 수신 시작
-     * 
+     *
      * @return true 성공, false 실패
      */
     bool start();
@@ -103,7 +105,7 @@ public:
 
     /**
      * @brief 수신 중인지 확인
-     * 
+     *
      * @return true 수신 중, false 중지됨
      */
     bool isRunning() const;
@@ -112,28 +114,28 @@ public:
 
     /**
      * @brief 미션 시작 콜백 등록
-     * 
+     *
      * @param callback 콜백 함수
      */
     void setFireMissionStartCallback(FireMissionStartCallback callback);
 
     /**
      * @brief 미션 상태 콜백 등록
-     * 
+     *
      * @param callback 콜백 함수
      */
     void setFireMissionStatusCallback(FireMissionStatusCallback callback);
 
     /**
      * @brief 발사 제어 콜백 등록
-     * 
+     *
      * @param callback 콜백 함수
      */
     void setFireLaunchControlCallback(FireLaunchControlCallback callback);
 
     /**
      * @brief 진압 결과 콜백 등록
-     * 
+     *
      * @param callback 콜백 함수
      */
     void setFireSuppressionResultCallback(FireSuppressionResultCallback callback);
@@ -142,7 +144,7 @@ public:
 
     /**
      * @brief 미션 시작 전송
-     * 
+     *
      * @param start 미션 시작 메시지
      * @return true 성공, false 실패
      */
@@ -150,7 +152,7 @@ public:
 
     /**
      * @brief 미션 상태 전송
-     * 
+     *
      * @param status 미션 상태 메시지
      * @return true 성공, false 실패
      */
@@ -158,7 +160,7 @@ public:
 
     /**
      * @brief 발사 제어 전송
-     * 
+     *
      * @param control 발사 제어 메시지
      * @return true 성공, false 실패
      */
@@ -166,7 +168,7 @@ public:
 
     /**
      * @brief 진압 결과 전송
-     * 
+     *
      * @param result 진압 결과 메시지
      * @return true 성공, false 실패
      */
@@ -174,7 +176,7 @@ public:
 
     /**
      * @brief 송신 대상 주소 설정
-     * 
+     *
      * @param address 대상 IP 주소
      * @param port 대상 포트
      */
@@ -201,7 +203,7 @@ public:
 
     /**
      * @brief 통계 정보 가져오기
-     * 
+     *
      * @return Statistics 통계 정보
      */
     Statistics getStatistics() const;

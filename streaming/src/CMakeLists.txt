@@ -60,6 +60,10 @@ get_filename_component(PROJECT_ROOT "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
 set(THERMAL_DIR "${PROJECT_ROOT}/thermal/src")
 include_directories(${THERMAL_DIR})
 
+# 커스텀 메시지 경로
+set(CUSTOM_MESSAGE_DIR "${PROJECT_ROOT}/custom_message")
+include_directories(${CUSTOM_MESSAGE_DIR}/include)
+
 # 소스 파일
 set(SOURCES
     rtsp_server.cpp
@@ -105,6 +109,7 @@ endif()
 set(OSD_SOURCES
     ${OSD_DIR}/status/status_overlay.cpp
     ${OSD_DIR}/lidar/distance_overlay.cpp
+    ${OSD_DIR}/mission/mission_overlay.cpp
     ${PROJECT_ROOT}/thermal/src/utils.cpp
 )
 
@@ -117,6 +122,7 @@ add_executable(test_osd_stream
 target_link_libraries(test_osd_stream
     streaming_lib
     ${OpenCV_LIBS}
+    ${CUSTOM_MESSAGE_DIR}/build/libcustom_message.a
     pthread
 )
 
