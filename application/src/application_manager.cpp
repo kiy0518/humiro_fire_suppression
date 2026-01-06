@@ -398,7 +398,9 @@ void ApplicationManager::initializeCustomMessage() {
         
         // COMMAND_LONG 콜백 설정 (ARM/DISARM 명령용)
         custom_message_handler_->setCommandLongCallback(
-            [this](uint8_t target_system, uint8_t target_component, uint16_t command, float param1) {
+            [this](uint8_t target_system, uint8_t target_component, uint16_t command, 
+                   float param1, float param2, float param3, float param4, 
+                   float param5, float param6, float param7) {
                 std::cout << "\n[DEBUG] ========== COMMAND_LONG 수신 (14550) ==========" << std::endl;
                 std::cout << "[DEBUG] target_system: " << static_cast<int>(target_system) << std::endl;
                 std::cout << "[DEBUG] target_component: " << static_cast<int>(target_component) << std::endl;
@@ -447,7 +449,62 @@ void ApplicationManager::initializeCustomMessage() {
 #else
                     std::cerr << "[DEBUG] ✗ ROS2가 비활성화되어 있음" << std::endl;
 #endif
-                } else {
+                } else if (command == 176) {  // MAV_CMD_DO_SET_MODE
+                    // PX4 custom_mode format: (main_mode << 16) | (sub_mode << 8)
+                    // For DO_SET_MODE: param1=1 (custom mode flag), param2=main_mode
+                    uint32_t custom_mode = static_cast<uint32_t>(param2);
+                    uint8_t main_mode = (custom_mode >> 16) & 0xFF;  // Extract main_mode
+                    uint8_t sub_mode = (custom_mode >> 8) & 0xFF;    // Extract sub_mode
+                    
+                    std::cout << "[DEBUG] DO_SET_MODE 수신: custom_mode=" << custom_mode 
+                              << " (main=" << (int)main_mode << ", sub=" << (int)sub_mode << ")" << std::endl;
+                    
+                #ifdef ENABLE_ROS2
+                    if (ros2_node_) {
+                        auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+                            "/fmu/in/vehicle_command", 10);
+                        
+                        // Send command multiple times (like ArmHandler does)
+                        for (int i = 0; i < 5; i++) {
+                            px4_msgs::msg::VehicleCommand cmd;
+                            cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch()).count();
+                            cmd.param1 = 1.0;           // Custom mode flag
+                            cmd.param2 = main_mode;     // Main mode value (NOT full custom_mode!)
+                            cmd.command = 176;          // MAV_CMD_DO_SET_MODE
+                            cmd.target_system = target_system;
+                            cmd.target_component = target_component;
+                            cmd.source_system = 1;
+                            cmd.source_component = 1;
+                            cmd.from_external = true;
+                            
+                            vehicle_command_pub->publish(cmd);
+                            
+                            if (i == 0) {
+                                std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 중 (main_mode=" << (int)main_mode 
+                                         << ", 5회 반복)" << std::endl;
+                            }
+                            
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        }
+                        
+                        std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 완료" << std::endl;
+                        
+                        if (status_overlay_) {
+                            std::ostringstream oss;
+                            oss << "Mode Change: " << (int)main_mode;
+                            if (sub_mode > 0) {
+                                oss << "." << (int)sub_mode;
+                            }
+                            status_overlay_->setCustomMessage(oss.str(), 3.0);
+                        }
+                    } else {
+                        std::cerr << "[DEBUG] ✗ ROS2 노드가 초기화되지 않음" << std::endl;
+                    }
+                #else
+                    std::cerr << "[DEBUG] ✗ ROS2가 비활성화되어 있음" << std::endl;
+                #endif
+} else {
                     std::cout << "[DEBUG] 알 수 없는 명령: " << command << std::endl;
                 }
             }

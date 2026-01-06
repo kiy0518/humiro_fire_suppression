@@ -688,37 +688,45 @@ private:
         uint8_t target_component = payload[1];
         uint16_t command = payload[2] | (static_cast<uint16_t>(payload[3]) << 8);
         // confirmation은 무시 (payload[4])
-        // param1은 payload[5]부터 시작 (little-endian float, 4 bytes)
-        float param1;
-        // 엔디안 안전하게 파싱 (little-endian)
-        uint32_t param1_bits = static_cast<uint32_t>(payload[5]) |
-                              (static_cast<uint32_t>(payload[6]) << 8) |
-                              (static_cast<uint32_t>(payload[7]) << 16) |
-                              (static_cast<uint32_t>(payload[8]) << 24);
-        memcpy(&param1, &param1_bits, sizeof(float));
+        
+        // param1-7 파싱 (little-endian float, 각 4 bytes)
+        auto parse_float = [](const uint8_t* data) -> float {
+            uint32_t bits = static_cast<uint32_t>(data[0]) |
+                           (static_cast<uint32_t>(data[1]) << 8) |
+                           (static_cast<uint32_t>(data[2]) << 16) |
+                           (static_cast<uint32_t>(data[3]) << 24);
+            float value;
+            memcpy(&value, &bits, sizeof(float));
+            return value;
+        };
+        
+        float param1 = parse_float(&payload[5]);
+        float param2 = parse_float(&payload[9]);
+        float param3 = parse_float(&payload[13]);
+        float param4 = parse_float(&payload[17]);
+        float param5 = parse_float(&payload[21]);
+        float param6 = parse_float(&payload[25]);
+        float param7 = parse_float(&payload[29]);
 
         std::cout << "[CustomMessage] [STEP 3] COMMAND_LONG 파싱 완료: "
                   << "target_system=" << static_cast<int>(target_system)
                   << ", target_component=" << static_cast<int>(target_component)
                   << ", command=" << command
                   << ", param1=" << param1 
-                  << " (raw bytes: " << std::hex 
-                  << static_cast<int>(payload[5]) << " " 
-                  << static_cast<int>(payload[6]) << " " 
-                  << static_cast<int>(payload[7]) << " " 
-                  << static_cast<int>(payload[8]) << std::dec << ")" << std::endl;
+                  << ", param2=" << param2 << std::endl;
 
         // COMMAND_LONG은 표준 MAVLink 메시지이므로 MAVLink 라우터가 자동으로 FC로 전달함
         // VIM4에서는 메시지를 파싱하고 콜백만 호출
 
         if (command_long_callback_) {
             std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 시작" << std::endl;
-            command_long_callback_(target_system, target_component, command, param1);
+            command_long_callback_(target_system, target_component, command, param1, param2, param3, param4, param5, param6, param7);
             std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
         } else {
             std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
         }
     }
+
 
     uint16_t receive_port_;
     uint16_t send_port_;

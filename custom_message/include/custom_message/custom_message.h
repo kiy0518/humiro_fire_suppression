@@ -61,7 +61,7 @@ using FireSuppressionResultCallback = std::function<void(const FireSuppressionRe
  * @param command 명령 코드 (MAV_CMD_COMPONENT_ARM_DISARM = 400)
  * @param param1 첫 번째 파라미터 (ARM: 1.0, DISARM: 0.0)
  */
-using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t target_component, uint16_t command, float param1)>;
+using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t target_component, uint16_t command, float param1, float param2, float param3, float param4, float param5, float param6, float param7)>;
 
 /**
  * @brief 커스텀 MAVLink 메시지 송수신기

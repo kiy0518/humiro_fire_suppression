@@ -23,7 +23,7 @@ import sys
 class CustomMessageSenderGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Custom Message Sender (MAVLink 2.0 - 15000 Port)")
+        self.root.title("Custom Message Sender (MAVLink 2.0 - 15000 Test Port)")
         self.root.geometry("800x700")
 
         # ttk 스타일 설정
@@ -100,7 +100,7 @@ class CustomMessageSenderGUI:
 
         ttk.Label(conn_frame, text="포트:").grid(row=0, column=2, sticky="w", padx=(20, 0))
         self.port_entry = ttk.Entry(conn_frame, width=10)
-        self.port_entry.insert(0, "15000")
+        self.port_entry.insert(0, "14550")
         self.port_entry.grid(row=0, column=3, padx=5)
 
         # 시스템 ID / 컴포넌트 ID
@@ -268,30 +268,31 @@ class CustomMessageSenderGUI:
                   command=lambda: self.send_arming(0)).pack(side="left", padx=5)
 
     def create_set_mode_section(self, parent):
-        frame = ttk.LabelFrame(parent, text="6. SET_MODE (비행 모드 설정)", padding=5)
+        frame = ttk.LabelFrame(parent, text="6. SET_MODE (비행 모드 설정 - PX4)", padding=5)
         frame.pack(fill="x", pady=5)
 
         row_frame = ttk.Frame(frame)
         row_frame.pack(fill="x")
 
         ttk.Label(row_frame, text="모드:").pack(side="left")
-        self.mode_combo = ttk.Combobox(row_frame, width=20, state="readonly")
+        self.mode_combo = ttk.Combobox(row_frame, width=30, state="readonly")
+        # PX4 custom_mode 값: (main_mode << 16) | (sub_mode << 8)
         self.mode_combo['values'] = [
-            'MANUAL (1)',
-            'ALTCTL (2)',
-            'POSCTL (3)',
-            'AUTO (4)',
-            'ACRO (5)',
-            'OFFBOARD (6)',
-            'STABILIZED (7)',
-            'RATTITUDE (8)',
-            'TAKEOFF (9)',
-            'LAND (10)',
-            'FOLLOW_ME (11)',
-            'PRECISION_LAND (12)'
+            'Manual (65536)',           # 1 << 16
+            'Altitude (131072)',          # 2 << 16
+            'Position (196608)',          # 3 << 16
+            'Mission (262400)',         # (4 << 16) | (4 << 8)
+
         ]
         self.mode_combo.current(0)  # MANUAL
         self.mode_combo.pack(side="left", padx=5)
+
+        # 메시지 타입 선택
+        ttk.Label(row_frame, text="방법:").pack(side="left", padx=(10, 0))
+        self.mode_method_combo = ttk.Combobox(row_frame, width=15, state="readonly")
+        self.mode_method_combo['values'] = ['COMMAND_LONG (권장)', 'SET_MODE']
+        self.mode_method_combo.current(0)
+        self.mode_method_combo.pack(side="left", padx=5)
 
         ttk.Button(row_frame, text="모드 설정", command=self.send_set_mode).pack(side="right", padx=5)
 
@@ -529,56 +530,62 @@ class CustomMessageSenderGUI:
             self.log(f"✗ ARM/DISARM 전송 실패: {e}")
 
     def send_set_mode(self):
-        """MAVLink COMMAND_LONG 메시지로 비행 모드 설정 (PX4 권장 방법)"""
+        """PX4 비행 모드 설정 (COMMAND_LONG 또는 SET_MODE)"""
         try:
-            # 송신자 ID (헤더에 사용)
-            system_id = int(self.system_id_entry.get())
-            component_id = int(self.component_id_entry.get())
-            
             # 수신자 ID (FC의 시스템/컴포넌트 ID)
             target_system = int(self.target_system_entry.get())
             target_component = int(self.target_component_entry.get())
-            
-            # COMMAND_LONG 메시지 ID: 76
-            msg_id = 76
-            # MAV_CMD_DO_SET_MODE: 176
-            command = 176
-            
+
             # 선택된 모드 값 추출
             mode_str = self.mode_combo.get()
             custom_mode = int(mode_str.split('(')[1].split(')')[0])  # 괄호 안의 숫자 추출
-            
-            # base_mode: PX4에서는 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
-            # DISARMED 상태에서도 모드 변경 가능하도록 1만 설정
-            base_mode = 1  # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
-            
-            # COMMAND_LONG 페이로드 구조
-            # target_system, target_component, command, confirmation, 
-            # param1, param2, param3, param4, param5, param6, param7
-            # MAV_CMD_DO_SET_MODE의 경우:
-            # param1: base_mode (MAV_MODE_FLAG)
-            # param2: custom_mode (비행 모드 값)
-            payload = struct.pack(
-                '<BBHB7f',
-                target_system,      # target_system (FC의 시스템 ID)
-                target_component,   # target_component (FC의 컴포넌트 ID)
-                command,            # command (MAV_CMD_DO_SET_MODE = 176)
-                0,                  # confirmation
-                float(base_mode),   # param1: base_mode (MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1)
-                float(custom_mode), # param2: custom_mode (비행 모드 값)
-                0.0,                # param3: unused
-                0.0,                # param4: unused
-                0.0,                # param5: unused
-                0.0,                # param6: unused
-                0.0                 # param7: unused
-            )
-            
-            self.send_mavlink2_message(msg_id, payload)
             mode_name = mode_str.split('(')[0].strip()
-            self.log(f"✓ COMMAND_LONG (MAV_CMD_DO_SET_MODE) 전송: target_system={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
-            
+
+            # base_mode: PX4에서는 MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1 사용
+            base_mode = 1  # MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+
+            # 선택된 방법 확인
+            method = self.mode_method_combo.get()
+
+            if 'COMMAND_LONG' in method:
+                # COMMAND_LONG (MSG_ID: 76) 사용 - PX4 권장 방법
+                msg_id = 76
+                command = 176  # MAV_CMD_DO_SET_MODE
+
+                # COMMAND_LONG 페이로드 구조
+                # target_system, target_component, command, confirmation, param1-7 (7개 float)
+                payload = struct.pack(
+                    '<BBHBfffffff',
+                    target_system,       # target_system - uint8_t
+                    target_component,    # target_component - uint8_t
+                    command,             # command (MAV_CMD_DO_SET_MODE = 176) - uint16_t
+                    0,                   # confirmation - uint8_t
+                    float(base_mode),    # param1: base_mode - float
+                    float(custom_mode),  # param2: custom_mode - float
+                    0.0, 0.0, 0.0, 0.0, 0.0  # param3-7 - float
+                )
+
+                self.send_mavlink2_message(msg_id, payload)
+                self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+
+            else:
+                # SET_MODE (MSG_ID: 11) 사용 - 구형 방법
+                msg_id = 11
+
+                # SET_MODE 페이로드 구조
+                # target_system (uint8_t), base_mode (uint8_t), custom_mode (uint32_t)
+                payload = struct.pack(
+                    '<BBL',
+                    target_system,      # target_system - uint8_t
+                    base_mode,          # base_mode - uint8_t
+                    custom_mode         # custom_mode - uint32_t
+                )
+
+                self.send_mavlink2_message(msg_id, payload)
+                self.log(f"✓ SET_MODE 전송: target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+
         except Exception as e:
-            self.log(f"✗ SET_MODE 전송 실패: {e}")
+            self.log(f"✗ 모드 설정 전송 실패: {e}")
 
     def log(self, message):
         """로그 메시지 추가"""
