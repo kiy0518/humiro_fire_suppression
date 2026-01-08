@@ -100,11 +100,27 @@ bool ArmHandler::enableOffboardMode() {
     // Offboard heartbeat 시작 (2Hz)
     // PX4는 Offboard 모드를 유지하려면 지속적인 heartbeat가 필요함
     if (!offboard_timer_) {
-        offboard_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(500),  // 2Hz
-            std::bind(&ArmHandler::publishOffboardControlMode, this));
-        
-        std::cout << "[ArmHandler] ✓ Offboard heartbeat 시작 (2Hz)" << std::endl;
+        try {
+            offboard_timer_ = node_->create_wall_timer(
+                std::chrono::milliseconds(500),  // 2Hz
+                std::bind(&ArmHandler::publishOffboardControlMode, this));
+            
+            std::cout << "[ArmHandler] ✓ Offboard heartbeat 시작 (2Hz)" << std::endl;
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 특별히 처리
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") != std::string::npos) {
+                std::cerr << "[ArmHandler] ⚠ 타이머 생성 실패 (executor 충돌): " << e.what() << std::endl;
+                std::cerr << "  → 메인 스레드의 executor와 충돌했습니다. 타이머 없이 계속 진행합니다." << std::endl;
+                // 타이머 없이도 계속 진행 가능 (수동으로 heartbeat 전송)
+            } else {
+                std::cerr << "[ArmHandler] ✗ 타이머 생성 실패: " << e.what() << std::endl;
+                throw;  // 다른 예외는 다시 throw
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] ✗ 타이머 생성 실패: " << e.what() << std::endl;
+            throw;  // 예외를 다시 throw하여 호출자에게 전달
+        }
     }
     
     // Offboard 모드 명령 전송 (여러 번 전송)
@@ -115,7 +131,13 @@ bool ArmHandler::enableOffboardMode() {
         publishVehicleCommand(VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0);
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
     }
     
     std::cout << "[ArmHandler] ✓ OFFBOARD 모드 명령 전송 완료" << std::endl;
@@ -124,7 +146,13 @@ bool ArmHandler::enableOffboardMode() {
     auto start_time = std::chrono::steady_clock::now();
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now() - start_time).count() < 3000) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
         
         // nav_state == 14 (OFFBOARD)
         if (nav_state_ == 14) {
@@ -157,7 +185,13 @@ bool ArmHandler::arm(int timeout_ms) {
         std::cout << "[ArmHandler] ARM 명령 전송 (" << (i + 1) << "/5)" << std::endl;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
     }
     
     // 시동 확인 대기
@@ -166,7 +200,13 @@ bool ArmHandler::arm(int timeout_ms) {
     
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now() - start_time).count() < timeout_ms) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
         
         if (is_armed_) {
             std::cout << "[ArmHandler] ✓✓✓ 시동 성공! ✓✓✓" << std::endl;
@@ -199,7 +239,13 @@ bool ArmHandler::disarm(int timeout_ms) {
         std::cout << "[ArmHandler] DISARM 명령 전송 (" << (i + 1) << "/5)" << std::endl;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
     }
     
     // 시동 끄기 확인 대기
@@ -208,7 +254,13 @@ bool ArmHandler::disarm(int timeout_ms) {
     
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now() - start_time).count() < timeout_ms) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
         
         if (!is_armed_) {
             std::cout << "[ArmHandler] ✓ 시동 끄기 성공!" << std::endl;

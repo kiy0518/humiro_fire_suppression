@@ -2,7 +2,7 @@ import QtQuick 2.12
 import QtQuick.Controls 2.12
 import QtQuick.Layouts 1.12
 
-// 화재 지점 관리 패널
+// 진압 결과 및 목표 관리 패널
 Rectangle {
     id: firePointPanel
     width: 300
@@ -13,6 +13,7 @@ Rectangle {
     border.width: 2
 
     property var firePointList: []
+    property var suppressionResults: []  // FIRE_SUPPRESSION_RESULT 메시지 결과
 
     ColumnLayout {
         anchors.fill: parent
@@ -28,97 +29,205 @@ Rectangle {
 
             Text {
                 anchors.centerIn: parent
-                text: "Fire Point Management"
+                text: "목표 및 진압 결과"
                 font.pixelSize: 18
                 font.bold: true
                 color: "#FFFFFF"
             }
         }
 
-        // 화재 지점 리스트
-        ScrollView {
+        // 탭 바
+        TabBar {
+            id: tabBar
+            Layout.fillWidth: true
+
+            TabButton {
+                text: "목표 지점"
+            }
+
+            TabButton {
+                text: "진압 결과"
+            }
+        }
+
+        // 스택 뷰
+        StackLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            currentIndex: tabBar.currentIndex
 
-            ListView {
-                id: firePointListView
-                model: firePointList
-                spacing: 8
+            // 목표 지점 탭
+            ScrollView {
+                ListView {
+                    id: firePointListView
+                    model: firePointList
+                    spacing: 8
 
-                delegate: Rectangle {
-                    width: firePointListView.width - 20
-                    height: 120
-                    color: "#3A3A3A"
-                    radius: 4
-                    border.color: "#FF5722"
-                    border.width: 1
+                    delegate: Rectangle {
+                        width: firePointListView.width - 20
+                        height: 100
+                        color: "#3A3A3A"
+                        radius: 4
+                        border.color: "#FF5722"
+                        border.width: 1
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 5
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 5
 
-                        // 목표 ID
-                        RowLayout {
-                            Layout.fillWidth: true
+                            // 목표 ID 및 삭제 버튼
+                            RowLayout {
+                                Layout.fillWidth: true
 
-                            Text {
-                                text: "Target #" + modelData.id + " 🔥"
-                                font.pixelSize: 16
-                                font.bold: true
-                                color: "#FF5722"
+                                Text {
+                                    text: "Target #" + modelData.id + " 🔥"
+                                    font.pixelSize: 14
+                                    font.bold: true
+                                    color: "#FF5722"
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Button {
+                                    text: "Delete"
+                                    font.pixelSize: 10
+                                    onClicked: deleteFirePoint(modelData.id)
+                                }
                             }
 
-                            Item { Layout.fillWidth: true }
-
-                            Button {
-                                text: "Delete"
-                                font.pixelSize: 10
-                                onClicked: deleteFirePoint(modelData.id)
-                            }
-                        }
-
-                        // 위치
-                        Text {
-                            text: "Position: " + modelData.lat.toFixed(6) + "N, " +
-                                  modelData.lon.toFixed(6) + "E"
-                            font.pixelSize: 11
-                            color: "#CCCCCC"
-                        }
-
-                        // 우선순위
-                        RowLayout {
-                            Layout.fillWidth: true
-
+                            // 위치
                             Text {
-                                text: "Priority: "
-                                font.pixelSize: 12
+                                text: "Position: " + modelData.lat.toFixed(6) + "N, " +
+                                      modelData.lon.toFixed(6) + "E"
+                                font.pixelSize: 11
                                 color: "#CCCCCC"
                             }
 
-                            Text {
-                                text: getPriorityName(modelData.priority)
-                                font.pixelSize: 12
-                                color: getPriorityColor(modelData.priority)
+                            // 미션 시작 버튼
+                            Button {
+                                Layout.fillWidth: true
+                                text: "미션 시작"
+                                font.pixelSize: 11
+                                enabled: true
+
+                                background: Rectangle {
+                                    color: parent.enabled ? "#4CAF50" : "#666666"
+                                    radius: 4
+                                }
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    font: parent.font
+                                    color: "#FFFFFF"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                onClicked: {
+                                    startMission(modelData.id, modelData.lat, modelData.lon)
+                                }
                             }
                         }
+                    }
+                }
+            }
 
-                        // 할당 및 상태
-                        RowLayout {
-                            Layout.fillWidth: true
+            // 진압 결과 탭
+            ScrollView {
+                ListView {
+                    id: resultListView
+                    model: suppressionResults
+                    spacing: 8
 
-                            Text {
-                                text: "Assigned: " + (modelData.assignedDrone > 0 ? "Drone " + modelData.assignedDrone : "None")
-                                font.pixelSize: 11
-                                color: "#4A90E2"
+                    delegate: Rectangle {
+                        width: resultListView.width - 20
+                        height: 120
+                        color: "#3A3A3A"
+                        radius: 4
+                        border.color: modelData.success ? "#00FF00" : "#FF0000"
+                        border.width: 2
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 5
+
+                            // 발사 번호 및 성공 여부
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Text {
+                                    text: "발사 #" + modelData.shot_number
+                                    font.pixelSize: 14
+                                    font.bold: true
+                                    color: "#FFFFFF"
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Text {
+                                    text: modelData.success ? "✓ 성공" : "✗ 실패"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                    color: modelData.success ? "#00FF00" : "#FF0000"
+                                }
                             }
 
-                            Item { Layout.fillWidth: true }
+                            // 온도 변화
+                            RowLayout {
+                                Layout.fillWidth: true
 
-                            Text {
-                                text: getProgressName(modelData.progress)
-                                font.pixelSize: 11
-                                color: getProgressColor(modelData.progress)
+                                Text {
+                                    text: "온도 변화:"
+                                    font.pixelSize: 11
+                                    color: "#CCCCCC"
+                                }
+
+                                Text {
+                                    text: modelData.temp_before.toFixed(1) + "°C"
+                                    font.pixelSize: 11
+                                    color: "#FF5722"
+                                }
+
+                                Text {
+                                    text: "→"
+                                    font.pixelSize: 11
+                                    color: "#CCCCCC"
+                                }
+
+                                Text {
+                                    text: modelData.temp_after.toFixed(1) + "°C"
+                                    font.pixelSize: 11
+                                    color: modelData.success ? "#00FF00" : "#FF5722"
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Text {
+                                    text: "Δ " + (modelData.temp_before - modelData.temp_after).toFixed(1) + "°C"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    color: modelData.success ? "#00FF00" : "#FF0000"
+                                }
+                            }
+
+                            // 온도 변화 바
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 15
+                                color: "#1E1E1E"
+                                radius: 7
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: 2
+                                    width: (parent.width - 4) * (modelData.temp_after / modelData.temp_before)
+                                    color: modelData.success ? "#00FF00" : "#FF0000"
+                                    radius: 5
+                                }
                             }
                         }
                     }
@@ -130,8 +239,21 @@ Rectangle {
         Button {
             Layout.fillWidth: true
             height: 40
-            text: "+ Add Fire Point"
+            text: "+ 목표 지점 추가"
             font.pixelSize: 14
+
+            background: Rectangle {
+                color: "#4A90E2"
+                radius: 4
+            }
+
+            contentItem: Text {
+                text: parent.text
+                font: parent.font
+                color: "#FFFFFF"
+                horizontalAlignment: Text.AlignHCenter
+                verticalAlignment: Text.AlignVCenter
+            }
 
             onClicked: {
                 // QGC 지도에서 클릭하여 추가하도록 신호 전송
@@ -140,38 +262,13 @@ Rectangle {
         }
     }
 
-    // 헬퍼 함수
-    function getPriorityName(priority) {
-        if (priority >= 0.7) return "HIGH"
-        if (priority >= 0.4) return "MEDIUM"
-        return "LOW"
-    }
-
-    function getPriorityColor(priority) {
-        if (priority >= 0.7) return "#FF0000"
-        if (priority >= 0.4) return "#FFAA00"
-        return "#00FF00"
-    }
-
-    function getProgressName(progress) {
-        var names = ["ASSIGNED", "IN_PROGRESS", "COMPLETED", "FAILED"]
-        return names[progress] || "UNKNOWN"
-    }
-
-    function getProgressColor(progress) {
-        var colors = ["#FFAA00", "#4A90E2", "#00FF00", "#FF0000"]
-        return colors[progress] || "#CCCCCC"
-    }
-
     // 공개 함수
     function addFirePoint(id, lat, lon, priority) {
         firePointList.push({
             id: id,
             lat: lat,
             lon: lon,
-            priority: priority,
-            assignedDrone: 0,
-            progress: 0  // ASSIGNED
+            priority: priority || 0.5
         })
         firePointListView.model = firePointList
     }
@@ -186,17 +283,37 @@ Rectangle {
         }
     }
 
-    function updateFirePointProgress(id, assignedDrone, progress) {
-        for (var i = 0; i < firePointList.length; i++) {
-            if (firePointList[i].id === id) {
-                firePointList[i].assignedDrone = assignedDrone
-                firePointList[i].progress = progress
-                firePointListView.model = firePointList
+    function updateSuppressionResult(shotNumber, tempBefore, tempAfter, success) {
+        // 기존 결과 찾기
+        for (var i = 0; i < suppressionResults.length; i++) {
+            if (suppressionResults[i].shot_number === shotNumber) {
+                suppressionResults[i] = {
+                    shot_number: shotNumber,
+                    temp_before: tempBefore,
+                    temp_after: tempAfter,
+                    success: success
+                }
+                resultListView.model = suppressionResults
                 return
             }
         }
+
+        // 새 결과 추가
+        suppressionResults.push({
+            shot_number: shotNumber,
+            temp_before: tempBefore,
+            temp_after: tempAfter,
+            success: success
+        })
+        resultListView.model = suppressionResults
+    }
+
+    function startMission(targetId, lat, lon) {
+        // FIRE_MISSION_START 메시지 전송 신호
+        missionStartRequested(targetId, lat, lon)
     }
 
     // 시그널
     signal addFirePointClicked()
+    signal missionStartRequested(int targetId, real lat, real lon)
 }

@@ -445,11 +445,16 @@ private:
             // 유효하지 않은 메시지는 통계만 업데이트하고 조용히 무시
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
-            // COMMAND_LONG(76)은 디버그 로그 출력 (ARM 명령 확인용)
-            if (msg_id == 76) {
-                std::cerr << "[CustomMessage] [STEP 2] ⚠ COMMAND_LONG 메시지 필터링됨 (예상치 못한 상황)" << std::endl;
+            
+            // 필터링된 메시지 디버그 출력 (처음 20개만 출력하여 노이즈 방지)
+            static int filtered_count = 0;
+            filtered_count++;
+            if (filtered_count <= 20) {
+                std::cout << "[CustomMessage] [STEP 2] ⚠ 메시지 필터링됨: MSG_ID=" << msg_id 
+                          << " (허용 범위: 76 또는 12900-12903)" << std::endl;
+            } else if (filtered_count == 21) {
+                std::cout << "[CustomMessage] [STEP 2] ⚠ 필터링된 메시지가 많아 이후 로그는 생략합니다" << std::endl;
             }
-            // 디버그 로그는 출력하지 않음 (너무 많은 노이즈 방지)
             return;
         }
         

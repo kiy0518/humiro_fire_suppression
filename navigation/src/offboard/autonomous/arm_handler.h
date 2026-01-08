@@ -51,6 +51,18 @@ public:
     bool isArmed() const;
     
     /**
+     * @brief 현재 비행 모드 확인 (nav_state)
+     * @return nav_state 값 (14 = OFFBOARD)
+     */
+    uint8_t getNavState() const { return nav_state_.load(); }
+    
+    /**
+     * @brief OFFBOARD 모드인지 확인
+     * @return true: OFFBOARD 모드, false: 다른 모드
+     */
+    bool isOffboardMode() const { return nav_state_.load() == 14; }
+    
+    /**
      * @brief OFFBOARD 모드 활성화
      * @return true: 성공, false: 실패
      */

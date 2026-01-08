@@ -19,7 +19,7 @@ Item {
         anchors.margins: ScreenTools.defaultFontPixelWidth
         spacing: ScreenTools.defaultFontPixelWidth
 
-        // 왼쪽: 편대 상태 모니터링
+        // 왼쪽: 미션 상태 모니터링
         FormationStatusPanel {
             id: formationStatus
             Layout.fillHeight: true
@@ -58,6 +58,12 @@ Item {
                     console.log("Add fire point clicked")
                     // TODO: QGC 지도에서 클릭 대기
                 }
+
+                onMissionStartRequested: {
+                    console.log("Mission start requested: Target=" + targetId + ", Lat=" + lat + ", Lon=" + lon)
+                    // FIRE_MISSION_START 메시지 전송
+                    sendFireMissionStart(lat, lon, 10.0, false, 6)  // alt=10m, auto=false, max=6
+                }
             }
 
             // 격발 제어
@@ -67,9 +73,15 @@ Item {
                 Layout.preferredHeight: 300
 
                 onFireCommandSent: {
-                    console.log("Fire command sent: Drone=" + droneId + ", Enable=" + enable)
-                    // TODO: MAVLink FIRE_COMMAND 메시지 전송
-                    sendMAVLinkFireCommand(droneId, enable)
+                    console.log("Fire command sent: Confirm=" + confirm)
+                    // FIRE_LAUNCH_CONTROL 메시지 전송 (command: 0=CONFIRM, 1=ABORT)
+                    sendMAVLinkFireCommand(confirm)
+                }
+
+                onStatusRequested: {
+                    console.log("Status requested")
+                    // FIRE_LAUNCH_CONTROL 메시지 전송 (command: 2=REQUEST_STATUS)
+                    sendMAVLinkStatusRequest()
                 }
             }
         }
@@ -79,93 +91,117 @@ Item {
     Connections {
         target: activeVehicle
 
-        // FORMATION_MEMBER_STATUS 수신
+        // FIRE_MISSION_STATUS 수신 (ID: 12901)
         function onMessageReceived(message) {
-            if (message.id === 12920) {  // FORMATION_MEMBER_STATUS
-                var droneId = message.drone_id
-                var lat = message.lat / 1e7
-                var lon = message.lon / 1e7
-                var battery = message.battery_percent
-                var ammo = message.ammo_count
-                var state = message.mission_state
-                var targetId = message.target_id
-                var isLeader = (droneId === 1)  // Drone 1이 리더
+            if (message.id === 12901) {  // FIRE_MISSION_STATUS
+                var phase = message.phase  // FIRE_MISSION_PHASE (0-6)
+                var progress = message.progress  // 0-100%
+                var remaining_projectiles = message.remaining_projectiles
+                var distance_to_target = message.distance_to_target
+                var thermal_max_temp = message.thermal_max_temp / 10.0  // °C * 10 → °C
+                var status_text = message.status_text
 
-                // 편대 상태 업데이트
-                formationStatus.updateDroneStatus(droneId, lat, lon, battery, ammo, state, targetId, isLeader)
+                // 미션 상태 업데이트
+                formationStatus.updateMissionStatus(phase, progress, remaining_projectiles, distance_to_target, thermal_max_temp, status_text)
 
-                // 격발 제어 상태 업데이트
-                var isFiring = (state === 6)  // FIRING
-                fireControlPanel.updateDroneFireState(droneId, state, isFiring)
+                // 격발 제어 상태 업데이트 (phase 기반)
+                var isFiring = (phase === 4)  // FIRE_PHASE_SUPPRESSING
+                fireControlPanel.updateFireState(phase, isFiring)
             }
-            // MISSION_PROGRESS 수신
-            else if (message.id === 12923) {
-                var targetId = message.target_id
-                var assignedDrone = message.drone_id
-                var progress = message.progress_status
+            // FIRE_SUPPRESSION_RESULT 수신 (ID: 12903)
+            else if (message.id === 12903) {
+                var shot_number = message.shot_number
+                var temp_before = message.temp_before / 10.0  // °C * 10 → °C
+                var temp_after = message.temp_after / 10.0  // °C * 10 → °C
+                var success = message.success  // 0=failed, 1=success
 
-                // 화재 지점 진행 상황 업데이트
-                firePointPanel.updateFirePointProgress(targetId, assignedDrone, progress)
+                // 진압 결과 업데이트
+                firePointPanel.updateSuppressionResult(shot_number, temp_before, temp_after, success)
             }
         }
     }
 
     // MAVLink 메시지 전송 함수
-    function sendMAVLinkFireCommand(droneId, enable) {
+    function sendMAVLinkFireCommand(confirm) {
         if (!activeVehicle) {
             console.log("No active vehicle")
             return
         }
 
-        // FIRE_COMMAND (ID: 12922) 전송
-        var message = activeVehicle.createMAVLinkMessage(12922)
-        message.drone_id = droneId
-        message.fire_enable = enable ? 1 : 0
-        message.timestamp = Date.now() * 1000
+        // FIRE_LAUNCH_CONTROL (ID: 12902) 전송
+        var message = activeVehicle.createMAVLinkMessage(12902)
+        message.target_system = 1  // VIM4 시스템 ID
+        message.target_component = 1  // VIM4 컴포넌트 ID
+        message.command = confirm ? 0 : 1  // 0=CONFIRM, 1=ABORT
 
         activeVehicle.sendMessage(message)
-        console.log("Sent FIRE_COMMAND: Drone=" + droneId + ", Enable=" + enable)
+        console.log("Sent FIRE_LAUNCH_CONTROL: Command=" + (confirm ? "CONFIRM" : "ABORT"))
     }
 
-    function sendTargetAssignment(droneId, targetId, lat, lon, priority) {
+    function sendMAVLinkStatusRequest() {
         if (!activeVehicle) {
             console.log("No active vehicle")
             return
         }
 
-        // TARGET_ASSIGNMENT (ID: 12921) 전송
-        var message = activeVehicle.createMAVLinkMessage(12921)
-        message.drone_id = droneId
-        message.target_id = targetId
-        message.lat = lat * 1e7
-        message.lon = lon * 1e7
-        message.alt = 0  // 고도는 0으로 설정 (지상 화재)
-        message.priority = priority
-        message.timestamp = Date.now() * 1000
+        // FIRE_LAUNCH_CONTROL (ID: 12902) 전송 - REQUEST_STATUS
+        var message = activeVehicle.createMAVLinkMessage(12902)
+        message.target_system = 1  // VIM4 시스템 ID
+        message.target_component = 1  // VIM4 컴포넌트 ID
+        message.command = 2  // REQUEST_STATUS
 
         activeVehicle.sendMessage(message)
-        console.log("Sent TARGET_ASSIGNMENT: Drone=" + droneId + ", Target=" + targetId)
+        console.log("Sent FIRE_LAUNCH_CONTROL: Command=REQUEST_STATUS")
+    }
+
+    function sendFireMissionStart(lat, lon, alt, autoFire, maxProjectiles) {
+        if (!activeVehicle) {
+            console.log("No active vehicle")
+            return
+        }
+
+        // FIRE_MISSION_START (ID: 12900) 전송
+        var message = activeVehicle.createMAVLinkMessage(12900)
+        message.target_system = 1  // VIM4 시스템 ID
+        message.target_component = 1  // VIM4 컴포넌트 ID
+        message.target_lat = lat * 1e7  // degrees * 1e7
+        message.target_lon = lon * 1e7  // degrees * 1e7
+        message.target_alt = alt  // meters MSL
+        message.auto_fire = autoFire ? 1 : 0  // 0=manual, 1=auto
+        message.max_projectiles = maxProjectiles  // Max projectiles to use
+
+        activeVehicle.sendMessage(message)
+        console.log("Sent FIRE_MISSION_START: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt)
+    }
+
+    function sendFireSetMode(px4Mode) {
+        if (!activeVehicle) {
+            console.log("No active vehicle")
+            return
+        }
+
+        // FIRE_SET_MODE (ID: 12904) 전송
+        var message = activeVehicle.createMAVLinkMessage(12904)
+        message.target_system = 1  // FC 시스템 ID
+        message.target_component = 1  // FC 컴포넌트 ID
+        message.px4_mode = px4Mode  // PX4 mode (1-8)
+
+        activeVehicle.sendMessage(message)
+        console.log("Sent FIRE_SET_MODE: PX4_Mode=" + px4Mode)
     }
 
     // 테스트 데이터 (개발용)
     Component.onCompleted: {
-        // 테스트 드론 데이터 추가
-        formationStatus.updateDroneStatus(1, 37.5665, 126.9780, 87, 6, 3, 1, true)
-        formationStatus.updateDroneStatus(2, 37.5670, 126.9785, 92, 6, 4, 2, false)
-        formationStatus.updateDroneStatus(3, 37.5668, 126.9782, 28, 3, 5, 3, false)
+        // 테스트 미션 상태 (FIRE_MISSION_STATUS)
+        formationStatus.updateMissionStatus(1, 45, 5, 25.5, 85.0, "Flying to target")
 
-        // 테스트 화재 지점 추가
+        // 테스트 목표 지점 추가
         firePointPanel.addFirePoint(1, 37.5672, 126.9788, 0.8)
-        firePointPanel.addFirePoint(2, 37.5675, 126.9790, 0.5)
-        firePointPanel.addFirePoint(3, 37.5670, 126.9785, 0.9)
 
-        // 화재 지점 진행 상황
-        firePointPanel.updateFirePointProgress(1, 1, 1)  // IN_PROGRESS
-        firePointPanel.updateFirePointProgress(2, 2, 2)  // COMPLETED
+        // 테스트 진압 결과
+        firePointPanel.updateSuppressionResult(1, 120.0, 45.0, 1)  // 성공
 
         // 격발 제어 상태
-        fireControlPanel.updateDroneFireState(1, 3, false)  // NAVIGATING
-        fireControlPanel.updateDroneFireState(2, 5, false)  // FIRE_READY
-        fireControlPanel.updateDroneFireState(3, 5, false)  // FIRE_READY
+        fireControlPanel.updateFireState(3, false)  // FIRE_PHASE_READY_TO_FIRE
     }
 }

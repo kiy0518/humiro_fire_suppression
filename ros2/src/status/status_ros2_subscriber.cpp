@@ -207,13 +207,19 @@ void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleSta
     if (!first_received) {
         std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_status_v1 첫 메시지 수신!" << std::endl;
         std::cout << "    → PX4 uXRCE-DDS 연결 성공" << std::endl;
-        std::cout << "    [DEBUG] 첫 메시지 nav_state=" << (int)msg->nav_state << ", armed=" << (msg->arming_state ? "ON" : "OFF") << std::endl;
+        // PX4 arming_state: 1 = STANDBY (disarmed), 2 = ARMED
+        bool first_armed = (msg->arming_state == 2);
+        std::cout << "    [DEBUG] 첫 메시지 nav_state=" << (int)msg->nav_state 
+                  << ", arming_state=" << (int)msg->arming_state 
+                  << ", armed=" << (first_armed ? "ON" : "OFF") << std::endl;
         first_received = true;
     }
     
     // PX4 nav_state를 모드 문자열로 변환
     std::string mode = navStateToModeString(msg->nav_state);
-    bool is_armed = msg->arming_state;
+    // PX4 arming_state: 1 = STANDBY (disarmed), 2 = ARMED
+    // arm_handler.cpp와 동일한 로직 사용
+    bool is_armed = (msg->arming_state == 2);
     
     // 상태 변경 감지 (이전 값과 비교)
     static std::string last_mode = "";
@@ -226,7 +232,8 @@ void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleSta
     call_count++;
     if (call_count % 10 == 0 || mode_changed || armed_changed) {
         std::cout << "  [DEBUG] vehicleStatusCallback 호출됨 (nav_state=" << (int)msg->nav_state 
-                  << " → mode=\"" << mode << "\", armed=" << (is_armed ? "ON" : "OFF") << ")" << std::endl;
+                  << " → mode=\"" << mode << "\", arming_state=" << (int)msg->arming_state 
+                  << " (1=STANDBY, 2=ARMED), armed=" << (is_armed ? "ON" : "OFF") << ")" << std::endl;
     }
     
     // StatusOverlay 업데이트 (상태바에 즉시 반영)

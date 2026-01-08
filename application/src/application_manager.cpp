@@ -1063,13 +1063,40 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         return;
     }
     
-    // OffboardManager 상태 확인: 이미 미션이 실행 중이면 무시
+    // 실제 FC 비행 모드 확인 (전문가 권장: 내부 상태만이 아닌 실제 FC 상태 확인)
+    uint8_t nav_state = offboard_manager_->getCurrentNavState();
+    bool is_offboard = offboard_manager_->isOffboardMode();
     MissionState current_state = offboard_manager_->getCurrentState();
-    if (current_state != MissionState::IDLE) {
-        std::cout << "\n[미션 실행 건너뜀] OffboardManager가 이미 실행 중입니다 (state: " 
-                  << OffboardManager::getStateName(current_state) << ")" << std::endl;
-        mission_running_.store(false);  // 플래그 리셋
+    
+    std::cout << "\n[미션 시작 전 상태 확인]" << std::endl;
+    std::cout << "  - OffboardManager 상태: " << OffboardManager::getStateName(current_state) << std::endl;
+    std::cout << "  - FC 비행 모드 (nav_state): " << static_cast<int>(nav_state) 
+              << (is_offboard ? " (OFFBOARD)" : " (다른 모드)") << std::endl;
+    
+    // 상태 판단 로직 (전문가 권장 방식)
+    if (current_state == MissionState::IDLE) {
+        // IDLE 상태: 항상 미션 시작 가능
+        std::cout << "  → IDLE 상태: 미션 시작 가능" << std::endl;
+    } else if (current_state == MissionState::ERROR) {
+        // ERROR 상태: FC가 OFFBOARD가 아니면 복구 후 시작 가능
+        if (!is_offboard) {
+            std::cout << "  → ERROR 상태이지만 FC가 OFFBOARD 모드가 아님: 상태 리셋 후 미션 시작" << std::endl;
+            offboard_manager_->resetToIdle();
+        } else {
+            std::cout << "  → ERROR 상태이고 FC가 OFFBOARD 모드: 미션 시작 불가 (수동 복구 필요)" << std::endl;
+            mission_running_.store(false);
+            return;
+        }
+    } else if (is_offboard) {
+        // OFFBOARD 모드이고 미션이 실행 중: 중복 실행 방지
+        std::cout << "  → FC가 OFFBOARD 모드이고 미션이 실행 중: 미션 시작 불가" << std::endl;
+        mission_running_.store(false);
         return;
+    } else {
+        // 다른 상태이지만 FC가 OFFBOARD가 아님: 상태 리셋 후 시작 가능
+        std::cout << "  → " << OffboardManager::getStateName(current_state) 
+                  << " 상태이지만 FC가 OFFBOARD 모드가 아님: 상태 리셋 후 미션 시작" << std::endl;
+        offboard_manager_->resetToIdle();
     }
 
     std::cout << "\n[미션 실행 시작] Arming -> 이륙 -> 목표 위치 이동" << std::endl;
@@ -1100,6 +1127,16 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         bool success = false;
         try {
             success = offboard_manager_->executeMission(config);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 특별히 처리
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") != std::string::npos) {
+                std::cerr << "[미션 실행 오류] ROS2 executor 충돌: " << e.what() << std::endl;
+                std::cerr << "  → 메인 스레드의 executor와 충돌했습니다. 미션을 계속 진행합니다." << std::endl;
+                // executor 충돌은 치명적이지 않으므로 계속 진행
+            } else {
+                std::cerr << "[미션 실행 오류] " << e.what() << std::endl;
+            }
         } catch (const std::exception& e) {
             std::cerr << "[미션 실행 오류] " << e.what() << std::endl;
         } catch (...) {

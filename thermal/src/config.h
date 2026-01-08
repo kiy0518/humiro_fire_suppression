@@ -41,8 +41,8 @@
 #define SCALE 0.75f
 #define THERMAL_WIDTH (int)(640 * SCALE)  // 480
 #define THERMAL_HEIGHT (int)(480 * SCALE)  // 360
-#define THERMAL_DX 0
-#define THERMAL_DY -10
+#define THERMAL_DX -20
+#define THERMAL_DY 40
 #define CUT_PIXELS 30
 #define THERMAL_CROPPED_HEIGHT (THERMAL_HEIGHT - CUT_PIXELS)  // 330
 

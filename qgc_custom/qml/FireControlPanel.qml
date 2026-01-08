@@ -12,7 +12,8 @@ Rectangle {
     border.color: "#F44336"
     border.width: 2
 
-    property var droneList: []
+    property int phase: 0  // FIRE_MISSION_PHASE (0-6)
+    property bool isFiring: false  // SUPPRESSING phase인지 여부
 
     ColumnLayout {
         anchors.fill: parent
@@ -28,102 +29,59 @@ Rectangle {
 
             Text {
                 anchors.centerIn: parent
-                text: "Fire Control"
+                text: "격발 제어"
                 font.pixelSize: 18
                 font.bold: true
                 color: "#FFFFFF"
             }
         }
 
-        // 드론별 격발 컨트롤
-        ScrollView {
+        // 현재 상태 표시
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 80
+            color: "#3A3A3A"
+            radius: 4
+            border.color: getPhaseColor(phase)
+            border.width: 2
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 10
+                spacing: 5
+
+                Text {
+                    text: "현재 상태:"
+                    font.pixelSize: 12
+                    color: "#CCCCCC"
+                }
+
+                Text {
+                    text: getPhaseName(phase)
+                    font.pixelSize: 16
+                    font.bold: true
+                    color: getPhaseColor(phase)
+                }
+            }
+        }
+
+        // 격발 제어 버튼
+        ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-
-            ListView {
-                id: fireControlListView
-                model: droneList
-                spacing: 8
-
-                delegate: Rectangle {
-                    width: fireControlListView.width - 20
-                    height: 60
-                    color: "#3A3A3A"
-                    radius: 4
-                    border.color: modelData.isFiring ? "#FF5722" : "#666666"
-                    border.width: 2
-
-                    RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        spacing: 10
-
-                        // 드론 ID
-                        Text {
-                            text: "Drone " + modelData.id
-                            font.pixelSize: 14
-                            font.bold: true
-                            color: "#FFFFFF"
-                            Layout.preferredWidth: 80
-                        }
-
-                        // 상태 표시
-                        Text {
-                            text: getFireState(modelData.state)
-                            font.pixelSize: 12
-                            color: getFireStateColor(modelData.state)
-                            Layout.fillWidth: true
-                        }
-
-                        // 격발 버튼
-                        Button {
-                            text: modelData.isFiring ? "STOP" : "FIRE"
-                            font.pixelSize: 12
-                            font.bold: true
-                            Layout.preferredWidth: 80
-                            Layout.preferredHeight: 40
-
-                            background: Rectangle {
-                                color: modelData.isFiring ? "#F44336" : "#4CAF50"
-                                radius: 4
-                            }
-
-                            contentItem: Text {
-                                text: parent.text
-                                font: parent.font
-                                color: "#FFFFFF"
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-
-                            onClicked: {
-                                if (modelData.isFiring) {
-                                    stopFire(modelData.id)
-                                } else {
-                                    startFire(modelData.id)
-                                }
-                            }
-
-                            enabled: canFire(modelData.state)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 전체 제어 버튼
-        RowLayout {
-            Layout.fillWidth: true
             spacing: 10
 
+            // 확인 버튼 (CONFIRM)
             Button {
-                text: "Fire All"
-                font.pixelSize: 14
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
+                text: "발사 확인"
+                font.pixelSize: 14
+                font.bold: true
+                enabled: canConfirm()
 
                 background: Rectangle {
-                    color: "#4CAF50"
+                    color: parent.enabled ? "#4CAF50" : "#666666"
                     radius: 4
                 }
 
@@ -135,17 +93,22 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                onClicked: fireAllDrones()
+                onClicked: {
+                    sendFireCommand(true)  // CONFIRM (command=0)
+                }
             }
 
+            // 중단 버튼 (ABORT)
             Button {
-                text: "Stop All"
-                font.pixelSize: 14
                 Layout.fillWidth: true
                 Layout.preferredHeight: 50
+                text: "발사 중단"
+                font.pixelSize: 14
+                font.bold: true
+                enabled: canAbort()
 
                 background: Rectangle {
-                    color: "#F44336"
+                    color: parent.enabled ? "#F44336" : "#666666"
                     radius: 4
                 }
 
@@ -157,79 +120,93 @@ Rectangle {
                     verticalAlignment: Text.AlignVCenter
                 }
 
-                onClicked: stopAllDrones()
+                onClicked: {
+                    sendFireCommand(false)  // ABORT (command=1)
+                }
+            }
+
+            // 상태 요청 버튼 (REQUEST_STATUS)
+            Button {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 40
+                text: "상태 요청"
+                font.pixelSize: 12
+
+                background: Rectangle {
+                    color: "#4A90E2"
+                    radius: 4
+                }
+
+                contentItem: Text {
+                    text: parent.text
+                    font: parent.font
+                    color: "#FFFFFF"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                onClicked: {
+                    requestStatus()  // REQUEST_STATUS (command=2)
+                }
             }
         }
     }
 
-    // 헬퍼 함수
-    function getFireState(state) {
-        if (state === 5) return "READY"
-        if (state === 6) return "FIRING..."
-        if (state === 9) return "COMPLETE"
-        return "NOT_READY"
+    // 헬퍼 함수들
+    function getPhaseName(phase) {
+        var names = [
+            "IDLE",              // 0
+            "NAVIGATING",        // 1
+            "SCANNING",          // 2
+            "READY_TO_FIRE",     // 3
+            "SUPPRESSING",       // 4
+            "VERIFYING",         // 5
+            "COMPLETE"           // 6
+        ]
+        return names[phase] || "UNKNOWN"
     }
 
-    function getFireStateColor(state) {
-        if (state === 5) return "#00FF00"  // FIRE_READY
-        if (state === 6) return "#FF5722"  // FIRING
-        if (state === 9) return "#4A90E2"  // COMPLETED
-        return "#CCCCCC"
+    function getPhaseColor(phase) {
+        var colors = [
+            "#CCCCCC",  // IDLE
+            "#4A90E2",  // NAVIGATING
+            "#FFAA00",  // SCANNING
+            "#00FF00",  // READY_TO_FIRE
+            "#FF5722",  // SUPPRESSING
+            "#9C27B0",  // VERIFYING
+            "#4CAF50"   // COMPLETE
+        ]
+        return colors[phase] || "#CCCCCC"
     }
 
-    function canFire(state) {
-        return state === 5 || state === 6  // FIRE_READY or FIRING
+    function canConfirm() {
+        // READY_TO_FIRE (3) 또는 SUPPRESSING (4) 단계에서만 확인 가능
+        return phase === 3 || phase === 4
+    }
+
+    function canAbort() {
+        // SUPPRESSING (4) 또는 VERIFYING (5) 단계에서만 중단 가능
+        return phase === 4 || phase === 5
     }
 
     // 공개 함수
-    function updateDroneFireState(droneId, state, isFiring) {
-        for (var i = 0; i < droneList.length; i++) {
-            if (droneList[i].id === droneId) {
-                droneList[i].state = state
-                droneList[i].isFiring = isFiring
-                fireControlListView.model = droneList
-                return
-            }
-        }
-
-        // 새 드론 추가
-        droneList.push({
-            id: droneId,
-            state: state,
-            isFiring: isFiring
-        })
-        fireControlListView.model = droneList
+    function updateFireState(newPhase, newIsFiring) {
+        phase = newPhase
+        isFiring = newIsFiring
     }
 
-    function startFire(droneId) {
-        sendFireCommand(droneId, true)
+    function sendFireCommand(confirm) {
+        // confirm=true: CONFIRM (command=0)
+        // confirm=false: ABORT (command=1)
+        fireCommandSent(confirm)
     }
 
-    function stopFire(droneId) {
-        sendFireCommand(droneId, false)
-    }
-
-    function fireAllDrones() {
-        for (var i = 0; i < droneList.length; i++) {
-            if (canFire(droneList[i].state)) {
-                sendFireCommand(droneList[i].id, true)
-            }
-        }
-    }
-
-    function stopAllDrones() {
-        for (var i = 0; i < droneList.length; i++) {
-            sendFireCommand(droneList[i].id, false)
-        }
-    }
-
-    // MAVLink 메시지 전송 (QGC에서 구현)
-    function sendFireCommand(droneId, enable) {
-        console.log("Send FIRE_COMMAND: Drone=" + droneId + ", Enable=" + enable)
-        // QGC MAVLink 메시지 전송
-        fireCommandSent(droneId, enable)
+    function requestStatus() {
+        // REQUEST_STATUS (command=2) 전송
+        statusRequested()
     }
 
     // 시그널
-    signal fireCommandSent(int droneId, bool enable)
+    signal fireCommandSent(bool confirm)  // true=CONFIRM, false=ABORT
+    signal statusRequested()  // REQUEST_STATUS
 }

@@ -52,6 +52,23 @@ public:
     MissionState getCurrentState() const { return current_state_; }
 
     /**
+     * @brief 현재 FC 비행 모드 확인 (nav_state)
+     * @return nav_state 값 (14 = OFFBOARD)
+     */
+    uint8_t getCurrentNavState() const;
+
+    /**
+     * @brief OFFBOARD 모드인지 확인
+     * @return true: OFFBOARD 모드, false: 다른 모드
+     */
+    bool isOffboardMode() const;
+
+    /**
+     * @brief 상태를 IDLE로 리셋 (ERROR 상태 복구용)
+     */
+    void resetToIdle();
+
+    /**
      * @brief 상태 이름 반환
      */
     static std::string getStateName(MissionState state);

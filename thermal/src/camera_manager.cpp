@@ -197,7 +197,7 @@ bool CameraManager::find_thermal_camera() {
     // PureThermal 카메라는 연결 후 워밍업 시간이 필요함
     // 여러 번 재시도하여 안정적인 연결 확보
     
-    std::vector<std::string> keywords = {"purethermal", "thermal", "lepton", "flir"};
+    std::vector<std::string> keywords = {"purethermal", "thermal", "lepton", "flir", "humirothermal"};
     std::vector<CameraInfo> thermal_cameras = find_cameras_by_keywords(keywords);
     
     // 키워드로 찾은 열화상 카메라가 있으면 사용
@@ -276,7 +276,7 @@ bool CameraManager::find_thermal_camera() {
 
 bool CameraManager::find_rgb_camera() {
     // 최적화: 불필요한 출력 제거, 빠른 검색
-    std::vector<std::string> thermal_keywords = {"purethermal", "thermal", "lepton", "flir"};
+    std::vector<std::string> thermal_keywords = {"purethermal", "thermal", "lepton", "flir","HumiroThermal"};
     
     for (int i = 0; i < 10; ++i) {
         if (i == thermal_camera_id_) {

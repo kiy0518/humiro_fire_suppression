@@ -123,7 +123,13 @@ bool OffboardManager::executeMission(const MissionConfig& config)
     int hover_iterations = static_cast<int>(config.hover_duration_sec * 2);  // 2Hz
     for (int i = 0; i < hover_iterations; i++) {
         distance_adjuster_->hover();
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "[HOVER] spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "[HOVER] spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         if (i % 4 == 0) {  // 2초마다 로깅
@@ -189,6 +195,26 @@ void OffboardManager::handleError(const std::string& error_msg)
 {
     RCLCPP_ERROR(node_->get_logger(), "ERROR: %s", error_msg.c_str());
     transitionToState(MissionState::ERROR);
+}
+
+uint8_t OffboardManager::getCurrentNavState() const
+{
+    if (arm_handler_) {
+        return arm_handler_->getNavState();
+    }
+    return 0;  // 기본값 (MANUAL)
+}
+
+bool OffboardManager::isOffboardMode() const
+{
+    return arm_handler_ && arm_handler_->isOffboardMode();
+}
+
+void OffboardManager::resetToIdle()
+{
+    RCLCPP_INFO(node_->get_logger(), "Resetting state from %s to IDLE", 
+                getStateName(current_state_).c_str());
+    transitionToState(MissionState::IDLE);
 }
 
 std::string OffboardManager::getStateName(MissionState state)
