@@ -3,7 +3,37 @@
 # PX4 연결 상태 확인 스크립트
 # =============================================================================
 
+# 프로젝트 환경 로드
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# device_config.env 로드
+CONFIG_FILE="$PROJECT_ROOT/config/device_config.env"
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "WARNING: device_config.env not found, using defaults"
+    ETH0_IP="10.0.0.31"
+    FC_IP="10.0.0.32"
+    XRCE_DDS_PORT="8888"
+fi
+
+# IP를 정수로 변환하는 함수
+ip_to_int() {
+    local ip=$1
+    IFS='.' read -r a b c d <<< "$ip"
+    echo $((a * 256 * 256 * 256 + b * 256 * 256 + c * 256 + d))
+}
+
+EXPECTED_IP_INT=$(ip_to_int "$ETH0_IP")
+
 echo "=== PX4 연결 상태 확인 ==="
+echo ""
+echo "설정값 (device_config.env):"
+echo "  VIM4 eth0 IP: $ETH0_IP"
+echo "  FC IP: $FC_IP"
+echo "  XRCE-DDS Port: $XRCE_DDS_PORT"
+echo "  IP (정수): $EXPECTED_IP_INT"
 echo ""
 
 # 1. micro-ROS Agent 실행 상태
@@ -19,21 +49,25 @@ echo ""
 
 # 2. 네트워크 연결 상태
 echo "[2] 네트워크 연결 상태:"
-ETH0_IP=$(ip addr show eth0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
-if [ -n "$ETH0_IP" ]; then
-    echo "  ✓ eth0 IP: $ETH0_IP"
-    echo "  → FC IP 확인 필요: 10.0.0.12 (device_config.env 참고)"
+CURRENT_ETH0_IP=$(ip addr show eth0 2>/dev/null | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+if [ -n "$CURRENT_ETH0_IP" ]; then
+    if [ "$CURRENT_ETH0_IP" = "$ETH0_IP" ]; then
+        echo "  ✓ eth0 IP: $CURRENT_ETH0_IP (설정값과 일치)"
+    else
+        echo "  ⚠ eth0 IP: $CURRENT_ETH0_IP (설정값 $ETH0_IP와 다름)"
+    fi
+    echo "  → FC IP 확인: $FC_IP"
 else
     echo "  ✗ eth0 인터페이스 없음"
 fi
 echo ""
 
 # 3. micro-ROS Agent 포트 확인
-echo "[3] micro-ROS Agent 포트 (8888):"
-if netstat -un 2>/dev/null | grep -q ":8888" || ss -un 2>/dev/null | grep -q ":8888"; then
-    echo "  ✓ 포트 8888 리스닝 중"
+echo "[3] micro-ROS Agent 포트 ($XRCE_DDS_PORT):"
+if netstat -un 2>/dev/null | grep -q ":$XRCE_DDS_PORT" || ss -un 2>/dev/null | grep -q ":$XRCE_DDS_PORT"; then
+    echo "  ✓ 포트 $XRCE_DDS_PORT 리스닝 중"
 else
-    echo "  ✗ 포트 8888 리스닝 안 됨"
+    echo "  ✗ 포트 $XRCE_DDS_PORT 리스닝 안 됨"
 fi
 echo ""
 
@@ -76,8 +110,8 @@ else
     echo "       → QGC에서 PX4 상태는 보이지만 시동이 안 걸렸을 수 있음"
     echo "    2. PX4의 uXRCE-DDS 파라미터 확인 필요:"
     echo "       → uXRCE-DDS_DOM_ID = 0 (확인 필요)"
-    echo "       → uxrce_dds_ag_ip = 167772171 (10.0.0.11) ✓ 확인됨"
-    echo "       → UXRCE_DDS_PRT = 8888 ✓ 확인됨"
+    echo "       → uxrce_dds_ag_ip = $EXPECTED_IP_INT ($ETH0_IP)"
+    echo "       → UXRCE_DDS_PRT = $XRCE_DDS_PORT"
     echo "    3. QoS Durability 불일치 (코드 수정 완료, 재빌드 필요)"
     echo "    4. micro-ROS Agent 재시작 필요"
     echo ""
@@ -91,4 +125,3 @@ fi
 echo ""
 
 echo "=== 확인 완료 ==="
-

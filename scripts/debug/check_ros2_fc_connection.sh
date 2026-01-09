@@ -50,7 +50,7 @@ echo "    UXRCE_DDS_DOM_ID = $ROS_DOMAIN_ID"
 echo "    UXRCE_DDS_CFG = 1000 (Ethernet)"
 echo ""
 echo "  ⚠ UXRCE_DDS_AG_IP가 1번 기체 IP로 설정되어 있을 가능성이 높습니다!"
-echo "     예상 1번 기체 IP: 10.0.0.11 (167772171)"
+echo "     다른 드론 예: DRONE_ID=1, 10.0.0.11 (167772171)"
 echo "     현재 3번 기체 IP: $ETH0_IP ($ETH0_IP_DECIMAL)"
 echo ""
 
