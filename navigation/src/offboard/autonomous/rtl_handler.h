@@ -107,6 +107,9 @@ private:
     std::atomic<bool> global_position_received_{false};
     std::atomic<bool> home_position_set_{false};
 
+    // FC 시스템 ID (DRONE_ID 환경 변수에서 읽음)
+    uint8_t target_system_;
+
     // Constants
     static constexpr uint16_t VEHICLE_CMD_NAV_RETURN_TO_LAUNCH = 20;
     static constexpr uint16_t VEHICLE_CMD_NAV_LAND = 21;

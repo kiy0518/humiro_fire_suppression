@@ -211,6 +211,7 @@ echo ""
 if [ -f "$DEVICE_CONFIG" ]; then
     source "$DEVICE_CONFIG"
     echo -e "${BLUE}[INFO]${NC} device_config.env 로드됨 (드론 #$DRONE_ID)"
+    echo -e "${BLUE}[INFO]${NC} 파일 경로: $DEVICE_CONFIG"
     
     # 필수 변수 확인
     if [ -z "$ETH0_IP" ] || [ -z "$FC_IP" ] || [ -z "$DRONE_ID" ]; then

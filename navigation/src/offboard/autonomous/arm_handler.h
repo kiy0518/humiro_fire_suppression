@@ -117,6 +117,9 @@ private:
     std::atomic<uint8_t> nav_state_;
     std::atomic<uint8_t> arming_state_;
     
+    // FC 시스템 ID (DRONE_ID 환경 변수에서 읽음)
+    uint8_t target_system_;
+    
     // Offboard heartbeat timer
     rclcpp::TimerBase::SharedPtr offboard_timer_;
 };

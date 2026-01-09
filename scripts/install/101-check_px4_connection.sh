@@ -45,7 +45,10 @@ echo ""
 echo "3. eth0에 연결된 장치:"
 
 # device_config.env에서 FC_IP 읽기
-CONFIG_FILE="$SCRIPT_DIR/device_config.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$PROJECT_ROOT/setup_env.sh"
+CONFIG_FILE="$DEVICE_CONFIG"
 EXPECTED_FC_IP=""
 if [ -f "$CONFIG_FILE" ]; then
     EXPECTED_FC_IP=$(grep "^FC_IP=" "$CONFIG_FILE" | cut -d'=' -f2 | cut -d'#' -f1 | tr -d ' \t\r')

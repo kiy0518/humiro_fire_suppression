@@ -1,6 +1,7 @@
 #include "arm_handler.h"
 #include <iostream>
 #include <thread>
+#include <cstdlib>
 
 // PX4 Vehicle Command 코드
 #define VEHICLE_CMD_COMPONENT_ARM_DISARM 400
@@ -12,6 +13,26 @@ ArmHandler::ArmHandler(rclcpp::Node::SharedPtr node)
     , nav_state_(0)
     , arming_state_(0)
 {
+    // DRONE_ID 환경 변수에서 target_system 읽기 (device_config.env에서 설정됨)
+    target_system_ = 1;  // 기본값
+    const char* drone_id_env = std::getenv("DRONE_ID");
+    if (drone_id_env) {
+        try {
+            int drone_id = std::stoi(drone_id_env);
+            if (drone_id >= 1 && drone_id <= 255) {
+                target_system_ = static_cast<uint8_t>(drone_id);
+                std::cout << "[ArmHandler] DRONE_ID 환경 변수 사용: target_system=" 
+                          << static_cast<int>(target_system_) << std::endl;
+            } else {
+                std::cerr << "[ArmHandler] ⚠ 잘못된 DRONE_ID 값: " << drone_id 
+                          << " (1-255 범위 필요), 기본값 1 사용" << std::endl;
+            }
+        } catch (...) {
+            std::cerr << "[ArmHandler] ⚠ DRONE_ID 환경 변수 파싱 실패, 기본값 1 사용" << std::endl;
+        }
+    } else {
+        std::cout << "[ArmHandler] ⚠ DRONE_ID 환경 변수 없음, 기본값 1 사용" << std::endl;
+    }
     if (!node_) {
         throw std::runtime_error("ArmHandler: node is nullptr");
     }
@@ -104,9 +125,9 @@ void ArmHandler::publishVehicleCommand(uint16_t command, float param1, float par
     msg.command = command;
     msg.param1 = param1;
     msg.param2 = param2;
-    msg.target_system = 1;
+    msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = 1;
+    msg.source_system = target_system_;
     msg.source_component = 1;
     msg.from_external = true;
     

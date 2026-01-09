@@ -1,10 +1,30 @@
 #include "takeoff_handler.h"
 #include <thread>
 #include <cmath>
+#include <cstdlib>
 
 TakeoffHandler::TakeoffHandler(rclcpp::Node::SharedPtr node)
     : node_(node)
 {
+    // DRONE_ID 환경 변수에서 target_system 읽기 (device_config.env에서 설정됨)
+    target_system_ = 1;  // 기본값
+    const char* drone_id_env = std::getenv("DRONE_ID");
+    if (drone_id_env) {
+        try {
+            int drone_id = std::stoi(drone_id_env);
+            if (drone_id >= 1 && drone_id <= 255) {
+                target_system_ = static_cast<uint8_t>(drone_id);
+                RCLCPP_INFO(node_->get_logger(), "TakeoffHandler: DRONE_ID 환경 변수 사용: target_system=%d", 
+                          static_cast<int>(target_system_));
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "TakeoffHandler: 잘못된 DRONE_ID 값: %d (1-255 범위 필요), 기본값 1 사용", drone_id);
+            }
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "TakeoffHandler: DRONE_ID 환경 변수 파싱 실패, 기본값 1 사용");
+        }
+    } else {
+        RCLCPP_WARN(node_->get_logger(), "TakeoffHandler: DRONE_ID 환경 변수 없음, 기본값 1 사용");
+    }
     // Publishers 초기화
     trajectory_setpoint_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
         "/fmu/in/trajectory_setpoint", 10);
@@ -201,9 +221,9 @@ void TakeoffHandler::publishVehicleCommand(
     msg.param5 = param5;
     msg.param6 = param6;
     msg.param7 = param7;
-    msg.target_system = 1;
+    msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = 1;
+    msg.source_system = target_system_;
     msg.source_component = 1;
     msg.from_external = true;
 

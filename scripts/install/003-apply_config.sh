@@ -258,7 +258,9 @@ source "\$PROJECT_ROOT/setup_env.sh"
 
 export HOME=$REAL_HOME
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
-export ROS_NAMESPACE=$ROS_NAMESPACE
+# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
+# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
+# export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 # ROS2 환경 로드
@@ -296,7 +298,9 @@ mkdir -p /etc/systemd/system/micro-ros-agent.service.d/
 tee /etc/systemd/system/micro-ros-agent.service.d/override.conf > /dev/null << EOF
 [Service]
 Environment="ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
-Environment="ROS_NAMESPACE=$ROS_NAMESPACE"
+# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
+# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
+# Environment="ROS_NAMESPACE=$ROS_NAMESPACE"
 EOF
 
 echo "  ✓ systemd 환경변수 설정 완료"
@@ -371,8 +375,15 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=\$HOME/humiro_fire_suppression/config/fast
 if [ -f $PROJECT_ROOT/setup_env.sh ]; then
     source $PROJECT_ROOT/setup_env.sh
 fi
+# device_config.env에서 DRONE_ID 로드 (ROS2 메시지의 target_system에 사용됨)
+if [ -f $PROJECT_ROOT/config/device_config.env ]; then
+    source $PROJECT_ROOT/config/device_config.env
+    export DRONE_ID=$DRONE_ID
+fi
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
-export ROS_NAMESPACE=$ROS_NAMESPACE
+# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
+# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
+# export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 source /opt/ros/humble/setup.bash
 if [ -f "\$PX4_ROS2_WS/install/setup.bash" ]; then

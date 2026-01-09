@@ -88,6 +88,9 @@ private:
     float target_altitude_{0.0f};
     float takeoff_start_altitude_{0.0f};
 
+    // FC 시스템 ID (DRONE_ID 환경 변수에서 읽음)
+    uint8_t target_system_;
+
     // Constants
     static constexpr float ALTITUDE_THRESHOLD = 0.3f;  // 30cm 오차 허용
     static constexpr uint16_t VEHICLE_CMD_NAV_TAKEOFF = 22;
