@@ -50,11 +50,41 @@ ArmHandler::~ArmHandler() {
 }
 
 void ArmHandler::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg) {
+    uint8_t new_nav_state = msg->nav_state;
+    uint8_t old_nav_state = nav_state_.load();
+    
     arming_state_ = msg->arming_state;
-    nav_state_ = msg->nav_state;
+    nav_state_ = new_nav_state;
     
     // arming_state: 1 = STANDBY, 2 = ARMED
     is_armed_ = (arming_state_ == 2);
+    
+    // [개선 제안 3] PX4 모드 변경 감지 및 heartbeat 자동 관리
+    const uint8_t PX4_NAV_STATE_OFFBOARD = 14;
+    
+    // OFFBOARD 모드로 전환된 경우 (nav_state == 14)
+    if (new_nav_state == PX4_NAV_STATE_OFFBOARD && old_nav_state != PX4_NAV_STATE_OFFBOARD) {
+        // heartbeat가 중단되어 있으면 재개 (선택적)
+        // 주의: 외부에서 OFFBOARD 모드로 전환한 경우에만 재개
+        // VIM4가 직접 OFFBOARD 모드로 전환한 경우는 이미 heartbeat가 활성화되어 있음
+        if (!offboard_timer_) {
+            std::cout << "[ArmHandler] OFFBOARD 모드 감지됨 (외부 전환, heartbeat 자동 재개)" << std::endl;
+            enableOffboardMode();  // heartbeat 재개
+        } else {
+            std::cout << "[ArmHandler] OFFBOARD 모드 감지됨 (heartbeat 이미 활성화됨)" << std::endl;
+        }
+    }
+    // 다른 모드로 전환된 경우 (OFFBOARD → 다른 모드)
+    else if (old_nav_state == PX4_NAV_STATE_OFFBOARD && new_nav_state != PX4_NAV_STATE_OFFBOARD) {
+        // heartbeat가 활성화되어 있으면 중단
+        if (offboard_timer_) {
+            std::cout << "[ArmHandler] OFFBOARD 모드에서 벗어남 (nav_state: " << (int)old_nav_state 
+                      << " -> " << (int)new_nav_state << ", heartbeat 자동 중단)" << std::endl;
+            disableOffboardMode();  // heartbeat 중단
+        } else {
+            std::cout << "[ArmHandler] OFFBOARD 모드에서 벗어남 (heartbeat 이미 중단됨)" << std::endl;
+        }
+    }
     
     // 디버깅 (10초마다 출력)
     static auto last_print = std::chrono::steady_clock::now();
@@ -62,7 +92,8 @@ void ArmHandler::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::Share
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print).count() >= 10) {
         std::cout << "[ArmHandler] 상태: arming=" << (int)arming_state_ 
                   << ", nav=" << (int)nav_state_ 
-                  << ", armed=" << (is_armed_ ? "ON" : "OFF") << std::endl;
+                  << ", armed=" << (is_armed_ ? "ON" : "OFF")
+                  << ", heartbeat=" << (offboard_timer_ ? "ON" : "OFF") << std::endl;
         last_print = now;
     }
 }
@@ -165,6 +196,42 @@ bool ArmHandler::enableOffboardMode() {
     
     std::cerr << "[ArmHandler] ✗ OFFBOARD 모드 활성화 실패 (타임아웃)" << std::endl;
     return false;
+}
+
+bool ArmHandler::disableOffboardMode() {
+    std::cout << "[ArmHandler] OFFBOARD 모드 비활성화 중 (heartbeat 중단)..." << std::endl;
+    
+    // Offboard heartbeat 중지
+    // 중요: heartbeat 중단 시 PX4가 자동으로 다른 모드(MANUAL 등)로 전환됨
+    // 언제든지 호출 가능 (임무 수행 중간에도 가능)
+    if (offboard_timer_) {
+        offboard_timer_->cancel();
+        offboard_timer_.reset();  // 타이머 리셋
+        std::cout << "[ArmHandler] ✓ Offboard heartbeat 중지됨" << std::endl;
+        
+        // PX4는 heartbeat가 중단되면 자동으로 다른 모드로 전환됨
+        // 일반적으로 0.5초(500ms) 이내에 전환됨
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        
+        // 모드 전환 확인 (선택 사항)
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::exception& e) {
+            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
+        } catch (...) {
+            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
+        }
+        
+    } else {
+        std::cout << "[ArmHandler] ✓ Offboard heartbeat가 이미 중지되어 있음" << std::endl;
+    }
+    
+    std::cout << "[ArmHandler] ✓ OFFBOARD 모드 비활성화 완료" << std::endl;
+    std::cout << "[ArmHandler]   → PX4가 heartbeat 중단으로 자동으로 다른 모드로 전환됩니다" << std::endl;
+    std::cout << "[ArmHandler]   → QGC나 다른 GCS에서 비행 모드 변경이 가능합니다" << std::endl;
+    std::cout << "[ArmHandler]   → 위급 상황 시 언제든지 호출 가능 (임무 수행 중간에도 가능)" << std::endl;
+    
+    return true;
 }
 
 bool ArmHandler::arm(int timeout_ms) {

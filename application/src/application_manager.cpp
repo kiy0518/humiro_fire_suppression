@@ -459,6 +459,22 @@ void ApplicationManager::initializeCustomMessage() {
                     std::cout << "[DEBUG] DO_SET_MODE 수신: custom_mode=" << custom_mode 
                               << " (main=" << (int)main_mode << ", sub=" << (int)sub_mode << ")" << std::endl;
                     
+                    // [개선 제안 1] OFFBOARD 모드(6)가 아닌 다른 모드로 변경하려는 경우
+                    // 현재 OFFBOARD 모드가 활성화되어 있으면 heartbeat 중단
+                    const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
+                    if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
+                        #ifdef ENABLE_ROS2
+                        if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
+                            std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (외부 모드 변경 요청: main_mode=" 
+                                      << (int)main_mode << ")" << std::endl;
+                            offboard_manager_->disableOffboardMode();
+                            
+                            // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
+                            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                        }
+                        #endif
+                    }
+                    
                 #ifdef ENABLE_ROS2
                     if (ros2_node_) {
                         auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
@@ -506,6 +522,50 @@ void ApplicationManager::initializeCustomMessage() {
                 #endif
 } else {
                     std::cout << "[DEBUG] 알 수 없는 명령: " << command << std::endl;
+                }
+            }
+        );
+        
+        // [개선 제안 2] SET_MODE 콜백 설정 (QGC의 SET_MODE 명령 처리용)
+        custom_message_handler_->setSetModeCallback(
+            [this](uint8_t target_system, uint8_t base_mode, uint32_t custom_mode) {
+                std::cout << "\n[DEBUG] ========== SET_MODE 수신 (14550) ==========" << std::endl;
+                std::cout << "[DEBUG] target_system: " << static_cast<int>(target_system) << std::endl;
+                std::cout << "[DEBUG] base_mode: " << static_cast<int>(base_mode) << std::endl;
+                std::cout << "[DEBUG] custom_mode: " << custom_mode << std::endl;
+                
+                uint8_t main_mode = (custom_mode >> 16) & 0xFF;  // Extract main_mode
+                uint8_t sub_mode = (custom_mode >> 8) & 0xFF;     // Extract sub_mode
+                std::cout << "[DEBUG] main_mode: " << static_cast<int>(main_mode) << std::endl;
+                std::cout << "[DEBUG] sub_mode: " << static_cast<int>(sub_mode) << std::endl;
+                std::cout << "[DEBUG] ==========================================" << std::endl;
+                
+                // [개선 제안 2] OFFBOARD 모드(6)가 아닌 다른 모드로 변경하려는 경우
+                // 현재 OFFBOARD 모드가 활성화되어 있으면 heartbeat 중단
+                const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
+                if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
+                    #ifdef ENABLE_ROS2
+                    if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
+                        std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (SET_MODE 수신: main_mode=" 
+                                  << (int)main_mode << ")" << std::endl;
+                        offboard_manager_->disableOffboardMode();
+                        
+                        // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                    }
+                    #endif
+                }
+                
+                // SET_MODE는 이미 MAVLink 라우터로 전달되었으므로 추가 처리 불필요
+                // FC가 자동으로 모드 변경을 처리함
+                
+                if (status_overlay_) {
+                    std::ostringstream oss;
+                    oss << "SET_MODE: " << (int)main_mode;
+                    if (sub_mode > 0) {
+                        oss << "." << (int)sub_mode;
+                    }
+                    status_overlay_->setCustomMessage(oss.str(), 3.0);
                 }
             }
         );

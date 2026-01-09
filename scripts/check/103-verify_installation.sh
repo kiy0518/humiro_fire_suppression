@@ -208,8 +208,8 @@ echo "  ╚═══════════════════════
 echo ""
 
 # 설정 파일 로드
-if [ -f "$SCRIPT_DIR/device_config.env" ]; then
-    source "$SCRIPT_DIR/device_config.env"
+if [ -f "$DEVICE_CONFIG" ]; then
+    source "$DEVICE_CONFIG"
     echo -e "${BLUE}[INFO]${NC} device_config.env 로드됨 (드론 #$DRONE_ID)"
     
     # 필수 변수 확인
@@ -220,6 +220,7 @@ if [ -f "$SCRIPT_DIR/device_config.env" ]; then
     fi
 else
     echo -e "${RED}[ERROR]${NC} device_config.env 파일이 없습니다."
+    echo "  파일 경로: $DEVICE_CONFIG"
     echo "  device_config.env 파일을 생성하고 설정하세요."
     exit 1
 fi
@@ -415,7 +416,7 @@ verify_path_in_file() {
 
 # 검증할 파일들
 echo -e "  ${BLUE}스크립트 파일:${NC}"
-verify_path_in_file "$SCRIPT_DIR/start_micro_ros_agent_wrapper.sh" "micro-ROS wrapper 스크립트"
+verify_path_in_file "$SCRIPTS_RUNTIME/start_micro_ros_agent_wrapper.sh" "micro-ROS wrapper 스크립트"
 
 echo ""
 echo -e "  ${BLUE}systemd 서비스 파일:${NC}"
@@ -436,16 +437,16 @@ fi
 # 워크스페이스 경로 존재 확인
 echo ""
 echo -e "  ${BLUE}워크스페이스 경로:${NC}"
-if [ -d "$CORRECT_BASE_PATH/micro_ros_ws" ]; then
-    check_result "pass" "micro_ros_ws 경로" "$CORRECT_BASE_PATH/micro_ros_ws"
+if [ -d "$MICRO_ROS_WS" ]; then
+    check_result "pass" "micro_ros_ws 경로" "$MICRO_ROS_WS"
 else
-    check_result "fail" "micro_ros_ws 경로" "디렉토리 없음"
+    check_result "fail" "micro_ros_ws 경로" "디렉토리 없음: $MICRO_ROS_WS"
 fi
 
-if [ -d "$CORRECT_BASE_PATH/px4_ros2_ws" ]; then
-    check_result "pass" "px4_ros2_ws 경로" "$CORRECT_BASE_PATH/px4_ros2_ws"
+if [ -d "$PX4_ROS2_WS" ]; then
+    check_result "pass" "px4_ros2_ws 경로" "$PX4_ROS2_WS"
 else
-    check_result "fail" "px4_ros2_ws 경로" "디렉토리 없음"
+    check_result "fail" "px4_ros2_ws 경로" "디렉토리 없음: $PX4_ROS2_WS"
 fi
 
 # 잘못된 경로 디렉토리가 존재하는지 확인 (혼란 방지)
@@ -524,7 +525,7 @@ if [ -f "/etc/drone-config" ]; then
     ETC_FC_IP=${FC_IP:-""}
     
     # device_config.env 다시 로드
-    source "$SCRIPT_DIR/device_config.env" 2>/dev/null
+    source "$DEVICE_CONFIG" 2>/dev/null
     
     # 비교
     if [ "$DRONE_ID" = "$ETC_DRONE_ID" ]; then
@@ -700,11 +701,11 @@ check_ownership() {
 }
 
 echo -e "  ${BLUE}스크립트 실행 권한:${NC}"
-check_executable "$SCRIPT_DIR/000-install_all.sh" "000-install_all.sh"
-check_executable "$SCRIPT_DIR/001-install_px4_ros2_complete.sh" "001-install_px4_ros2_complete.sh"
-check_executable "$SCRIPT_DIR/002-install_mavlink_router.sh" "002-install_mavlink_router.sh"
-check_executable "$SCRIPT_DIR/003-apply_config.sh" "003-apply_config.sh"
-check_executable "$SCRIPT_DIR/start_micro_ros_agent_wrapper.sh" "start_micro_ros_agent_wrapper.sh"
+check_executable "$SCRIPTS_INSTALL/000-install_all.sh" "000-install_all.sh"
+check_executable "$SCRIPTS_INSTALL/001-install_px4_ros2_complete.sh" "001-install_px4_ros2_complete.sh"
+check_executable "$SCRIPTS_INSTALL/002-install_mavlink_router.sh" "002-install_mavlink_router.sh"
+check_executable "$SCRIPTS_INSTALL/003-apply_config.sh" "003-apply_config.sh"
+check_executable "$SCRIPTS_RUNTIME/start_micro_ros_agent_wrapper.sh" "start_micro_ros_agent_wrapper.sh"
 
 echo ""
 echo -e "  ${BLUE}워크스페이스 소유권:${NC}"

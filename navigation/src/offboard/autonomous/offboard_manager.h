@@ -67,6 +67,13 @@ public:
      * @brief 상태를 IDLE로 리셋 (ERROR 상태 복구용)
      */
     void resetToIdle();
+    
+    /**
+     * @brief OFFBOARD 모드 비활성화 (heartbeat 중단)
+     * @brief 위급 상황 시 다른 모드로 전환 가능하도록 heartbeat 중단
+     * @brief 중요: 이 함수 호출 시 QGC나 다른 GCS에서 비행 모드 변경 가능
+     */
+    void disableOffboardMode();
 
     /**
      * @brief 상태 이름 반환

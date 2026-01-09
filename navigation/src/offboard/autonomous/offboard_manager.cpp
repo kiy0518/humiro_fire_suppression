@@ -152,6 +152,12 @@ bool OffboardManager::executeMission(const MissionConfig& config)
         return false;
     }
     RCLCPP_INFO(node_->get_logger(), "[RTL] RTL complete! Vehicle landed\n");
+    
+    // OFFBOARD 모드 비활성화 (heartbeat 중단)
+    // 중요: heartbeat 중단 시 PX4가 자동으로 다른 모드로 전환되어
+    // QGC나 다른 GCS에서 비행 모드 변경 가능
+    RCLCPP_INFO(node_->get_logger(), "[RTL] Disabling OFFBOARD mode (heartbeat stop)...");
+    disableOffboardMode();
 
     // === State: LANDED ===
     transitionToState(MissionState::LANDED);
@@ -166,6 +172,11 @@ bool OffboardManager::executeMission(const MissionConfig& config)
 void OffboardManager::emergencyRTL()
 {
     RCLCPP_ERROR(node_->get_logger(), "\n!!! EMERGENCY RTL TRIGGERED !!!\n");
+    
+    // OFFBOARD 모드 비활성화 (heartbeat 중단)
+    // 중요: 긴급 상황 시 다른 모드로 전환 가능하도록 heartbeat 중단
+    RCLCPP_INFO(node_->get_logger(), "[EMERGENCY] Disabling OFFBOARD mode (heartbeat stop)...");
+    disableOffboardMode();
 
     transitionToState(MissionState::RTL);
 
@@ -214,7 +225,29 @@ void OffboardManager::resetToIdle()
 {
     RCLCPP_INFO(node_->get_logger(), "Resetting state from %s to IDLE", 
                 getStateName(current_state_).c_str());
+    
+    // OFFBOARD 모드 비활성화 (heartbeat 중단)
+    // 상태 리셋 시 OFFBOARD 모드를 종료하여 다른 모드로 전환 가능하도록 함
+    disableOffboardMode();
+    
     transitionToState(MissionState::IDLE);
+}
+
+void OffboardManager::disableOffboardMode()
+{
+    RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] Disabling OFFBOARD mode (heartbeat stop)...");
+    
+    if (arm_handler_) {
+        if (arm_handler_->disableOffboardMode()) {
+            RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] ✓ OFFBOARD 모드 비활성화 성공");
+            RCLCPP_INFO(node_->get_logger(), "[OFFBOARD]   → PX4가 자동으로 다른 모드로 전환됩니다");
+            RCLCPP_INFO(node_->get_logger(), "[OFFBOARD]   → QGC나 다른 GCS에서 비행 모드 변경이 가능합니다");
+        } else {
+            RCLCPP_WARN(node_->get_logger(), "[OFFBOARD] ⚠ OFFBOARD 모드 비활성화 실패");
+        }
+    } else {
+        RCLCPP_WARN(node_->get_logger(), "[OFFBOARD] ⚠ ArmHandler가 초기화되지 않음");
+    }
 }
 
 std::string OffboardManager::getStateName(MissionState state)

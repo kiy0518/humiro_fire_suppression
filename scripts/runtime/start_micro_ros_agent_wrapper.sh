@@ -9,7 +9,7 @@ source "$PROJECT_ROOT/setup_env.sh"
 
 export HOME=/home/khadas
 export ROS_DOMAIN_ID=0
-export ROS_NAMESPACE=drone1
+export ROS_NAMESPACE=drone3
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 # ROS2 환경 로드

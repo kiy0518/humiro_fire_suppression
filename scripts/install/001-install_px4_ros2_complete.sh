@@ -459,8 +459,7 @@ echo ""
 echo "eth0 영구 네트워크 설정 중 (Netplan)..."
 
 # device_config.env에서 네트워크 설정 로드
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/device_config.env"
+CONFIG_FILE="$DEVICE_CONFIG"
 
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
@@ -801,10 +800,9 @@ else
 fi
 
 # eth0 IP 확인 (device_config.env 값과 비교)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXPECTED_ETH0_IP=""
-if [ -f "$SCRIPT_DIR/device_config.env" ]; then
-    source "$SCRIPT_DIR/device_config.env"
+if [ -f "$DEVICE_CONFIG" ]; then
+    source "$DEVICE_CONFIG"
     EXPECTED_ETH0_IP="$ETH0_IP"
 fi
 if [ -z "$EXPECTED_ETH0_IP" ]; then

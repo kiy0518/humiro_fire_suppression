@@ -71,8 +71,8 @@ check_sudo() {
 check_config() {
     print_separator "1단계: 설정 파일 확인"
     
-    CONFIG_FILE="$SCRIPT_DIR/device_config.env"
-    VERSION_FILE="$SCRIPT_DIR/versions.env"
+    CONFIG_FILE="$DEVICE_CONFIG"
+    VERSION_FILE="$VERSIONS_CONFIG"
     
     if [ ! -f "$CONFIG_FILE" ]; then
         log_error "device_config.env 파일이 없습니다."
@@ -218,7 +218,7 @@ main() {
     # 최종 요약
     print_separator "설치 완료!"
     
-    source "$SCRIPT_DIR/device_config.env"
+    source "$DEVICE_CONFIG"
     
     echo "설치된 구성요소:"
     echo "  ✓ ROS2 Humble"

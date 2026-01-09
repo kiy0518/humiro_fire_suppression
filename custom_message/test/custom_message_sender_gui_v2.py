@@ -24,7 +24,7 @@ class CustomMessageSenderGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Custom Message Sender (MAVLink 2.0 - 15000 Test Port)")
-        self.root.geometry("800x700")
+        self.root.geometry("900x900")  # 창 크기 확대 (새로운 섹션 추가로 인해)
 
         # ttk 스타일 설정
         style = ttk.Style()
@@ -145,6 +145,18 @@ class CustomMessageSenderGUI:
 
         # SET_MODE (비행 모드 설정)
         self.create_set_mode_section(msg_frame)
+        
+        # TAKEOFF (이륙)
+        self.create_takeoff_section(msg_frame)
+        
+        # LAND (착륙)
+        self.create_land_section(msg_frame)
+        
+        # RTL (출발지 복귀)
+        self.create_rtl_section(msg_frame)
+        
+        # 위치 이동 (SET_POSITION_TARGET)
+        self.create_position_target_section(msg_frame)
 
         # 로그 영역
         log_frame = ttk.LabelFrame(self.root, text="로그", padding=10)
@@ -282,7 +294,6 @@ class CustomMessageSenderGUI:
             'Altitude (131072)',          # 2 << 16
             'Position (196608)',          # 3 << 16
             'Mission (262400)',         # (4 << 16) | (4 << 8)
-
         ]
         self.mode_combo.current(0)  # MANUAL
         self.mode_combo.pack(side="left", padx=5)
@@ -295,6 +306,129 @@ class CustomMessageSenderGUI:
         self.mode_method_combo.pack(side="left", padx=5)
 
         ttk.Button(row_frame, text="모드 설정", command=self.send_set_mode).pack(side="right", padx=5)
+    
+    def create_takeoff_section(self, parent):
+        """TAKEOFF 섹션 생성"""
+        frame = ttk.LabelFrame(parent, text="7. TAKEOFF (이륙) - 표준 메시지", padding=5)
+        frame.pack(fill="x", pady=5)
+        
+        row_frame = ttk.Frame(frame)
+        row_frame.pack(fill="x")
+        
+        ttk.Label(row_frame, text="고도(m):").pack(side="left")
+        self.takeoff_alt_entry = ttk.Entry(row_frame, width=10)
+        self.takeoff_alt_entry.insert(0, "10.0")
+        self.takeoff_alt_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame, text="피치(°):").pack(side="left", padx=(10, 0))
+        self.takeoff_pitch_entry = ttk.Entry(row_frame, width=10)
+        self.takeoff_pitch_entry.insert(0, "0.0")
+        self.takeoff_pitch_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame, text="Yaw(°):").pack(side="left", padx=(10, 0))
+        self.takeoff_yaw_entry = ttk.Entry(row_frame, width=10)
+        self.takeoff_yaw_entry.insert(0, "0.0")
+        self.takeoff_yaw_entry.pack(side="left", padx=5)
+        
+        ttk.Button(row_frame, text="이륙", command=self.send_takeoff).pack(side="right", padx=5)
+        
+        info_label = ttk.Label(row_frame, text="(MAVLink 라우터가 자동으로 FC로 전달)", 
+                              font=('TkDefaultFont', 7), foreground='gray')
+        info_label.pack(side="right", padx=(5, 0))
+    
+    def create_land_section(self, parent):
+        """LAND 섹션 생성"""
+        frame = ttk.LabelFrame(parent, text="8. LAND (착륙) - 표준 메시지", padding=5)
+        frame.pack(fill="x", pady=5)
+        
+        row_frame = ttk.Frame(frame)
+        row_frame.pack(fill="x")
+        
+        ttk.Label(row_frame, text="위도(°):").pack(side="left")
+        self.land_lat_entry = ttk.Entry(row_frame, width=15)
+        self.land_lat_entry.insert(0, "0.0")  # 현재 위치에 착륙
+        self.land_lat_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame, text="경도(°):").pack(side="left")
+        self.land_lon_entry = ttk.Entry(row_frame, width=15)
+        self.land_lon_entry.insert(0, "0.0")  # 현재 위치에 착륙
+        self.land_lon_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame, text="고도(m):").pack(side="left", padx=(10, 0))
+        self.land_alt_entry = ttk.Entry(row_frame, width=10)
+        self.land_alt_entry.insert(0, "0.0")
+        self.land_alt_entry.pack(side="left", padx=5)
+        
+        ttk.Button(row_frame, text="착륙", command=self.send_land).pack(side="right", padx=5)
+        
+        info_label = ttk.Label(row_frame, text="(MAVLink 라우터가 자동으로 FC로 전달)", 
+                              font=('TkDefaultFont', 7), foreground='gray')
+        info_label.pack(side="right", padx=(5, 0))
+    
+    def create_rtl_section(self, parent):
+        """RTL 섹션 생성"""
+        frame = ttk.LabelFrame(parent, text="9. RTL (출발지 복귀) - 표준 메시지", padding=5)
+        frame.pack(fill="x", pady=5)
+        
+        row_frame = ttk.Frame(frame)
+        row_frame.pack(fill="x")
+        
+        ttk.Button(row_frame, text="RTL (Return to Launch)", 
+                  command=self.send_rtl).pack(side="left", padx=5)
+        
+        info_label = ttk.Label(row_frame, text="(MAVLink 라우터가 자동으로 FC로 전달)", 
+                              font=('TkDefaultFont', 7), foreground='gray')
+        info_label.pack(side="left", padx=(10, 0))
+    
+    def create_position_target_section(self, parent):
+        """위치 이동 섹션 생성"""
+        frame = ttk.LabelFrame(parent, text="10. 위치 이동 (SET_POSITION_TARGET) - 표준 메시지", padding=5)
+        frame.pack(fill="x", pady=5)
+        
+        row_frame1 = ttk.Frame(frame)
+        row_frame1.pack(fill="x", pady=2)
+        
+        ttk.Label(row_frame1, text="위도(°):").pack(side="left")
+        self.pos_lat_entry = ttk.Entry(row_frame1, width=15)
+        self.pos_lat_entry.insert(0, "37.1234567")
+        self.pos_lat_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame1, text="경도(°):").pack(side="left")
+        self.pos_lon_entry = ttk.Entry(row_frame1, width=15)
+        self.pos_lon_entry.insert(0, "127.1234567")
+        self.pos_lon_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame1, text="고도(m):").pack(side="left", padx=(10, 0))
+        self.pos_alt_entry = ttk.Entry(row_frame1, width=10)
+        self.pos_alt_entry.insert(0, "10.0")
+        self.pos_alt_entry.pack(side="left", padx=5)
+        
+        row_frame2 = ttk.Frame(frame)
+        row_frame2.pack(fill="x", pady=2)
+        
+        ttk.Label(row_frame2, text="속도(m/s):").pack(side="left")
+        self.pos_vx_entry = ttk.Entry(row_frame2, width=10)
+        self.pos_vx_entry.insert(0, "0.0")
+        self.pos_vx_entry.pack(side="left", padx=5)
+        
+        ttk.Label(row_frame2, text="타입:").pack(side="left", padx=(10, 0))
+        self.pos_type_combo = ttk.Combobox(row_frame2, width=20, state="readonly")
+        self.pos_type_combo['values'] = [
+            'POSITION (0)',
+            'VELOCITY (1)',
+            'ACCELERATION (2)',
+            'FORCE (3)',
+            'YAW (4)',
+            'YAW_RATE (5)'
+        ]
+        self.pos_type_combo.current(0)
+        self.pos_type_combo.pack(side="left", padx=5)
+        
+        ttk.Button(row_frame2, text="이동", command=self.send_position_target).pack(side="right", padx=5)
+        
+        info_label = ttk.Label(row_frame2, text="(MAVLink 라우터가 자동으로 FC로 전달)", 
+                              font=('TkDefaultFont', 7), foreground='gray')
+        info_label.pack(side="right", padx=(5, 0))
 
     def calculate_crc16(self, data, initial_crc=0xFFFF):
         """MAVLink 2.0 CRC-16/MCRF4XX 계산"""
@@ -341,14 +475,17 @@ class CustomMessageSenderGUI:
         # 시퀀스 번호 증가
         self.sequence_number = (self.sequence_number + 1) % 256
         
-        # CRC_EXTRA 값 (메시지 ID별로 다름)
+        # CRC_EXTRA 값 (메시지 ID별로 다름) - MAVLink 공식 값
         crc_extra_map = {
-            12900: 100,  # FIRE_MISSION_START
-            12901: 101,  # FIRE_MISSION_STATUS
-            12902: 102,  # FIRE_LAUNCH_CONTROL
-            12903: 103,  # FIRE_SUPPRESSION_RESULT
-            76: 19,      # COMMAND_LONG (표준 MAVLink 메시지)
-            11: 89       # SET_MODE (표준 MAVLink 메시지)
+            0: 50,       # HEARTBEAT (표준 MAVLink 메시지) - 공식 값
+            11: 89,      # SET_MODE (표준 MAVLink 메시지) - 공식 값
+            76: 152,     # COMMAND_LONG (표준 MAVLink 메시지) - 공식 값
+            84: 143,     # SET_POSITION_TARGET_LOCAL_NED (표준 MAVLink 메시지) - 공식 값
+            86: 5,       # SET_POSITION_TARGET_GLOBAL_INT (표준 MAVLink 메시지) - 공식 값
+            12900: 100,  # FIRE_MISSION_START (커스텀)
+            12901: 101,  # FIRE_MISSION_STATUS (커스텀)
+            12902: 102,  # FIRE_LAUNCH_CONTROL (커스텀)
+            12903: 103   # FIRE_SUPPRESSION_RESULT (커스텀)
         }
         crc_extra = crc_extra_map.get(msg_id, 0)
         
@@ -485,8 +622,6 @@ class CustomMessageSenderGUI:
         """MAVLink COMMAND_LONG 메시지로 ARM/DISARM 전송"""
         try:
             # 디버그: 받은 arm_value 값 확인
-            self.log(f"[DEBUG] send_arming 호출: arm_value={arm_value} (type: {type(arm_value)})")
-            
             # 송신자 ID (헤더에 사용)
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
@@ -502,7 +637,6 @@ class CustomMessageSenderGUI:
             
             # param1 값 확인 및 변환
             param1_value = float(arm_value)
-            self.log(f"[DEBUG] param1 값: {param1_value} (1.0=ARM, 0.0=DISARM)")
             
             # COMMAND_LONG 페이로드 구조
             # target_system, target_component, command, confirmation, 
@@ -522,9 +656,24 @@ class CustomMessageSenderGUI:
                 0.0                 # param7: unused
             )
             
-            self.send_mavlink2_message(msg_id, payload)
+            # 여러 번 전송 (FC가 확실히 받도록)
             action = "ARM" if arm_value == 1 else "DISARM"
-            self.log(f"✓ COMMAND_LONG ({action}) 전송: target_system={target_system}, target_component={target_component}, MAV_CMD_COMPONENT_ARM_DISARM={command}, param1={param1_value}")
+            success_count = 0
+            for i in range(3):  # 3번 전송
+                sent = self.send_mavlink2_message(msg_id, payload)
+                if sent > 0:
+                    success_count += 1
+                time.sleep(0.1)  # 100ms 간격
+            
+            if success_count > 0:
+                self.log(f"✓ COMMAND_LONG ({action}) 전송: {success_count}/3 성공")
+                self.log(f"  → target_system={target_system}, target_component={target_component}, command={command}, param1={param1_value}")
+                self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+                if success_count < 3:
+                    self.log(f"  ⚠ 일부 전송 실패: {3-success_count}개")
+            else:
+                self.log(f"✗ COMMAND_LONG ({action}) 전송 실패")
+                self.log(f"  → 네트워크 연결 및 MAVLink 라우터 상태 확인 필요")
             
         except Exception as e:
             self.log(f"✗ ARM/DISARM 전송 실패: {e}")
@@ -565,8 +714,20 @@ class CustomMessageSenderGUI:
                     0.0, 0.0, 0.0, 0.0, 0.0  # param3-7 - float
                 )
 
-                self.send_mavlink2_message(msg_id, payload)
-                self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+                # 여러 번 전송
+                success_count = 0
+                for i in range(3):
+                    sent = self.send_mavlink2_message(msg_id, payload)
+                    if sent > 0:
+                        success_count += 1
+                    time.sleep(0.1)
+                
+                if success_count > 0:
+                    self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: {success_count}/3 성공")
+                    self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+                    self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+                else:
+                    self.log(f"✗ COMMAND_LONG (DO_SET_MODE) 전송 실패")
 
             else:
                 # SET_MODE (MSG_ID: 11) 사용 - 구형 방법
@@ -581,11 +742,245 @@ class CustomMessageSenderGUI:
                     custom_mode         # custom_mode - uint32_t
                 )
 
-                self.send_mavlink2_message(msg_id, payload)
-                self.log(f"✓ SET_MODE 전송: target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+                # 여러 번 전송
+                success_count = 0
+                for i in range(3):
+                    sent = self.send_mavlink2_message(msg_id, payload)
+                    if sent > 0:
+                        success_count += 1
+                    time.sleep(0.1)
+                
+                if success_count > 0:
+                    self.log(f"✓ SET_MODE 전송: {success_count}/3 성공")
+                    self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
+                    self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+                else:
+                    self.log(f"✗ SET_MODE 전송 실패")
 
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
         except Exception as e:
             self.log(f"✗ 모드 설정 전송 실패: {e}")
+    
+    def send_takeoff(self):
+        """TAKEOFF 명령 전송 (COMMAND_LONG)"""
+        try:
+            target_system = int(self.target_system_entry.get())
+            target_component = int(self.target_component_entry.get())
+            altitude = float(self.takeoff_alt_entry.get())
+            pitch = float(self.takeoff_pitch_entry.get())
+            yaw = float(self.takeoff_yaw_entry.get())
+            
+            # COMMAND_LONG 메시지 ID: 76
+            msg_id = 76
+            command = 22  # MAV_CMD_NAV_TAKEOFF
+            
+            # COMMAND_LONG 페이로드
+            # param1: 최소 피치 (pitch)
+            # param2: 빈 값
+            # param3: 빈 값
+            # param4: Yaw (방향)
+            # param5: 위도 (0 = 현재 위치)
+            # param6: 경도 (0 = 현재 위치)
+            # param7: 고도 (altitude)
+            payload = struct.pack(
+                '<BBHB7f',
+                target_system,
+                target_component,
+                command,
+                0,  # confirmation
+                pitch,      # param1: 최소 피치
+                0.0,        # param2: 빈 값
+                0.0,        # param3: 빈 값
+                yaw,        # param4: Yaw
+                0.0,        # param5: 위도 (0 = 현재 위치)
+                0.0,        # param6: 경도 (0 = 현재 위치)
+                altitude    # param7: 고도
+            )
+            
+            # 여러 번 전송
+            success_count = 0
+            for i in range(3):
+                sent = self.send_mavlink2_message(msg_id, payload)
+                if sent > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count > 0:
+                self.log(f"✓ TAKEOFF 전송: {success_count}/3 성공")
+                self.log(f"  → 고도={altitude}m, 피치={pitch}°, Yaw={yaw}°")
+                self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+            else:
+                self.log(f"✗ TAKEOFF 전송 실패")
+                
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
+        except Exception as e:
+            self.log(f"✗ TAKEOFF 전송 실패: {e}")
+    
+    def send_land(self):
+        """LAND 명령 전송 (COMMAND_LONG)"""
+        try:
+            target_system = int(self.target_system_entry.get())
+            target_component = int(self.target_component_entry.get())
+            lat = float(self.land_lat_entry.get())
+            lon = float(self.land_lon_entry.get())
+            alt = float(self.land_alt_entry.get())
+            
+            # COMMAND_LONG 메시지 ID: 76
+            msg_id = 76
+            command = 21  # MAV_CMD_NAV_LAND
+            
+            # COMMAND_LONG 페이로드
+            # param1: 빈 값
+            # param2: 빈 값
+            # param3: 빈 값
+            # param4: Yaw (방향, 0 = 현재 방향 유지)
+            # param5: 위도 (0 = 현재 위치)
+            # param6: 경도 (0 = 현재 위치)
+            # param7: 고도 (0 = 현재 고도)
+            payload = struct.pack(
+                '<BBHB7f',
+                target_system,
+                target_component,
+                command,
+                0,  # confirmation
+                0.0,        # param1: 빈 값
+                0.0,        # param2: 빈 값
+                0.0,        # param3: 빈 값
+                0.0,        # param4: Yaw (0 = 현재 방향 유지)
+                lat,        # param5: 위도 (0 = 현재 위치)
+                lon,        # param6: 경도 (0 = 현재 위치)
+                alt         # param7: 고도 (0 = 현재 고도)
+            )
+            
+            # 여러 번 전송
+            success_count = 0
+            for i in range(3):
+                sent = self.send_mavlink2_message(msg_id, payload)
+                if sent > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count > 0:
+                if lat == 0.0 and lon == 0.0:
+                    self.log(f"✓ LAND 전송: {success_count}/3 성공 (현재 위치에 착륙)")
+                else:
+                    self.log(f"✓ LAND 전송: {success_count}/3 성공")
+                    self.log(f"  → 위치: {lat}°, {lon}°, 고도={alt}m")
+                self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+            else:
+                self.log(f"✗ LAND 전송 실패")
+                
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
+        except Exception as e:
+            self.log(f"✗ LAND 전송 실패: {e}")
+    
+    def send_rtl(self):
+        """RTL (Return to Launch) 명령 전송 (COMMAND_LONG)"""
+        try:
+            target_system = int(self.target_system_entry.get())
+            target_component = int(self.target_component_entry.get())
+            
+            # COMMAND_LONG 메시지 ID: 76
+            msg_id = 76
+            command = 20  # MAV_CMD_NAV_RETURN_TO_LAUNCH
+            
+            # COMMAND_LONG 페이로드
+            # RTL은 파라미터가 모두 0
+            payload = struct.pack(
+                '<BBHB7f',
+                target_system,
+                target_component,
+                command,
+                0,  # confirmation
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0  # param1-7 모두 0
+            )
+            
+            # 여러 번 전송
+            success_count = 0
+            for i in range(3):
+                sent = self.send_mavlink2_message(msg_id, payload)
+                if sent > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count > 0:
+                self.log(f"✓ RTL (Return to Launch) 전송: {success_count}/3 성공")
+                self.log(f"  → 출발지로 복귀")
+                self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+            else:
+                self.log(f"✗ RTL 전송 실패")
+                
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
+        except Exception as e:
+            self.log(f"✗ RTL 전송 실패: {e}")
+    
+    def send_position_target(self):
+        """SET_POSITION_TARGET_GLOBAL_INT 메시지 전송"""
+        try:
+            target_system = int(self.target_system_entry.get())
+            lat = float(self.pos_lat_entry.get())
+            lon = float(self.pos_lon_entry.get())
+            alt = float(self.pos_alt_entry.get())
+            vx = float(self.pos_vx_entry.get())
+            pos_type = int(self.pos_type_combo.get().split('(')[1].split(')')[0])
+            
+            # SET_POSITION_TARGET_GLOBAL_INT 메시지 ID: 86
+            msg_id = 86
+            
+            # 좌표 변환 (degrees * 1e7)
+            lat_int = int(lat * 1e7)
+            lon_int = int(lon * 1e7)
+            alt_float = alt  # 고도는 float (m, MSL)
+            
+            # SET_POSITION_TARGET_GLOBAL_INT 페이로드 구조
+            # time_boot_ms(4) + target_system(1) + target_component(1) + 
+            # coordinate_frame(1) + type_mask(2) + lat(4) + lon(4) + alt(4) + 
+            # vx(4) + vy(4) + vz(4) + afx(4) + afy(4) + afz(4) + yaw(4) + yaw_rate(4) = 51 bytes
+            payload = struct.pack(
+                '<IBBBIiifffffffff',
+                0,              # time_boot_ms (uint32_t) - 0 = 즉시
+                target_system,  # target_system (uint8_t)
+                0,              # target_component (uint8_t) - 0 = 모든 컴포넌트
+                6,              # coordinate_frame (uint8_t) - MAV_FRAME_GLOBAL_RELATIVE_ALT_INT = 6
+                pos_type,       # type_mask (uint16_t) - 위치/속도/가속도 타입
+                lat_int,        # lat (int32_t) - degrees * 1e7
+                lon_int,        # lon (int32_t) - degrees * 1e7
+                alt_float,      # alt (float) - 고도 (m, MSL)
+                vx,             # vx (float) - X 속도 (m/s)
+                0.0,            # vy (float) - Y 속도 (m/s)
+                0.0,            # vz (float) - Z 속도 (m/s)
+                0.0,            # afx (float) - X 가속도 (m/s²)
+                0.0,            # afy (float) - Y 가속도 (m/s²)
+                0.0,            # afz (float) - Z 가속도 (m/s²)
+                0.0,            # yaw (float) - Yaw (rad)
+                0.0             # yaw_rate (float) - Yaw rate (rad/s)
+            )
+            
+            # 여러 번 전송
+            success_count = 0
+            for i in range(3):
+                sent = self.send_mavlink2_message(msg_id, payload)
+                if sent > 0:
+                    success_count += 1
+                time.sleep(0.1)
+            
+            if success_count > 0:
+                self.log(f"✓ SET_POSITION_TARGET_GLOBAL_INT 전송: {success_count}/3 성공")
+                self.log(f"  → 위치: {lat}°, {lon}°, 고도={alt}m, 속도={vx}m/s")
+                self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+            else:
+                self.log(f"✗ 위치 이동 전송 실패")
+                
+        except ValueError as e:
+            self.log(f"✗ 입력값 오류: {e}")
+        except Exception as e:
+            self.log(f"✗ 위치 이동 전송 실패: {e}")
 
     def log(self, message):
         """로그 메시지 추가"""
@@ -606,4 +1001,6 @@ if __name__ == "__main__":
     app = CustomMessageSenderGUI(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
+
 

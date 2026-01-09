@@ -64,6 +64,15 @@ using FireSuppressionResultCallback = std::function<void(const FireSuppressionRe
 using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t target_component, uint16_t command, float param1, float param2, float param3, float param4, float param5, float param6, float param7)>;
 
 /**
+ * @brief SET_MODE 콜백 함수 타입
+ *
+ * @param target_system 대상 시스템 ID
+ * @param base_mode 기본 모드 플래그
+ * @param custom_mode 커스텀 모드 (main_mode << 16 | sub_mode << 8)
+ */
+using SetModeCallback = std::function<void(uint8_t target_system, uint8_t base_mode, uint32_t custom_mode)>;
+
+/**
  * @brief 커스텀 MAVLink 메시지 송수신기
  *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하고 파싱하여
@@ -156,6 +165,13 @@ public:
      * @param callback 콜백 함수
      */
     void setCommandLongCallback(CommandLongCallback callback);
+
+    /**
+     * @brief SET_MODE 콜백 등록
+     *
+     * @param callback 콜백 함수
+     */
+    void setSetModeCallback(SetModeCallback callback);
 
     // ========== 송신 함수 ==========
 

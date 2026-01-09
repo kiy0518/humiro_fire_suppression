@@ -76,11 +76,33 @@ else
     fi
     
     # 재빌드
-    echo "  빌드 중... (시간이 걸릴 수 있습니다)"
+    echo "  빌드 중... (진행 상황은 실시간으로 표시됩니다)"
+    echo "  💡 팁: 다른 터미널에서 'tail -f /tmp/micro_ros_build.log'로 전체 로그 확인 가능"
+    echo ""
     cd "$MICRO_ROS_WS"
-    colcon build --symlink-install 2>&1 | tee /tmp/micro_ros_build.log | grep -E "Starting|Finished|packages|warnings|errors" || true
     
-    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    # 빌드 실행 및 로그 저장
+    BUILD_EXIT_CODE=0
+    colcon build --symlink-install --event-handlers console_direct+ 2>&1 | tee /tmp/micro_ros_build.log | while IFS= read -r line || [ -n "$line" ]; do
+        # 패키지 빌드 시작/완료 표시
+        if [[ "$line" =~ Starting.*\>\>\> ]]; then
+            pkg=$(echo "$line" | sed -n 's/.*>>> \(.*\)/\1/p')
+            echo -e "  ${YELLOW}[빌드 중]${NC} $pkg"
+        elif [[ "$line" =~ Finished.*\<\<\< ]]; then
+            pkg=$(echo "$line" | sed -n 's/.*<<< \(.*\) \[.*/\1/p')
+            time=$(echo "$line" | sed -n 's/.*\[\(.*\)\]/\1/p')
+            echo -e "  ${GREEN}[완료]${NC} $pkg ($time)"
+        elif [[ "$line" =~ Summary.*packages ]]; then
+            echo -e "  ${GREEN}✓${NC} $line"
+        elif [[ "$line" =~ error|Error|ERROR ]]; then
+            echo -e "  ${RED}✗${NC} $line"
+        elif [[ "$line" =~ warning|Warning|WARNING ]]; then
+            echo -e "  ${YELLOW}⚠${NC} $line"
+        fi
+    done
+    BUILD_EXIT_CODE=${PIPESTATUS[0]}
+    
+    if [ $BUILD_EXIT_CODE -eq 0 ]; then
         echo -e "  ${GREEN}✓${NC} Micro-ROS 워크스페이스 빌드 완료"
     else
         echo -e "  ${RED}✗${NC} 빌드 실패. 로그 확인: /tmp/micro_ros_build.log"
@@ -119,11 +141,33 @@ else
     fi
     
     # 재빌드
-    echo "  빌드 중..."
+    echo "  빌드 중... (진행 상황은 실시간으로 표시됩니다)"
+    echo "  💡 팁: 다른 터미널에서 'tail -f /tmp/px4_ros2_build.log'로 전체 로그 확인 가능"
+    echo ""
     cd "$PX4_ROS2_WS"
-    colcon build --symlink-install 2>&1 | tee /tmp/px4_ros2_build.log | grep -E "Starting|Finished|packages|warnings|errors" || true
     
-    if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    # 빌드 실행 및 로그 저장
+    BUILD_EXIT_CODE=0
+    colcon build --symlink-install --event-handlers console_direct+ 2>&1 | tee /tmp/px4_ros2_build.log | while IFS= read -r line || [ -n "$line" ]; do
+        # 패키지 빌드 시작/완료 표시
+        if [[ "$line" =~ Starting.*\>\>\> ]]; then
+            pkg=$(echo "$line" | sed -n 's/.*>>> \(.*\)/\1/p')
+            echo -e "  ${YELLOW}[빌드 중]${NC} $pkg"
+        elif [[ "$line" =~ Finished.*\<\<\< ]]; then
+            pkg=$(echo "$line" | sed -n 's/.*<<< \(.*\) \[.*/\1/p')
+            time=$(echo "$line" | sed -n 's/.*\[\(.*\)\]/\1/p')
+            echo -e "  ${GREEN}[완료]${NC} $pkg ($time)"
+        elif [[ "$line" =~ Summary.*packages ]]; then
+            echo -e "  ${GREEN}✓${NC} $line"
+        elif [[ "$line" =~ error|Error|ERROR ]]; then
+            echo -e "  ${RED}✗${NC} $line"
+        elif [[ "$line" =~ warning|Warning|WARNING ]]; then
+            echo -e "  ${YELLOW}⚠${NC} $line"
+        fi
+    done
+    BUILD_EXIT_CODE=${PIPESTATUS[0]}
+    
+    if [ $BUILD_EXIT_CODE -eq 0 ]; then
         echo -e "  ${GREEN}✓${NC} PX4 ROS2 워크스페이스 빌드 완료"
     else
         echo -e "  ${RED}✗${NC} 빌드 실패. 로그 확인: /tmp/px4_ros2_build.log"

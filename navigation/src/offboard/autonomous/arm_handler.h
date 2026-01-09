@@ -67,6 +67,21 @@ public:
      * @return true: 성공, false: 실패
      */
     bool enableOffboardMode();
+    
+    /**
+     * @brief OFFBOARD 모드 비활성화 (heartbeat 중단)
+     * @brief 중요: heartbeat 중단 시 PX4가 자동으로 다른 모드(MANUAL 등)로 전환됨
+     * @brief 위급 상황 시 다른 모드로 전환 가능하도록 heartbeat 중단 필요
+     * @brief 호출 즉시 heartbeat가 중단되므로 언제든지 호출 가능 (임무 중간에도 가능)
+     * @return true: 성공, false: 실패
+     */
+    bool disableOffboardMode();
+    
+    /**
+     * @brief OFFBOARD heartbeat가 활성화되어 있는지 확인
+     * @return true: heartbeat 발행 중, false: heartbeat 중단됨
+     */
+    bool isOffboardHeartbeatActive() const { return offboard_timer_ != nullptr; }
 
 private:
     /**

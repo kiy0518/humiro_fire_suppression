@@ -246,7 +246,7 @@ echo "   ✓ 설정 디렉토리 생성 완료"
 echo ""
 echo "4. device_config.env 설정 로드 중..."
 
-CONFIG_FILE="$SCRIPT_DIR/device_config.env"
+CONFIG_FILE="$DEVICE_CONFIG"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ERROR: $CONFIG_FILE 파일이 없습니다."
