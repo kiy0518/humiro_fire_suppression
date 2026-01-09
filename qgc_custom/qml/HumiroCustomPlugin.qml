@@ -91,9 +91,9 @@ Item {
     Connections {
         target: activeVehicle
 
-        // FIRE_MISSION_STATUS 수신 (ID: 12901)
+        // FIRE_MISSION_STATUS 수신 (ID: 50001)
         function onMessageReceived(message) {
-            if (message.id === 12901) {  // FIRE_MISSION_STATUS
+            if (message.id === 50001) {  // FIRE_MISSION_STATUS
                 var phase = message.phase  // FIRE_MISSION_PHASE (0-6)
                 var progress = message.progress  // 0-100%
                 var remaining_projectiles = message.remaining_projectiles
@@ -108,8 +108,8 @@ Item {
                 var isFiring = (phase === 4)  // FIRE_PHASE_SUPPRESSING
                 fireControlPanel.updateFireState(phase, isFiring)
             }
-            // FIRE_SUPPRESSION_RESULT 수신 (ID: 12903)
-            else if (message.id === 12903) {
+            // FIRE_SUPPRESSION_RESULT 수신 (ID: 50003)
+            else if (message.id === 50003) {
                 var shot_number = message.shot_number
                 var temp_before = message.temp_before / 10.0  // °C * 10 → °C
                 var temp_after = message.temp_after / 10.0  // °C * 10 → °C
@@ -128,8 +128,8 @@ Item {
             return
         }
 
-        // FIRE_LAUNCH_CONTROL (ID: 12902) 전송
-        var message = activeVehicle.createMAVLinkMessage(12902)
+        // FIRE_LAUNCH_CONTROL (ID: 50002) 전송
+        var message = activeVehicle.createMAVLinkMessage(50002)
         message.target_system = 1  // VIM4 시스템 ID
         message.target_component = 1  // VIM4 컴포넌트 ID
         message.command = confirm ? 0 : 1  // 0=CONFIRM, 1=ABORT
@@ -144,8 +144,8 @@ Item {
             return
         }
 
-        // FIRE_LAUNCH_CONTROL (ID: 12902) 전송 - REQUEST_STATUS
-        var message = activeVehicle.createMAVLinkMessage(12902)
+        // FIRE_LAUNCH_CONTROL (ID: 50002) 전송 - REQUEST_STATUS
+        var message = activeVehicle.createMAVLinkMessage(50002)
         message.target_system = 1  // VIM4 시스템 ID
         message.target_component = 1  // VIM4 컴포넌트 ID
         message.command = 2  // REQUEST_STATUS
@@ -160,8 +160,8 @@ Item {
             return
         }
 
-        // FIRE_MISSION_START (ID: 12900) 전송
-        var message = activeVehicle.createMAVLinkMessage(12900)
+        // FIRE_MISSION_START (ID: 50000) 전송
+        var message = activeVehicle.createMAVLinkMessage(50000)
         message.target_system = 1  // VIM4 시스템 ID
         message.target_component = 1  // VIM4 컴포넌트 ID
         message.target_lat = lat * 1e7  // degrees * 1e7
@@ -180,8 +180,8 @@ Item {
             return
         }
 
-        // FIRE_SET_MODE (ID: 12904) 전송
-        var message = activeVehicle.createMAVLinkMessage(12904)
+        // FIRE_SET_MODE (ID: 50004) 전송
+        var message = activeVehicle.createMAVLinkMessage(50004)
         message.target_system = 1  // FC 시스템 ID
         message.target_component = 1  // FC 컴포넌트 ID
         message.px4_mode = px4Mode  // PX4 mode (1-8)

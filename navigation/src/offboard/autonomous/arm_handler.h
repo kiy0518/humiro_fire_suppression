@@ -54,13 +54,13 @@ public:
      * @brief 현재 비행 모드 확인 (nav_state)
      * @return nav_state 값 (14 = OFFBOARD)
      */
-    uint8_t getNavState() const { return nav_state_.load(); }
+    uint8_t getNavState() const { return nav_state_.load(std::memory_order_acquire); }
     
     /**
      * @brief OFFBOARD 모드인지 확인
      * @return true: OFFBOARD 모드, false: 다른 모드
      */
-    bool isOffboardMode() const { return nav_state_.load() == 14; }
+    bool isOffboardMode() const { return nav_state_.load(std::memory_order_acquire) == 14; }
     
     /**
      * @brief OFFBOARD 모드 활성화

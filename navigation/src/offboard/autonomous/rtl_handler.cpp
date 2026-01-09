@@ -58,7 +58,19 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     // GPS 위치 정보 수신 대기
     auto start_time = std::chrono::steady_clock::now();
     while (!global_position_received_) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -96,7 +108,19 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     for (int i = 0; i < 5; i++) {
         publishVehicleCommand(VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
     }
 
     RCLCPP_INFO(node_->get_logger(), "RTL command sent, waiting for RTL mode activation...");
@@ -106,7 +130,19 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     bool rtl_activated = false;
 
     while (!rtl_activated) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         if (nav_state_ == NAV_STATE_AUTO_RTL) {
@@ -130,7 +166,19 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     start_time = std::chrono::steady_clock::now();
 
     while (true) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         double distance = getDistanceFromHome();
@@ -173,7 +221,19 @@ bool RTLHandler::land(int timeout_ms)
     for (int i = 0; i < 5; i++) {
         publishVehicleCommand(VEHICLE_CMD_NAV_LAND);
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
     }
 
     RCLCPP_INFO(node_->get_logger(), "LAND command sent");
@@ -182,7 +242,19 @@ bool RTLHandler::land(int timeout_ms)
     auto start_time = std::chrono::steady_clock::now();
 
     while (true) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         if (isLanded()) {

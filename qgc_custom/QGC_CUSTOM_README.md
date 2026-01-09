@@ -2,7 +2,7 @@
 
 **작성일**: 2026-01-05
 **QGC 버전**: 4.0+
-**메시지 버전**: custom_message v3.1 (12900-12904)
+**메시지 버전**: custom_message v3.1 (50000-50004)
 
 ---
 
@@ -172,7 +172,7 @@ cp HumiroCustomPlugin.qml qml/
 
 ### 수신 메시지
 
-#### FIRE_MISSION_STATUS (ID: 12901)
+#### FIRE_MISSION_STATUS (ID: 50001)
 미션 상태 업데이트 (VIM4 → QGC)
 
 **메시지 구조**:
@@ -189,7 +189,7 @@ struct FireMissionStatus {
 
 **QML 핸들러**:
 ```javascript
-if (message.id === 12901) {
+if (message.id === 50001) {
     formationStatus.updateMissionStatus(
         message.phase,
         message.progress,
@@ -201,7 +201,7 @@ if (message.id === 12901) {
 }
 ```
 
-#### FIRE_SUPPRESSION_RESULT (ID: 12903)
+#### FIRE_SUPPRESSION_RESULT (ID: 29003)
 진압 결과 업데이트 (VIM4 → QGC)
 
 **메시지 구조**:
@@ -216,7 +216,7 @@ struct FireSuppressionResult {
 
 **QML 핸들러**:
 ```javascript
-if (message.id === 12903) {
+if (message.id === 50003) {
     firePointPanel.updateSuppressionResult(
         message.shot_number,
         message.temp_before / 10.0,  // °C * 10 → °C
@@ -230,7 +230,7 @@ if (message.id === 12903) {
 
 ### 송신 메시지
 
-#### FIRE_MISSION_START (ID: 12900)
+#### FIRE_MISSION_START (ID: 50000)
 미션 시작 명령 (QGC → VIM4)
 
 **메시지 구조**:
@@ -249,7 +249,7 @@ struct FireMissionStart {
 **QML 전송**:
 ```javascript
 function sendFireMissionStart(lat, lon, alt, autoFire, maxProjectiles) {
-    var message = activeVehicle.createMAVLinkMessage(12900)
+    var message = activeVehicle.createMAVLinkMessage(50000)
     message.target_system = 1
     message.target_component = 1
     message.target_lat = lat * 1e7
@@ -261,7 +261,7 @@ function sendFireMissionStart(lat, lon, alt, autoFire, maxProjectiles) {
 }
 ```
 
-#### FIRE_LAUNCH_CONTROL (ID: 12902)
+#### FIRE_LAUNCH_CONTROL (ID: 50002)
 격발 제어 명령 (QGC ↔ VIM4)
 
 **메시지 구조**:
@@ -277,7 +277,7 @@ struct FireLaunchControl {
 ```javascript
 // CONFIRM (command=0)
 function sendMAVLinkFireCommand(confirm) {
-    var message = activeVehicle.createMAVLinkMessage(12902)
+    var message = activeVehicle.createMAVLinkMessage(50002)
     message.target_system = 1
     message.target_component = 1
     message.command = confirm ? 0 : 1  // 0=CONFIRM, 1=ABORT
@@ -286,7 +286,7 @@ function sendMAVLinkFireCommand(confirm) {
 
 // REQUEST_STATUS (command=2)
 function sendMAVLinkStatusRequest() {
-    var message = activeVehicle.createMAVLinkMessage(12902)
+    var message = activeVehicle.createMAVLinkMessage(50002)
     message.target_system = 1
     message.target_component = 1
     message.command = 2  // REQUEST_STATUS
@@ -294,7 +294,7 @@ function sendMAVLinkStatusRequest() {
 }
 ```
 
-#### FIRE_SET_MODE (ID: 12904)
+#### FIRE_SET_MODE (ID: 50004)
 PX4 비행 모드 설정 (QGC → VIM4)
 
 **메시지 구조**:
@@ -322,11 +322,11 @@ struct FireSetMode {
 
 | 메시지 이름 | ID | 방향 | 설명 |
 |------------|----|----|----|
-| FIRE_MISSION_START | 12900 | QGC → VIM4 | 미션 시작 |
-| FIRE_MISSION_STATUS | 12901 | VIM4 → QGC | 미션 상태 |
-| FIRE_LAUNCH_CONTROL | 12902 | QGC ↔ VIM4 | 격발 제어 |
-| FIRE_SUPPRESSION_RESULT | 12903 | VIM4 → QGC | 진압 결과 |
-| FIRE_SET_MODE | 12904 | QGC → VIM4 | PX4 모드 설정 |
+| FIRE_MISSION_START | 50000 | QGC → VIM4 | 미션 시작 |
+| FIRE_MISSION_STATUS | 50001 | VIM4 → QGC | 미션 상태 |
+| FIRE_LAUNCH_CONTROL | 50002 | QGC ↔ VIM4 | 격발 제어 |
+| FIRE_SUPPRESSION_RESULT | 50003 | VIM4 → QGC | 진압 결과 |
+| FIRE_SET_MODE | 50004 | QGC → VIM4 | PX4 모드 설정 |
 
 ---
 
@@ -411,7 +411,7 @@ Component.onCompleted: {
 ### MAVLink 메시지가 수신되지 않음
 
 1. **메시지 ID 확인**
-   - 12900-12904 범위 확인
+   - 50000-50004 범위 확인
    - `custom_message` 라이브러리와 일치하는지 확인
 
 2. **VIM4 MAVLink 브릿지 확인**

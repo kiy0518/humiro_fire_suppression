@@ -27,9 +27,25 @@ WaypointHandler::WaypointHandler(rclcpp::Node::SharedPtr node)
         std::bind(&WaypointHandler::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
     // OFFBOARD 모드 heartbeat 타이머 (2Hz)
-    offboard_timer_ = node_->create_wall_timer(
-        std::chrono::milliseconds(500),
-        std::bind(&WaypointHandler::publishOffboardControlMode, this));
+    try {
+        offboard_timer_ = node_->create_wall_timer(
+            std::chrono::milliseconds(500),
+            std::bind(&WaypointHandler::publishOffboardControlMode, this));
+    } catch (const std::runtime_error& e) {
+        // executor 관련 예외는 특별히 처리
+        std::string error_msg = e.what();
+        if (error_msg.find("already been added to an executor") != std::string::npos) {
+            RCLCPP_WARN(node_->get_logger(), "타이머 생성 실패 (executor 충돌): %s", e.what());
+            RCLCPP_WARN(node_->get_logger(), "메인 스레드의 executor와 충돌했습니다. 타이머 없이 계속 진행합니다.");
+            // 타이머 없이도 계속 진행 가능 (수동으로 heartbeat 전송)
+        } else {
+            RCLCPP_ERROR(node_->get_logger(), "타이머 생성 실패: %s", e.what());
+            throw;  // 다른 예외는 다시 throw
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "타이머 생성 실패: %s", e.what());
+        throw;  // 예외를 다시 throw하여 호출자에게 전달
+    }
 
     RCLCPP_INFO(node_->get_logger(), "WaypointHandler initialized");
 }
@@ -43,7 +59,19 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
     // GPS 위치 정보 수신 대기
     auto start_time = std::chrono::steady_clock::now();
     while (!global_position_received_ || !local_position_received_) {
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -84,7 +112,19 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
         // TrajectorySetpoint 발행
         publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_);
 
-        rclcpp::spin_some(node_);
+        try {
+            rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
+        } catch (...) {
+            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // 거리 확인

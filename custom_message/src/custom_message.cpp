@@ -12,7 +12,13 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/epoll.h>
 #include <mutex>
+#include <thread>
+#include <chrono>
+#include <queue>
+#include <condition_variable>
 
 namespace custom_message {
 
@@ -66,6 +72,7 @@ public:
         , receive_socket_fd_(-1)
         , send_socket_fd_(-1)
         , mavlink_router_socket_fd_(-1)
+        , epoll_fd_(-1)
         , running_(false)
         , receive_thread_()
         , sequence_number_(0)
@@ -134,6 +141,30 @@ public:
             send_socket_fd_ = -1;
             return false;
         }
+        
+        // 수신 버퍼 크기 증가 (메시지 손실 방지)
+        // 기본값은 보통 212992 bytes (약 208KB)이지만, 더 크게 설정하여 메시지 손실 방지
+        int recv_buf_size = 1024 * 1024;  // 1MB로 증가
+        if (setsockopt(receive_socket_fd_, SOL_SOCKET, SO_RCVBUF, &recv_buf_size, sizeof(recv_buf_size)) < 0) {
+            std::cerr << "[CustomMessage] SO_RCVBUF 설정 실패: " << strerror(errno) << std::endl;
+            // 경고만 출력하고 계속 진행 (기본값 사용)
+        } else {
+            std::cout << "[CustomMessage] 수신 버퍼 크기 설정: " << recv_buf_size << " bytes" << std::endl;
+        }
+        
+        // Non-blocking 모드 설정 (메시지 손실 방지)
+        // Non-blocking으로 설정하면 recvfrom()이 즉시 반환되어 파싱 중에도 메시지 수신 가능
+        int flags = fcntl(receive_socket_fd_, F_GETFL, 0);
+        if (flags < 0) {
+            std::cerr << "[CustomMessage] F_GETFL 실패: " << strerror(errno) << std::endl;
+        } else {
+            if (fcntl(receive_socket_fd_, F_SETFL, flags | O_NONBLOCK) < 0) {
+                std::cerr << "[CustomMessage] O_NONBLOCK 설정 실패: " << strerror(errno) << std::endl;
+                // 경고만 출력하고 계속 진행 (블로킹 모드 사용)
+            } else {
+                std::cout << "[CustomMessage] Non-blocking 모드 활성화 (메시지 손실 방지)" << std::endl;
+            }
+        }
 
         // 수신 소켓 바인드
         struct sockaddr_in addr;
@@ -163,10 +194,37 @@ public:
             return false;
         }
 
+        // epoll 생성
+        epoll_fd_ = epoll_create1(0);
+        if (epoll_fd_ < 0) {
+            std::cerr << "[CustomMessage] epoll 생성 실패: " << strerror(errno) << std::endl;
+            close(receive_socket_fd_);
+            close(send_socket_fd_);
+            receive_socket_fd_ = -1;
+            send_socket_fd_ = -1;
+            return false;
+        }
+        
+        // 수신 소켓을 epoll에 등록
+        struct epoll_event ev;
+        ev.events = EPOLLIN | EPOLLET;  // Edge-triggered 모드 (더 효율적)
+        ev.data.fd = receive_socket_fd_;
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, receive_socket_fd_, &ev) < 0) {
+            std::cerr << "[CustomMessage] epoll_ctl 실패: " << strerror(errno) << std::endl;
+            close(epoll_fd_);
+            epoll_fd_ = -1;
+            close(receive_socket_fd_);
+            close(send_socket_fd_);
+            receive_socket_fd_ = -1;
+            send_socket_fd_ = -1;
+            return false;
+        }
+        
         running_ = true;
         receive_thread_ = std::thread(&CustomMessageImpl::receiveLoop, this);
+        process_thread_ = std::thread(&CustomMessageImpl::processLoop, this);
 
-        std::cout << "[CustomMessage] 메시지 송수신 시작 (수신 포트: " << receive_port_
+        std::cout << "[CustomMessage] 메시지 송수신 시작 (epoll 기반 이벤트 처리, 수신 포트: " << receive_port_
                   << ", 송신 포트: " << send_port_ << ", 대상: " << target_address_ << ")" << std::endl;
         return true;
     }
@@ -178,6 +236,11 @@ public:
 
         running_ = false;
 
+        if (epoll_fd_ >= 0) {
+            close(epoll_fd_);
+            epoll_fd_ = -1;
+        }
+        
         if (receive_socket_fd_ >= 0) {
             close(receive_socket_fd_);
             receive_socket_fd_ = -1;
@@ -195,6 +258,10 @@ public:
 
         if (receive_thread_.joinable()) {
             receive_thread_.join();
+        }
+        
+        if (process_thread_.joinable()) {
+            process_thread_.join();
         }
 
         std::cout << "[CustomMessage] 메시지 송수신 중지" << std::endl;
@@ -300,10 +367,10 @@ private:
         // CRC_EXTRA 값 (메시지 ID별로 다름)
         uint8_t crc_extra = 0;
         switch (msg_id) {
-            case 12900: crc_extra = 100; break;  // FIRE_MISSION_START
-            case 12901: crc_extra = 101; break;  // FIRE_MISSION_STATUS
-            case 12902: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
-            case 12903: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
+            case 50000: crc_extra = 100; break;  // FIRE_MISSION_START
+            case 50001: crc_extra = 101; break;  // FIRE_MISSION_STATUS
+            case 50002: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
+            case 50003: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
             default: crc_extra = 0; break;
         }
 
@@ -348,80 +415,152 @@ private:
     }
 
     void receiveLoop() {
+        const int MAX_EVENTS = 10;
+        struct epoll_event events[MAX_EVENTS];
         uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
         struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
         static int receive_count = 0;
 
         while (running_) {
-            ssize_t received = recvfrom(receive_socket_fd_, buffer, sizeof(buffer), 0,
-                                       (struct sockaddr*)&client_addr, &client_addr_len);
-
-            if (received < 0) {
-                if (errno == EINTR || errno == EAGAIN) {
-                    continue;
+            // epoll_wait로 이벤트 대기 (타임아웃: 100ms)
+            // 데이터가 도착했을 때만 깨어남 (CPU 효율적)
+            int nfds = epoll_wait(epoll_fd_, events, MAX_EVENTS, 100);
+            
+            if (nfds < 0) {
+                if (errno == EINTR) {
+                    continue;  // 인터럽트 시 재시도
                 }
                 if (running_) {
-                    std::cerr << "[CustomMessage] 수신 오류: " << strerror(errno) << std::endl;
+                    std::cerr << "[CustomMessage] epoll_wait 오류: " << strerror(errno) << std::endl;
                 }
                 continue;
             }
-
-            // received가 0이면 무시 (빈 패킷)
-            if (received == 0) {
+            
+            if (nfds == 0) {
+                // 타임아웃 (정상, 계속 대기)
                 continue;
             }
+            
+            // 이벤트 처리 (Edge-triggered 모드이므로 모든 데이터를 읽어야 함)
+            for (int i = 0; i < nfds; i++) {
+                if (events[i].data.fd == receive_socket_fd_) {
+                    // Edge-triggered 모드: 가능한 모든 데이터를 읽어야 함
+                    while (running_) {
+                        ssize_t received = recvfrom(receive_socket_fd_, buffer, sizeof(buffer), 0,
+                                                   (struct sockaddr*)&client_addr, &client_addr_len);
+                        
+                        if (received < 0) {
+                            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                                // 더 이상 읽을 데이터가 없음 (정상)
+                                break;
+                            } else if (errno == EINTR) {
+                                continue;  // 인터럽트 시 재시도
+                            } else {
+                                if (running_) {
+                                    std::cerr << "[CustomMessage] 수신 오류: " << strerror(errno) << std::endl;
+                                }
+                                break;
+                            }
+                        }
+                        
+                        if (received == 0) {
+                            // 빈 패킷
+                            continue;
+                        }
+                        
+                        receive_count++;
+                        // 디버그 출력: 커스텀 메시지(50000-50003)와 COMMAND_LONG(76)은 항상 출력
+                        if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
+                            // 헤더에서 MSG_ID 확인 (buffer[7] = msgid, buffer[8] = msgid_ext[0], buffer[9] = msgid_ext[1])
+                            uint32_t msg_id_check = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) | 
+                                                   (static_cast<uint32_t>(buffer[9]) << 16);
+                            bool is_important = (msg_id_check == 76) || (msg_id_check >= 50000 && msg_id_check <= 50003);
+                            if (is_important || receive_count <= 10) {
+                                std::cout << "[CustomMessage] [STEP 1] UDP 수신 (epoll): " << received << " bytes, "
+                                          << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
+                                          << std::dec << ", MSG_ID=" << msg_id_check << ", 포트: " << receive_port_ << std::endl;
+                            }
+                        } else if (receive_count <= 10) {
+                            std::cout << "[CustomMessage] [STEP 1] UDP 수신 (epoll): " << received << " bytes, "
+                                      << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
+                                      << std::dec << ", 포트: " << receive_port_ << std::endl;
+                        }
 
-            receive_count++;
-            // 처음 몇 개 메시지에 대해 디버그 출력
-            // COMMAND_LONG(76)은 항상 출력
-            if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
-                // 헤더에서 MSG_ID 확인 (buffer[7] = msgid, buffer[8] = msgid_ext[0], buffer[9] = msgid_ext[1])
-                uint32_t msg_id_check = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) | 
-                                       (static_cast<uint32_t>(buffer[9]) << 16);
-                if (msg_id_check == 76) {
-                    std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
-                              << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
-                              << std::dec << ", MSG_ID=76 (COMMAND_LONG), 포트: " << receive_port_ << std::endl;
-                } else if (receive_count <= 10) {
-                    std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
-                              << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
-                              << std::dec << ", MSG_ID=" << msg_id_check << ", 포트: " << receive_port_ << std::endl;
+                        // received는 양수이므로 size_t로 캐스팅하여 비교 (경고 해결)
+                        if (static_cast<size_t>(received) < MAVLINK_HEADER_LEN) {
+                            std::lock_guard<std::mutex> lock(stats_mutex_);
+                            stats_.parse_error_count++;
+                            if (receive_count <= 5) {
+                                std::cerr << "[CustomMessage] 헤더 길이 부족: " << received << " < " << MAVLINK_HEADER_LEN << std::endl;
+                            }
+                            continue;
+                        }
+
+                        // 메시지를 큐에 넣어서 별도 스레드에서 처리 (메시지 손실 방지)
+                        {
+                            std::lock_guard<std::mutex> lock(message_queue_mutex_);
+                            if (message_queue_.size() < 1000) {  // 큐 크기 제한 (메모리 보호)
+                                std::vector<uint8_t> msg(buffer, buffer + received);
+                                message_queue_.push(std::move(msg));
+                                message_queue_cv_.notify_one();
+                            } else {
+                                // 큐가 가득 찬 경우 (드물게 발생)
+                                std::lock_guard<std::mutex> stats_lock(stats_mutex_);
+                                stats_.parse_error_count++;
+                                static int queue_full_count = 0;
+                                if (queue_full_count++ < 5) {
+                                    std::cerr << "[CustomMessage] ⚠ 메시지 큐가 가득 참 (메시지 손실 가능)" << std::endl;
+                                }
+                            }
+                        }
+                    }
                 }
-            } else if (receive_count <= 10) {
-                std::cout << "[CustomMessage] [STEP 1] UDP 수신: " << received << " bytes, "
-                          << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
-                          << std::dec << ", 포트: " << receive_port_ << std::endl;
             }
+        }
+    }
 
-            // received는 양수이므로 size_t로 캐스팅하여 비교 (경고 해결)
-            if (static_cast<size_t>(received) < MAVLINK_HEADER_LEN) {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.parse_error_count++;
-                if (receive_count <= 5) {
-                    std::cerr << "[CustomMessage] 헤더 길이 부족: " << received << " < " << MAVLINK_HEADER_LEN << std::endl;
+    void processLoop() {
+        // 메시지 큐에서 메시지를 꺼내서 파싱 및 콜백 호출
+        while (running_) {
+            std::vector<uint8_t> msg;
+            {
+                std::unique_lock<std::mutex> lock(message_queue_mutex_);
+                // 큐에 메시지가 있거나 running_이 false가 될 때까지 대기
+                message_queue_cv_.wait(lock, [this] { 
+                    return !message_queue_.empty() || !running_; 
+                });
+                
+                if (!running_ && message_queue_.empty()) {
+                    break;
                 }
-                continue;
+                
+                if (!message_queue_.empty()) {
+                    msg = std::move(message_queue_.front());
+                    message_queue_.pop();
+                }
             }
-
-            // 예외 처리: 메시지 파싱 오류가 발생해도 영상 스트림은 계속 작동해야 함
-            try {
-                parseMAVLinkMessage(buffer, received);
-            } catch (const std::exception& e) {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.parse_error_count++;
-                static int exception_count = 0;
-                exception_count++;
-                if (exception_count <= 5) {
-                    std::cerr << "[CustomMessage] 메시지 파싱 예외 발생 (무시하고 계속): " << e.what() << std::endl;
-                }
-            } catch (...) {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.parse_error_count++;
-                static int unknown_exception_count = 0;
-                unknown_exception_count++;
-                if (unknown_exception_count <= 5) {
-                    std::cerr << "[CustomMessage] 알 수 없는 예외 발생 (무시하고 계속)" << std::endl;
+            
+            // 메시지 파싱 및 콜백 호출
+            if (!msg.empty()) {
+                try {
+                    parseMAVLinkMessage(msg.data(), msg.size());
+                } catch (const std::exception& e) {
+                    std::lock_guard<std::mutex> lock(stats_mutex_);
+                    stats_.parse_error_count++;
+                    static int exception_count = 0;
+                    exception_count++;
+                    if (exception_count <= 5) {
+                        std::cerr << "[CustomMessage] 메시지 파싱 예외 발생 (무시하고 계속): " << e.what() << std::endl;
+                    }
+                } catch (...) {
+                    std::lock_guard<std::mutex> lock(stats_mutex_);
+                    stats_.parse_error_count++;
+                    static int unknown_exception_count = 0;
+                    unknown_exception_count++;
+                    if (unknown_exception_count <= 5) {
+                        std::cerr << "[CustomMessage] 알 수 없는 예외 발생 (무시하고 계속)" << std::endl;
+                    }
                 }
             }
         }
@@ -478,31 +617,29 @@ private:
 
         // 표준 MAVLink 메시지는 MAVLink 라우터로 전달
         // MAVLink 라우터가 자동으로 FC↔QGC 간 표준 메시지를 전달하므로
-        // 이 프로그램은 커스텀 메시지(12900-12903), COMMAND_LONG(76), SET_MODE(11)만 처리
-        bool is_custom_message = (msg_id >= 12900 && msg_id <= 12903);
+        // 이 프로그램은 커스텀 메시지(50000-50003), COMMAND_LONG(76), SET_MODE(11)만 처리
+        bool is_custom_message = (msg_id >= 50000 && msg_id <= 50003);
         bool is_command_long = (msg_id == 76);
         bool is_set_mode = (msg_id == 11);  // [개선 제안 2] SET_MODE 추가
         
-        // 표준 메시지는 MAVLink 라우터의 FC 엔드포인트로 전달
-        if (!is_custom_message && !is_command_long && !is_set_mode) {
-            // 표준 메시지를 MAVLink 라우터로 전달 (127.0.0.1:14540)
-            if (mavlink_router_socket_fd_ >= 0) {
-                ssize_t sent = sendto(mavlink_router_socket_fd_, buffer, len, 0,
-                                     (struct sockaddr*)&mavlink_router_addr_, sizeof(mavlink_router_addr_));
-                if (sent < 0 && running_) {
-                    static int forward_error_count = 0;
-                    if (forward_error_count++ < 5) {
-                        std::cerr << "[CustomMessage] 표준 메시지 전달 실패: " << strerror(errno) << std::endl;
-                    }
-                } else if (sent == len) {
-                    static int forward_count = 0;
-                    if (forward_count++ < 5) {
-                        std::cout << "[CustomMessage] 표준 메시지 전달: MSG_ID=" << msg_id 
-                                  << " -> MAVLink 라우터 (127.0.0.1:14551)" << std::endl;
-                    }
+        // 중요: 커스텀 메시지(50000-50003)는 MAVLink 라우터로 전달하지 않음
+        // 커스텀 메시지는 VIM4에서만 처리해야 하므로 FC로 전달할 필요 없음
+        // 표준 메시지(COMMAND_LONG, SET_MODE)만 MAVLink 라우터로 전달
+        if (!is_custom_message && mavlink_router_socket_fd_ >= 0) {
+            // 표준 메시지만 MAVLink 라우터로 전달 (QGC처럼 직접 FC로 전달)
+            ssize_t sent = sendto(mavlink_router_socket_fd_, buffer, len, 0,
+                                 (struct sockaddr*)&mavlink_router_addr_, sizeof(mavlink_router_addr_));
+            if (sent < 0 && running_) {
+                static int forward_error_count = 0;
+                if (forward_error_count++ < 5) {
+                    std::cerr << "[CustomMessage] 메시지 전달 실패: " << strerror(errno) << std::endl;
                 }
             }
-            // 표준 메시지는 파싱하지 않고 전달만 함
+            // 전달 성공 여부는 로그 출력하지 않음 (너무 많은 로그 방지)
+        }
+        
+        // 표준 메시지 중 COMMAND_LONG과 SET_MODE가 아닌 것은 파싱하지 않고 전달만 함
+        if (!is_custom_message && !is_command_long && !is_set_mode) {
             return;
         }
         
@@ -518,7 +655,9 @@ private:
 
         static int parse_count = 0;
         parse_count++;
-        if (parse_count <= 10) {
+        // 커스텀 메시지(50000-50003)와 COMMAND_LONG(76)은 항상 출력
+        bool is_important = (msg_id == 76) || (msg_id >= 50000 && msg_id <= 50003);
+        if (is_important || parse_count <= 10) {
             std::cout << "[CustomMessage] [STEP 2] 메시지 파싱: MSG_ID=" << msg_id 
                       << ", payload_len=" << payload_len << std::endl;
         }
@@ -529,10 +668,10 @@ private:
         switch (msg_id) {
             case 11:    crc_extra = 89; break;   // SET_MODE (표준 MAVLink) - 공식 값
             case 76:    crc_extra = 152; break;  // COMMAND_LONG (표준 MAVLink) - 공식 값 (수정: 19 -> 152)
-            case 12900: crc_extra = 100; break;  // FIRE_MISSION_START
-            case 12901: crc_extra = 101; break;  // FIRE_MISSION_STATUS
-            case 12902: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
-            case 12903: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
+            case 50000: crc_extra = 100; break;  // FIRE_MISSION_START
+            case 50001: crc_extra = 101; break;  // FIRE_MISSION_STATUS
+            case 50002: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
+            case 50003: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
             default: crc_extra = 0; break;
         }
 
@@ -577,7 +716,7 @@ private:
                 if (mavlink_router_socket_fd_ >= 0) {
                     ssize_t sent = sendto(mavlink_router_socket_fd_, buffer, len, 0,
                                          (struct sockaddr*)&mavlink_router_addr_, sizeof(mavlink_router_addr_));
-                    if (sent == len) {
+                    if (sent >= 0 && static_cast<size_t>(sent) == len) {
                         static int set_mode_forward_count = 0;
                         if (set_mode_forward_count++ < 5) {
                             std::cout << "[CustomMessage] SET_MODE 전달: -> MAVLink 라우터 (127.0.0.1:14551)" << std::endl;
@@ -592,7 +731,7 @@ private:
                 if (mavlink_router_socket_fd_ >= 0) {
                     ssize_t sent = sendto(mavlink_router_socket_fd_, buffer, len, 0,
                                          (struct sockaddr*)&mavlink_router_addr_, sizeof(mavlink_router_addr_));
-                    if (sent == len) {
+                    if (sent >= 0 && static_cast<size_t>(sent) == len) {
                         static int cmd_forward_count = 0;
                         if (cmd_forward_count++ < 5) {
                             std::cout << "[CustomMessage] COMMAND_LONG 전달: -> MAVLink 라우터 (127.0.0.1:14551)" << std::endl;
@@ -858,14 +997,21 @@ private:
     int receive_socket_fd_;
     int send_socket_fd_;
     int mavlink_router_socket_fd_;  // MAVLink 라우터로 표준 메시지 전달용
+    int epoll_fd_;  // epoll 파일 디스크립터
     std::atomic<bool> running_;
     std::thread receive_thread_;
+    std::thread process_thread_;  // 메시지 파싱 및 콜백 처리 스레드
     std::atomic<uint8_t> sequence_number_;
 
     struct sockaddr_in target_addr_;
     struct sockaddr_in mavlink_router_addr_;  // MAVLink 라우터 주소 (127.0.0.1:14540)
     mutable std::mutex target_mutex_;
     mutable std::mutex stats_mutex_;
+    
+    // 메시지 큐 (메시지 손실 방지)
+    std::queue<std::vector<uint8_t>> message_queue_;
+    std::mutex message_queue_mutex_;
+    std::condition_variable message_queue_cv_;
 
     FireMissionStartCallback mission_start_callback_;
     FireMissionStatusCallback mission_status_callback_;

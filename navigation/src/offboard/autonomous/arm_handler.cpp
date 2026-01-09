@@ -72,10 +72,11 @@ ArmHandler::~ArmHandler() {
 
 void ArmHandler::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg) {
     uint8_t new_nav_state = msg->nav_state;
-    uint8_t old_nav_state = nav_state_.load();
+    uint8_t old_nav_state = nav_state_.load(std::memory_order_acquire);
     
     arming_state_ = msg->arming_state;
-    nav_state_ = new_nav_state;
+    // 메모리 순서 보장을 위해 memory_order_release 사용
+    nav_state_.store(new_nav_state, std::memory_order_release);
     
     // arming_state: 1 = STANDBY, 2 = ARMED
     is_armed_ = (arming_state_ == 2);
@@ -85,34 +86,33 @@ void ArmHandler::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::Share
     
     // OFFBOARD 모드로 전환된 경우 (nav_state == 14)
     if (new_nav_state == PX4_NAV_STATE_OFFBOARD && old_nav_state != PX4_NAV_STATE_OFFBOARD) {
+        std::cout << "[ArmHandler] ✓ OFFBOARD 모드 전환 성공! (nav_state: " << (int)old_nav_state 
+                  << " -> " << (int)new_nav_state << ")" << std::endl;
         // heartbeat가 중단되어 있으면 재개 (선택적)
         // 주의: 외부에서 OFFBOARD 모드로 전환한 경우에만 재개
         // VIM4가 직접 OFFBOARD 모드로 전환한 경우는 이미 heartbeat가 활성화되어 있음
-        if (!offboard_timer_) {
-            std::cout << "[ArmHandler] OFFBOARD 모드 감지됨 (외부 전환, heartbeat 자동 재개)" << std::endl;
-            enableOffboardMode();  // heartbeat 재개
-        } else {
-            std::cout << "[ArmHandler] OFFBOARD 모드 감지됨 (heartbeat 이미 활성화됨)" << std::endl;
-        }
+        // 타이머는 사용하지 않으므로 항상 수동 heartbeat 모드
+        std::cout << "[ArmHandler] OFFBOARD 모드 감지됨 (외부 전환, 수동 heartbeat 모드)" << std::endl;
     }
     // 다른 모드로 전환된 경우 (OFFBOARD → 다른 모드)
     else if (old_nav_state == PX4_NAV_STATE_OFFBOARD && new_nav_state != PX4_NAV_STATE_OFFBOARD) {
-        // heartbeat가 활성화되어 있으면 중단
-        if (offboard_timer_) {
-            std::cout << "[ArmHandler] OFFBOARD 모드에서 벗어남 (nav_state: " << (int)old_nav_state 
-                      << " -> " << (int)new_nav_state << ", heartbeat 자동 중단)" << std::endl;
-            disableOffboardMode();  // heartbeat 중단
-        } else {
-            std::cout << "[ArmHandler] OFFBOARD 모드에서 벗어남 (heartbeat 이미 중단됨)" << std::endl;
-        }
+        std::cout << "[ArmHandler] OFFBOARD 모드에서 벗어남 (nav_state: " << (int)old_nav_state 
+                  << " -> " << (int)new_nav_state << ")" << std::endl;
+        // 타이머는 사용하지 않으므로 별도 처리 불필요
     }
     
-    // 디버깅 (10초마다 출력)
+    // 디버깅: nav_state 변경 시 항상 출력 (OFFBOARD 모드 전환 디버깅용)
+    if (old_nav_state != new_nav_state) {
+        std::cout << "[ArmHandler] nav_state 변경: " << (int)old_nav_state 
+                  << " -> " << (int)new_nav_state << std::endl;
+    }
+    
+    // 주기적 상태 출력 (10초마다)
     static auto last_print = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
     if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print).count() >= 10) {
-        std::cout << "[ArmHandler] 상태: arming=" << (int)arming_state_ 
-                  << ", nav=" << (int)nav_state_ 
+        std::cout << "[ArmHandler] 상태: arming=" << (int)arming_state_.load() 
+                  << ", nav=" << (int)nav_state_.load(std::memory_order_acquire) 
                   << ", armed=" << (is_armed_ ? "ON" : "OFF")
                   << ", heartbeat=" << (offboard_timer_ ? "ON" : "OFF") << std::endl;
         last_print = now;
@@ -135,88 +135,144 @@ void ArmHandler::publishVehicleCommand(uint16_t command, float param1, float par
 }
 
 void ArmHandler::publishOffboardControlMode() {
-    px4_msgs::msg::OffboardControlMode msg{};
-    msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-    msg.position = false;
-    msg.velocity = false;
-    msg.acceleration = false;
-    msg.attitude = false;
-    msg.body_rate = false;
-    
-    offboard_control_mode_pub_->publish(msg);
+    try {
+        px4_msgs::msg::OffboardControlMode msg{};
+        msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+        // PX4는 OFFBOARD 모드로 전환하려면 최소한 하나의 제어 모드가 활성화되어 있어야 함
+        // position 모드를 활성화하여 OFFBOARD 모드 전환 가능하도록 함
+        msg.position = true;   // Position control 활성화 (OFFBOARD 모드 전환에 필요)
+        msg.velocity = false;
+        msg.acceleration = false;
+        msg.attitude = false;
+        msg.body_rate = false;
+        
+        offboard_control_mode_pub_->publish(msg);
+        
+        // 디버깅: heartbeat 전송 확인 (처음 몇 번만 출력)
+        static int heartbeat_debug_count = 0;
+        if (heartbeat_debug_count < 3) {
+            std::cout << "[ArmHandler] ✓ OffboardControlMode heartbeat 전송 (count=" 
+                      << heartbeat_debug_count << ")" << std::endl;
+            heartbeat_debug_count++;
+        }
+    } catch (const std::exception& e) {
+        static int error_count = 0;
+        if (error_count < 3) {
+            std::cerr << "[ArmHandler] ⚠ publishOffboardControlMode 예외: " << e.what() << std::endl;
+            error_count++;
+        }
+    } catch (...) {
+        static int error_count = 0;
+        if (error_count < 3) {
+            std::cerr << "[ArmHandler] ⚠ publishOffboardControlMode 알 수 없는 예외" << std::endl;
+            error_count++;
+        }
+    }
 }
 
 bool ArmHandler::enableOffboardMode() {
-    std::cout << "[ArmHandler] OFFBOARD 모드 활성화 중..." << std::endl;
-    
-    // Offboard heartbeat 시작 (2Hz)
-    // PX4는 Offboard 모드를 유지하려면 지속적인 heartbeat가 필요함
-    if (!offboard_timer_) {
-        try {
-            offboard_timer_ = node_->create_wall_timer(
-                std::chrono::milliseconds(500),  // 2Hz
-                std::bind(&ArmHandler::publishOffboardControlMode, this));
-            
-            std::cout << "[ArmHandler] ✓ Offboard heartbeat 시작 (2Hz)" << std::endl;
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 특별히 처리
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") != std::string::npos) {
-                std::cerr << "[ArmHandler] ⚠ 타이머 생성 실패 (executor 충돌): " << e.what() << std::endl;
-                std::cerr << "  → 메인 스레드의 executor와 충돌했습니다. 타이머 없이 계속 진행합니다." << std::endl;
-                // 타이머 없이도 계속 진행 가능 (수동으로 heartbeat 전송)
-            } else {
-                std::cerr << "[ArmHandler] ✗ 타이머 생성 실패: " << e.what() << std::endl;
-                throw;  // 다른 예외는 다시 throw
+    try {
+        std::cout << "[ArmHandler] OFFBOARD 모드 활성화 중..." << std::endl;
+        
+        // 중요: executor 충돌 문제로 인해 타이머를 사용하지 않고
+        // 항상 수동 heartbeat만 사용하여 안정성 보장
+        // 타이머가 이미 있다면 중지
+        if (offboard_timer_) {
+            try {
+                offboard_timer_->cancel();
+                offboard_timer_.reset();
+            } catch (...) {
+                // 예외 무시
             }
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] ✗ 타이머 생성 실패: " << e.what() << std::endl;
-            throw;  // 예외를 다시 throw하여 호출자에게 전달
-        }
-    }
-    
-    // Offboard 모드 명령 전송 (여러 번 전송)
-    for (int i = 0; i < 5; i++) {
-        // MAV_CMD_DO_SET_MODE (176)
-        // param1: 1 (custom mode enable)
-        // param2: 6 (PX4_CUSTOM_MAIN_MODE_OFFBOARD)
-        publishVehicleCommand(VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0);
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
-    }
-    
-    std::cout << "[ArmHandler] ✓ OFFBOARD 모드 명령 전송 완료" << std::endl;
-    
-    // 모드 변경 대기 (최대 3초)
-    auto start_time = std::chrono::steady_clock::now();
-    while (std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::steady_clock::now() - start_time).count() < 3000) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
         }
         
-        // nav_state == 14 (OFFBOARD)
-        if (nav_state_ == 14) {
-            std::cout << "[ArmHandler] ✓ OFFBOARD 모드 활성화 성공!" << std::endl;
-            return true;
+        std::cout << "[ArmHandler] ✓ 수동 heartbeat 모드 사용 (타이머 없이 안정적 동작)" << std::endl;
+        
+        // Offboard 모드 명령 전송 (여러 번 전송)
+        // PX4는 OFFBOARD 모드로 전환하려면 명령과 함께 heartbeat가 필요함
+        for (int i = 0; i < 10; i++) {  // 10번 전송 (1초간)
+            // MAV_CMD_DO_SET_MODE (176)
+            // param1: 1 (custom mode enable)
+            // param2: 6 (PX4_CUSTOM_MAIN_MODE_OFFBOARD)
+            publishVehicleCommand(VEHICLE_CMD_DO_SET_MODE, 1.0, 6.0);
+            
+            // heartbeat 전송 (타이머 여부와 관계없이 항상 전송)
+            publishOffboardControlMode();
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
+            // 메인 스레드의 executor가 이미 노드를 처리하고 있으므로
+            // 여기서 spin_some을 호출할 필요가 없음
         }
         
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::cout << "[ArmHandler] ✓ OFFBOARD 모드 명령 전송 완료 (10회)" << std::endl;
+        
+        // 모드 변경 대기 (최대 5초)
+        // PX4는 OFFBOARD 모드로 전환하려면 지속적인 heartbeat가 필요함 (최소 2Hz)
+        auto start_time = std::chrono::steady_clock::now();
+        int heartbeat_count = 0;
+        int iteration = 0;
+        while (std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - start_time).count() < 5000) {
+            iteration++;
+            
+            // heartbeat 전송 (2Hz = 500ms마다, 즉 5번 반복마다)
+            if (heartbeat_count % 5 == 0) {  // 100ms * 5 = 500ms
+                try {
+                    publishOffboardControlMode();
+                } catch (const std::exception& e) {
+                    std::cerr << "[ArmHandler] ⚠ heartbeat 전송 예외 (무시): " << e.what() << std::endl;
+                } catch (...) {
+                    std::cerr << "[ArmHandler] ⚠ heartbeat 전송 알 수 없는 예외 (무시)" << std::endl;
+                }
+            }
+            heartbeat_count++;
+            
+            // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
+            // 메인 스레드의 executor가 이미 노드를 처리하고 있으므로
+            // 여기서 spin_some을 호출할 필요가 없음
+            // vehicleStatusCallback은 메인 executor에서 자동으로 호출됨
+            
+            // nav_state == 14 (OFFBOARD)
+            // 메모리 순서 보장을 위해 memory_order_acquire 사용
+            uint8_t current_nav_state = nav_state_.load(std::memory_order_acquire);
+            if (current_nav_state == 14) {
+                std::cout << "[ArmHandler] ✓ OFFBOARD 모드 활성화 성공! (nav_state=14, iteration=" 
+                          << iteration << ")" << std::endl;
+                return true;
+            }
+            
+            // 1초마다 진행 상황 출력 (더 자주 확인하도록 간격 단축)
+            if (iteration % 5 == 0) {  // 100ms * 5 = 500ms마다 출력
+                std::cout << "[ArmHandler] OFFBOARD 모드 대기 중... (nav_state=" 
+                          << static_cast<int>(current_nav_state) << ", iteration=" << iteration << ")" << std::endl;
+            }
+            
+            // 더 자주 확인하도록 간격 단축 (50ms)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        
+        uint8_t final_nav_state = nav_state_.load(std::memory_order_acquire);
+        std::cerr << "[ArmHandler] ⚠ OFFBOARD 모드 활성화 타임아웃 (nav_state=" 
+                  << static_cast<int>(final_nav_state) << ", 총 " << iteration << "회 시도)" << std::endl;
+        std::cerr << "[ArmHandler]   → PX4 파라미터 확인 필요: COM_RCL_EXCEPT=4, CBRK_FLIGHTTERM=1212121" << std::endl;
+        return false;
+    } catch (const std::runtime_error& e) {
+        std::string error_msg = e.what();
+        if (error_msg.find("already been added to an executor") != std::string::npos) {
+            std::cerr << "[ArmHandler] ⚠ enableOffboardMode executor 충돌 (계속 진행): " << e.what() << std::endl;
+            return true;  // executor 충돌은 치명적이지 않으므로 성공으로 처리
+        } else {
+            std::cerr << "[ArmHandler] ✗ enableOffboardMode 실패: " << e.what() << std::endl;
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[ArmHandler] ✗ enableOffboardMode 예외: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "[ArmHandler] ✗ enableOffboardMode 알 수 없는 예외 발생" << std::endl;
+        return false;
     }
-    
-    std::cerr << "[ArmHandler] ✗ OFFBOARD 모드 활성화 실패 (타임아웃)" << std::endl;
-    return false;
 }
 
 bool ArmHandler::disableOffboardMode() {
@@ -234,14 +290,7 @@ bool ArmHandler::disableOffboardMode() {
         // 일반적으로 0.5초(500ms) 이내에 전환됨
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         
-        // 모드 전환 확인 (선택 사항)
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
+        // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
         
     } else {
         std::cout << "[ArmHandler] ✓ Offboard heartbeat가 이미 중지되어 있음" << std::endl;
@@ -273,13 +322,7 @@ bool ArmHandler::arm(int timeout_ms) {
         std::cout << "[ArmHandler] ARM 명령 전송 (" << (i + 1) << "/5)" << std::endl;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
+        // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
     }
     
     // 시동 확인 대기
@@ -288,13 +331,8 @@ bool ArmHandler::arm(int timeout_ms) {
     
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now() - start_time).count() < timeout_ms) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
+        // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
+        // vehicleStatusCallback은 메인 executor에서 자동으로 호출됨
         
         if (is_armed_) {
             std::cout << "[ArmHandler] ✓✓✓ 시동 성공! ✓✓✓" << std::endl;
@@ -327,13 +365,7 @@ bool ArmHandler::disarm(int timeout_ms) {
         std::cout << "[ArmHandler] DISARM 명령 전송 (" << (i + 1) << "/5)" << std::endl;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
+        // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
     }
     
     // 시동 끄기 확인 대기
@@ -342,13 +374,8 @@ bool ArmHandler::disarm(int timeout_ms) {
     
     while (std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::steady_clock::now() - start_time).count() < timeout_ms) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::exception& e) {
-            std::cerr << "[ArmHandler] spin_some 예외 (무시): " << e.what() << std::endl;
-        } catch (...) {
-            std::cerr << "[ArmHandler] spin_some 알 수 없는 예외 (무시)" << std::endl;
-        }
+        // 중요: spin_some을 호출하지 않음 (executor 충돌 방지)
+        // vehicleStatusCallback은 메인 executor에서 자동으로 호출됨
         
         if (!is_armed_) {
             std::cout << "[ArmHandler] ✓ 시동 끄기 성공!" << std::endl;

@@ -17,40 +17,61 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
 
 bool OffboardManager::executeMission(const MissionConfig& config)
 {
-    // 이미 미션이 실행 중이면 중복 실행 방지
-    if (current_state_ != MissionState::IDLE) {
-        RCLCPP_WARN(node_->get_logger(), 
-                   "Mission already running (current state: %s). Ignoring new mission request.",
-                   getStateName(current_state_).c_str());
-        return false;
-    }
+    try {
+        // 이미 미션이 실행 중이면 중복 실행 방지
+        if (current_state_ != MissionState::IDLE) {
+            RCLCPP_WARN(node_->get_logger(), 
+                       "Mission already running (current state: %s). Ignoring new mission request.",
+                       getStateName(current_state_).c_str());
+            return false;
+        }
 
-    mission_config_ = config;
+        mission_config_ = config;
 
-    RCLCPP_INFO(node_->get_logger(), "======================================");
-    RCLCPP_INFO(node_->get_logger(), "  Starting Autonomous Mission");
-    RCLCPP_INFO(node_->get_logger(), "======================================");
-    RCLCPP_INFO(node_->get_logger(), "Mission config:");
-    RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.2f m", config.takeoff_altitude);
-    RCLCPP_INFO(node_->get_logger(), "  Target waypoint: Lat=%.7f, Lon=%.7f, Alt=%.2f m",
-                config.target_waypoint.latitude,
-                config.target_waypoint.longitude,
-                config.target_waypoint.altitude);
-    RCLCPP_INFO(node_->get_logger(), "  Target distance: %.2f m (±%.2f m)",
-                config.target_distance, config.distance_tolerance);
-    RCLCPP_INFO(node_->get_logger(), "======================================\n");
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "  Starting Autonomous Mission");
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "Mission config:");
+        RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.2f m", config.takeoff_altitude);
+        RCLCPP_INFO(node_->get_logger(), "  Target waypoint: Lat=%.7f, Lon=%.7f, Alt=%.2f m",
+                    config.target_waypoint.latitude,
+                    config.target_waypoint.longitude,
+                    config.target_waypoint.altitude);
+        RCLCPP_INFO(node_->get_logger(), "  Target distance: %.2f m (±%.2f m)",
+                    config.target_distance, config.distance_tolerance);
+        RCLCPP_INFO(node_->get_logger(), "======================================\n");
 
-    // === State: ARMING ===
-    if (!transitionToState(MissionState::ARMING)) {
-        handleError("Failed to transition to ARMING state");
-        return false;
-    }
+        // === State: ARMING ===
+        if (!transitionToState(MissionState::ARMING)) {
+            handleError("Failed to transition to ARMING state");
+            return false;
+        }
 
-    RCLCPP_INFO(node_->get_logger(), "[ARMING] Enabling OFFBOARD mode...");
-    if (!arm_handler_->enableOffboardMode()) {
-        handleError("Failed to enable OFFBOARD mode");
-        return false;
-    }
+        RCLCPP_INFO(node_->get_logger(), "[ARMING] Enabling OFFBOARD mode...");
+        try {
+            if (!arm_handler_->enableOffboardMode()) {
+                handleError("Failed to enable OFFBOARD mode");
+                return false;
+            }
+        } catch (const std::runtime_error& e) {
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") != std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "[ARMING] enableOffboardMode executor 충돌 (계속 진행): %s", e.what());
+                // executor 충돌은 치명적이지 않으므로 계속 진행
+            } else {
+                RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 실패: %s", e.what());
+                handleError("Failed to enable OFFBOARD mode");
+                return false;
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 예외: %s", e.what());
+            handleError("Failed to enable OFFBOARD mode");
+            return false;
+        } catch (...) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 알 수 없는 예외 발생");
+            handleError("Failed to enable OFFBOARD mode");
+            return false;
+        }
     std::this_thread::sleep_for(std::chrono::seconds(2));
 
     RCLCPP_INFO(node_->get_logger(), "[ARMING] Arming vehicle...");
@@ -125,6 +146,12 @@ bool OffboardManager::executeMission(const MissionConfig& config)
         distance_adjuster_->hover();
         try {
             rclcpp::spin_some(node_);
+        } catch (const std::runtime_error& e) {
+            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") == std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "[HOVER] spin_some runtime_error (무시): %s", e.what());
+            }
         } catch (const std::exception& e) {
             RCLCPP_WARN(node_->get_logger(), "[HOVER] spin_some 예외 (무시): %s", e.what());
         } catch (...) {
@@ -167,6 +194,26 @@ bool OffboardManager::executeMission(const MissionConfig& config)
     RCLCPP_INFO(node_->get_logger(), "======================================");
 
     return true;
+    } catch (const std::runtime_error& e) {
+        std::string error_msg = e.what();
+        if (error_msg.find("already been added to an executor") != std::string::npos) {
+            RCLCPP_WARN(node_->get_logger(), "[executeMission] executor 충돌 (계속 진행): %s", e.what());
+            // executor 충돌은 치명적이지 않으므로 계속 진행
+            return true;
+        } else {
+            RCLCPP_ERROR(node_->get_logger(), "[executeMission] runtime_error: %s", e.what());
+            handleError("Mission execution failed");
+            return false;
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "[executeMission] 예외: %s", e.what());
+        handleError("Mission execution failed");
+        return false;
+    } catch (...) {
+        RCLCPP_ERROR(node_->get_logger(), "[executeMission] 알 수 없는 예외 발생");
+        handleError("Mission execution failed");
+        return false;
+    }
 }
 
 void OffboardManager::emergencyRTL()

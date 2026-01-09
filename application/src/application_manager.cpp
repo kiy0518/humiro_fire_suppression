@@ -450,20 +450,48 @@ void ApplicationManager::initializeCustomMessage() {
                     std::cerr << "[DEBUG] ✗ ROS2가 비활성화되어 있음" << std::endl;
 #endif
                 } else if (command == 176) {  // MAV_CMD_DO_SET_MODE
-                    // PX4 custom_mode format: (main_mode << 16) | (sub_mode << 8)
-                    // For DO_SET_MODE: param1=1 (custom mode flag), param2=main_mode
+                    // PX4 DO_SET_MODE 명령 형식:
+                    // param1 = 1 (MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
+                    // param2 = custom_mode 값 (main_mode << 16) | (sub_mode << 8)
+                    // 예: param2 = 65536 (1 << 16, MANUAL), 393216 (6 << 16, OFFBOARD) 등
                     uint32_t custom_mode = static_cast<uint32_t>(param2);
                     uint8_t main_mode = (custom_mode >> 16) & 0xFF;  // Extract main_mode
                     uint8_t sub_mode = (custom_mode >> 8) & 0xFF;    // Extract sub_mode
                     
-                    std::cout << "[DEBUG] DO_SET_MODE 수신: custom_mode=" << custom_mode 
-                              << " (main=" << (int)main_mode << ", sub=" << (int)sub_mode << ")" << std::endl;
+                    std::cout << "[DEBUG] DO_SET_MODE 수신: param1=" << param1 
+                              << ", param2=" << param2 << " (custom_mode=" << custom_mode 
+                              << ", main=" << (int)main_mode << ", sub=" << (int)sub_mode << ")" << std::endl;
+                    
+                    #ifdef ENABLE_ROS2
+                    // 중요: OFFBOARD 모드 활성화 중(ARMING 상태)에는 외부 DO_SET_MODE 명령 무시
+                    // OFFBOARD 모드 활성화가 완료되기 전에 외부 명령으로 모드가 변경되면 활성화 실패
+                    // 단, OFFBOARD 모드로 전환하려는 명령(main_mode=6)은 허용
+                    bool should_ignore = false;
+                    if (offboard_manager_) {
+                        MissionState current_state = offboard_manager_->getCurrentState();
+                        const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
+                        
+                        // ARMING 상태이고 OFFBOARD가 아닌 모드로 변경하려는 경우만 무시
+                        if (current_state == MissionState::ARMING && main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
+                            std::cout << "[DEBUG] ⚠ DO_SET_MODE 명령 무시 (OFFBOARD 모드 활성화 중: ARMING 상태, 요청 모드=" 
+                                      << (int)main_mode << ")" << std::endl;
+                            should_ignore = true;
+                        } else {
+                            std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 허용 (현재 상태: " 
+                                      << OffboardManager::getStateName(current_state) << ", 요청 모드=" 
+                                      << (int)main_mode << ")" << std::endl;
+                        }
+                    }
+                    
+                    // 명령 무시 시 ROS2 전송도 건너뛰기
+                    if (should_ignore) {
+                        return;  // 명령 무시하고 종료
+                    }
                     
                     // [개선 제안 1] OFFBOARD 모드(6)가 아닌 다른 모드로 변경하려는 경우
                     // 현재 OFFBOARD 모드가 활성화되어 있으면 heartbeat 중단
                     const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
                     if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
-                        #ifdef ENABLE_ROS2
                         if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
                             std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (외부 모드 변경 요청: main_mode=" 
                                       << (int)main_mode << ")" << std::endl;
@@ -472,21 +500,27 @@ void ApplicationManager::initializeCustomMessage() {
                             // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
                             std::this_thread::sleep_for(std::chrono::milliseconds(500));
                         }
-                        #endif
                     }
+                    #endif
                     
                 #ifdef ENABLE_ROS2
                     if (ros2_node_) {
                         auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
                             "/fmu/in/vehicle_command", 10);
                         
+                        // 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
+                        // ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
+                        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                        
                         // Send command multiple times (like ArmHandler does)
-                        for (int i = 0; i < 5; i++) {
+                        // PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨
+                        int send_count = 10;  // 5회 → 10회로 증가 (안정성 향상)
+                        for (int i = 0; i < send_count; i++) {
                             px4_msgs::msg::VehicleCommand cmd;
                             cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
                                 std::chrono::steady_clock::now().time_since_epoch()).count();
                             cmd.param1 = 1.0;           // Custom mode flag
-                            cmd.param2 = main_mode;     // Main mode value (NOT full custom_mode!)
+                            cmd.param2 = static_cast<float>(main_mode);  // Main mode value
                             cmd.command = 176;          // MAV_CMD_DO_SET_MODE
                             cmd.target_system = target_system;
                             cmd.target_component = target_component;
@@ -497,14 +531,16 @@ void ApplicationManager::initializeCustomMessage() {
                             vehicle_command_pub->publish(cmd);
                             
                             if (i == 0) {
-                                std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 중 (main_mode=" << (int)main_mode 
-                                         << ", 5회 반복)" << std::endl;
+                                std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 시작 (main_mode=" << (int)main_mode 
+                                         << ", " << send_count << "회 반복, target_system=" << (int)target_system 
+                                         << ", target_component=" << (int)target_component << ")" << std::endl;
                             }
                             
-                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                            // FC 처리 시간 확보를 위해 간격 증가
+                            std::this_thread::sleep_for(std::chrono::milliseconds(150));  // 100ms → 150ms
                         }
                         
-                        std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 완료" << std::endl;
+                        std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 완료 (" << send_count << "회)" << std::endl;
                         
                         if (status_overlay_) {
                             std::ostringstream oss;
@@ -540,11 +576,36 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[DEBUG] sub_mode: " << static_cast<int>(sub_mode) << std::endl;
                 std::cout << "[DEBUG] ==========================================" << std::endl;
                 
+                #ifdef ENABLE_ROS2
+                // 중요: OFFBOARD 모드 활성화 중(ARMING 상태)에는 외부 SET_MODE 명령 무시
+                // OFFBOARD 모드 활성화가 완료되기 전에 외부 명령으로 모드가 변경되면 활성화 실패
+                // 단, OFFBOARD 모드로 전환하려는 명령(main_mode=6)은 허용
+                bool should_ignore = false;
+                if (offboard_manager_) {
+                    MissionState current_state = offboard_manager_->getCurrentState();
+                    const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
+                    
+                    // ARMING 상태이고 OFFBOARD가 아닌 모드로 변경하려는 경우만 무시
+                    if (current_state == MissionState::ARMING && main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
+                        std::cout << "[DEBUG] ⚠ SET_MODE 명령 무시 (OFFBOARD 모드 활성화 중: ARMING 상태, 요청 모드=" 
+                                  << (int)main_mode << ")" << std::endl;
+                        should_ignore = true;
+                    } else {
+                        std::cout << "[DEBUG] ✓ SET_MODE 명령 허용 (현재 상태: " 
+                                  << OffboardManager::getStateName(current_state) << ", 요청 모드=" 
+                                  << (int)main_mode << ")" << std::endl;
+                    }
+                }
+                
+                // 명령 무시 시 추가 처리 건너뛰기
+                if (should_ignore) {
+                    return;  // 명령 무시하고 종료
+                }
+                
                 // [개선 제안 2] OFFBOARD 모드(6)가 아닌 다른 모드로 변경하려는 경우
                 // 현재 OFFBOARD 모드가 활성화되어 있으면 heartbeat 중단
                 const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
                 if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
-                    #ifdef ENABLE_ROS2
                     if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
                         std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (SET_MODE 수신: main_mode=" 
                                   << (int)main_mode << ")" << std::endl;
@@ -553,8 +614,8 @@ void ApplicationManager::initializeCustomMessage() {
                         // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
                         std::this_thread::sleep_for(std::chrono::milliseconds(500));
                     }
-                    #endif
                 }
+                #endif
                 
                 // SET_MODE는 이미 MAVLink 라우터로 전달되었으므로 추가 처리 불필요
                 // FC가 자동으로 모드 변경을 처리함
@@ -1117,10 +1178,30 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     }
 
     // 중복 실행 방지: 이미 미션이 실행 중이면 무시
+    // 단, ERROR 상태이고 FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도 허용
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
-        std::cout << "\n[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (mission_running_=true)" << std::endl;
-        return;
+        // 현재 상태 확인
+        MissionState current_state = offboard_manager_->getCurrentState();
+        uint8_t nav_state = offboard_manager_->getCurrentNavState();
+        bool is_offboard = offboard_manager_->isOffboardMode();
+        
+        // ERROR 상태이고 FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도
+        if (current_state == MissionState::ERROR && !is_offboard) {
+            std::cout << "\n[미션 실행 재시도] ERROR 상태이지만 FC가 OFFBOARD 모드가 아님: mission_running_ 플래그 리셋 후 재시도" << std::endl;
+            mission_running_.store(false);
+            offboard_manager_->resetToIdle();
+            // 재시도
+            expected = false;
+            if (!mission_running_.compare_exchange_strong(expected, true)) {
+                std::cout << "[미션 실행 건너뜀] 리셋 후에도 여전히 미션이 실행 중입니다" << std::endl;
+                return;
+            }
+        } else {
+            std::cout << "\n[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (mission_running_=true, 상태=" 
+                      << OffboardManager::getStateName(current_state) << ")" << std::endl;
+            return;
+        }
     }
     
     // 실제 FC 비행 모드 확인 (전문가 권장: 내부 상태만이 아닌 실제 FC 상태 확인)

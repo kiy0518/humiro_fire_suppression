@@ -81,7 +81,7 @@ tail -f /home/khadas/humiro_fire_suppression/logs/humiro-service.log | grep "STE
 
 **정상 출력:**
 ```
-[CustomMessage] [STEP 2] 메시지 파싱: MSG_ID=12900, payload_len=14
+[CustomMessage] [STEP 2] 메시지 파싱: MSG_ID=50000, payload_len=14
 [CustomMessage] [STEP 2] ✓ CRC 검증 통과
 ```
 
@@ -91,8 +91,8 @@ tail -f /home/khadas/humiro_fire_suppression/logs/humiro-service.log | grep "STE
   - CRC 계산 함수 확인
 
 - `알 수 없는 메시지 ID` → 메시지 ID가 잘못됨
-  - FIRE_MISSION_START: 12900
-  - FIRE_LAUNCH_CONTROL: 12902
+  - FIRE_MISSION_START: 50000
+  - FIRE_LAUNCH_CONTROL: 50002
 
 ---
 

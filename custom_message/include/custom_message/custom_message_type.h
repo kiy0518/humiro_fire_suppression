@@ -59,7 +59,7 @@ enum class PX4Mode : uint8_t {
 /**
  * @brief 화재 진압 미션 시작 메시지 (FIRE_MISSION_START)
  *
- * Message ID: 12900
+ * Message ID: 50000
  * Direction: QGC → VIM4
  *
  * GO 버튼을 누를 때 전송되는 미션 시작 명령
@@ -77,7 +77,7 @@ struct __attribute__((packed)) FireMissionStart {
 /**
  * @brief 화재 진압 미션 상태 메시지 (FIRE_MISSION_STATUS)
  *
- * Message ID: 12901
+ * Message ID: 50001
  * Direction: VIM4 → QGC
  *
  * 주기적으로 전송되는 미션 상태 정보
@@ -94,7 +94,7 @@ struct __attribute__((packed)) FireMissionStatus {
 /**
  * @brief 발사 제어 메시지 (FIRE_LAUNCH_CONTROL)
  *
- * Message ID: 12902
+ * Message ID: 50002
  * Direction: QGC ↔ VIM4 (양방향)
  *
  * 발사 확인, 중단, 상태 요청 등의 제어 명령
@@ -108,7 +108,7 @@ struct __attribute__((packed)) FireLaunchControl {
 /**
  * @brief 화재 진압 결과 메시지 (FIRE_SUPPRESSION_RESULT)
  *
- * Message ID: 12903
+ * Message ID: 50003
  * Direction: VIM4 → QGC
  *
  * 발사 후 결과 정보
@@ -123,7 +123,7 @@ struct __attribute__((packed)) FireSuppressionResult {
 /**
  * @brief PX4 비행 모드 설정 메시지 (FIRE_SET_MODE)
  *
- * Message ID: 12904
+ * Message ID: 50004
  * Direction: QGC → VIM4
  *
  * PX4 비행 모드를 변경하는 명령
@@ -139,11 +139,11 @@ struct __attribute__((packed)) FireSetMode {
  * @brief 메시지 타입 열거형
  */
 enum class MessageType {
-    FIRE_MISSION_START = 12900,      // QGC → VIM4
-    FIRE_MISSION_STATUS = 12901,     // VIM4 → QGC
-    FIRE_LAUNCH_CONTROL = 12902,     // QGC ↔ VIM4
-    FIRE_SUPPRESSION_RESULT = 12903, // VIM4 → QGC
-    FIRE_SET_MODE = 12904,           // QGC → VIM4 (NEW)
+    FIRE_MISSION_START = 50000,      // QGC → VIM4
+    FIRE_MISSION_STATUS = 50001,     // VIM4 → QGC
+    FIRE_LAUNCH_CONTROL = 50002,     // QGC ↔ VIM4
+    FIRE_SUPPRESSION_RESULT = 50003, // VIM4 → QGC
+    FIRE_SET_MODE = 50004,           // QGC → VIM4 (NEW)
     UNKNOWN = 0
 };
 

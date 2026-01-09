@@ -61,6 +61,8 @@ class CustomMessageSenderGUI:
         else:
             self.log("한글 폰트를 찾을 수 없습니다.")
         self.log("프로그램 시작 (MAVLink 2.0)")
+        # 초기 기체 설정 적용
+        self.on_drone_selection_changed()
     
     def get_korean_font(self):
         """한글을 지원하는 폰트 찾기"""
@@ -93,15 +95,23 @@ class CustomMessageSenderGUI:
         conn_frame = ttk.LabelFrame(self.root, text="연결 설정", padding=10)
         conn_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(conn_frame, text="대상 IP:").grid(row=0, column=0, sticky="w")
+        # 기체 선택
+        ttk.Label(conn_frame, text="기체 선택:").grid(row=0, column=0, sticky="w")
+        self.drone_selection = ttk.Combobox(conn_frame, width=15, state="readonly")
+        self.drone_selection['values'] = ("기체 1", "기체 2", "기체 3", "수동 설정")
+        self.drone_selection.current(0)  # 기본값: 기체 1
+        self.drone_selection.grid(row=0, column=1, padx=5, sticky="w")
+        self.drone_selection.bind("<<ComboboxSelected>>", self.on_drone_selection_changed)
+
+        ttk.Label(conn_frame, text="대상 IP:").grid(row=0, column=2, sticky="w", padx=(20, 0))
         self.ip_entry = ttk.Entry(conn_frame, width=20)
         self.ip_entry.insert(0, "192.168.100.11")
-        self.ip_entry.grid(row=0, column=1, padx=5)
+        self.ip_entry.grid(row=0, column=3, padx=5)
 
-        ttk.Label(conn_frame, text="포트:").grid(row=0, column=2, sticky="w", padx=(20, 0))
+        ttk.Label(conn_frame, text="포트:").grid(row=0, column=4, sticky="w", padx=(20, 0))
         self.port_entry = ttk.Entry(conn_frame, width=10)
         self.port_entry.insert(0, "14550")
-        self.port_entry.grid(row=0, column=3, padx=5)
+        self.port_entry.grid(row=0, column=5, padx=5)
 
         # 시스템 ID / 컴포넌트 ID
         ttk.Label(conn_frame, text="System ID (송신자):").grid(row=1, column=0, sticky="w", pady=5)
@@ -482,10 +492,10 @@ class CustomMessageSenderGUI:
             76: 152,     # COMMAND_LONG (표준 MAVLink 메시지) - 공식 값
             84: 143,     # SET_POSITION_TARGET_LOCAL_NED (표준 MAVLink 메시지) - 공식 값
             86: 5,       # SET_POSITION_TARGET_GLOBAL_INT (표준 MAVLink 메시지) - 공식 값
-            12900: 100,  # FIRE_MISSION_START (커스텀)
-            12901: 101,  # FIRE_MISSION_STATUS (커스텀)
-            12902: 102,  # FIRE_LAUNCH_CONTROL (커스텀)
-            12903: 103   # FIRE_SUPPRESSION_RESULT (커스텀)
+            50000: 100,  # FIRE_MISSION_START (커스텀)
+            50001: 101,  # FIRE_MISSION_STATUS (커스텀)
+            50002: 102,  # FIRE_LAUNCH_CONTROL (커스텀)
+            50003: 103   # FIRE_SUPPRESSION_RESULT (커스텀)
         }
         crc_extra = crc_extra_map.get(msg_id, 0)
         
@@ -520,8 +530,8 @@ class CustomMessageSenderGUI:
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
 
-            # Message ID: 12900
-            msg_id = 12900
+            # Message ID: 50000
+            msg_id = 50000
 
             # 메시지 페이로드 (struct FireMissionStart)
             payload = struct.pack(
@@ -547,8 +557,8 @@ class CustomMessageSenderGUI:
             progress = int(self.progress_entry.get())
             distance = float(self.distance_entry.get())
 
-            # Message ID: 12901
-            msg_id = 12901
+            # Message ID: 50001
+            msg_id = 50001
 
             # 메시지 페이로드 (struct FireMissionStatus)
             status_text = "Flying to target".encode('utf-8')
@@ -577,8 +587,8 @@ class CustomMessageSenderGUI:
             temp_after = int(float(self.temp_after_entry.get()) * 10)
             success = 1 if self.success_var.get() else 0
 
-            # Message ID: 12903
-            msg_id = 12903
+            # Message ID: 50003
+            msg_id = 50003
 
             # 메시지 페이로드 (struct FireSuppressionResult)
             payload = struct.pack(
@@ -600,8 +610,8 @@ class CustomMessageSenderGUI:
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
 
-            # Message ID: 12902
-            msg_id = 12902
+            # Message ID: 50002
+            msg_id = 50002
 
             # 메시지 페이로드 (struct FireLaunchControl)
             payload = struct.pack(
@@ -714,20 +724,26 @@ class CustomMessageSenderGUI:
                     0.0, 0.0, 0.0, 0.0, 0.0  # param3-7 - float
                 )
 
-                # 여러 번 전송
+                # 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
+                # ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
+                time.sleep(0.2)  # 200ms 초기 지연 (FC 준비 시간 확보)
+                
+                # 여러 번 전송 (PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨)
+                # QGC처럼 지속적으로 전송하여 성공률 향상
                 success_count = 0
-                for i in range(3):
+                send_count = 20  # 10회 → 20회로 증가 (QGC처럼 지속적 전송)
+                for i in range(send_count):
                     sent = self.send_mavlink2_message(msg_id, payload)
                     if sent > 0:
                         success_count += 1
-                    time.sleep(0.1)
+                    time.sleep(0.1)  # 150ms → 100ms 간격으로 단축 (더 빠른 전송)
                 
                 if success_count > 0:
-                    self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: {success_count}/3 성공")
+                    self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: {success_count}/{send_count} 성공")
                     self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
-                    self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+                    self.log(f"  → main_mode={custom_mode >> 16}, MAVLink 라우터가 자동으로 FC로 전달")
                 else:
-                    self.log(f"✗ COMMAND_LONG (DO_SET_MODE) 전송 실패")
+                    self.log(f"✗ COMMAND_LONG (DO_SET_MODE) 전송 실패 (모든 {send_count}회 시도 실패)")
 
             else:
                 # SET_MODE (MSG_ID: 11) 사용 - 구형 방법
@@ -742,16 +758,22 @@ class CustomMessageSenderGUI:
                     custom_mode         # custom_mode - uint32_t
                 )
 
-                # 여러 번 전송
+                # 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
+                # ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
+                time.sleep(0.2)  # 200ms 초기 지연 (FC 준비 시간 확보)
+                
+                # 여러 번 전송 (PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨)
+                # QGC처럼 지속적으로 전송하여 성공률 향상
                 success_count = 0
-                for i in range(3):
+                send_count = 20  # 10회 → 20회로 증가 (QGC처럼 지속적 전송)
+                for i in range(send_count):
                     sent = self.send_mavlink2_message(msg_id, payload)
                     if sent > 0:
                         success_count += 1
-                    time.sleep(0.1)
+                    time.sleep(0.1)  # 150ms → 100ms 간격으로 단축 (더 빠른 전송)
                 
                 if success_count > 0:
-                    self.log(f"✓ SET_MODE 전송: {success_count}/3 성공")
+                    self.log(f"✓ SET_MODE 전송: {success_count}/{send_count} 성공")
                     self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
                     self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
                 else:
@@ -982,6 +1004,32 @@ class CustomMessageSenderGUI:
         except Exception as e:
             self.log(f"✗ 위치 이동 전송 실패: {e}")
 
+    def on_drone_selection_changed(self, event=None):
+        """기체 선택이 변경될 때 IP와 Target System 자동 설정"""
+        selection = self.drone_selection.get()
+        
+        if selection == "기체 1":
+            self.ip_entry.delete(0, tk.END)
+            self.ip_entry.insert(0, "192.168.100.11")
+            self.target_system_entry.delete(0, tk.END)
+            self.target_system_entry.insert(0, "1")
+            self.log("기체 1 선택: IP=192.168.100.11, Target System=1")
+        elif selection == "기체 2":
+            self.ip_entry.delete(0, tk.END)
+            self.ip_entry.insert(0, "192.168.100.21")
+            self.target_system_entry.delete(0, tk.END)
+            self.target_system_entry.insert(0, "2")
+            self.log("기체 2 선택: IP=192.168.100.21, Target System=2")
+        elif selection == "기체 3":
+            self.ip_entry.delete(0, tk.END)
+            self.ip_entry.insert(0, "192.168.100.31")
+            self.target_system_entry.delete(0, tk.END)
+            self.target_system_entry.insert(0, "3")
+            self.log("기체 3 선택: IP=192.168.100.31, Target System=3")
+        elif selection == "수동 설정":
+            # 수동 설정 선택 시에는 현재 값 유지
+            self.log("수동 설정 모드: IP와 Target System을 직접 입력하세요")
+    
     def log(self, message):
         """로그 메시지 추가"""
         timestamp = datetime.now().strftime("%H:%M:%S")

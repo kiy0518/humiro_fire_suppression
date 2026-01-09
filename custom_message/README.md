@@ -54,10 +54,10 @@ int main() {
 
 | 메시지 ID | 메시지 이름 | 방향 | 설명 |
 |-----------|------------|------|------|
-| 12900 | FIRE_MISSION_COMMAND | QGC → VIM4 | 화재 진압 미션 명령 |
-| 12901 | FIRE_MISSION_STATUS | VIM4 → QGC | 미션 진행 상태 |
-| 12902 | FIRE_THERMAL_DATA | QGC ↔ VIM4 | 열화상 데이터 |
-| 12903 | FIRE_SUPPRESSION_RESULT | VIM4 → QGC | 발사 결과 |
+| 50000 | FIRE_MISSION_START | QGC → VIM4 | 화재 진압 미션 시작 |
+| 50001 | FIRE_MISSION_STATUS | VIM4 → QGC | 미션 진행 상태 |
+| 50002 | FIRE_LAUNCH_CONTROL | QGC ↔ VIM4 | 발사 제어 |
+| 50003 | FIRE_SUPPRESSION_RESULT | VIM4 → QGC | 발사 결과 |
 
 ---
 
