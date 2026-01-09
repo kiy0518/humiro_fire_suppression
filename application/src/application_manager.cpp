@@ -239,11 +239,13 @@ void ApplicationManager::initializeCustomMessage() {
         }
         
         // CustomMessage 생성
+        // MAVLink 라우터의 로컬 엔드포인트(14551)를 통해 메시지 수신
+        // 라우터가 14550 포트를 리스닝하고, 커스텀 메시지를 14551로 전달
         custom_message_handler_ = new custom_message::CustomMessage(
-            mavlink_port,  // 수신 포트
-            mavlink_port,  // 송신 포트
-            "0.0.0.0",  // 바인드 주소 (모든 인터페이스)
-            target_address,  // 대상 주소 (QGC 또는 브로드캐스트)
+            14551,  // 수신 포트: 라우터의 로컬 엔드포인트 (고정값)
+            mavlink_port,  // 송신 포트: QGC로 전송 시 브로드캐스트 (14550)
+            "127.0.0.1",  // 바인드 주소: 로컬 인터페이스만 (라우터에서 수신)
+            target_address,  // 대상 주소: QGC 또는 브로드캐스트 (변경 없음)
             1,  // 시스템 ID
             1   // 컴포넌트 ID
         );
@@ -633,7 +635,8 @@ void ApplicationManager::initializeCustomMessage() {
         
         // 메시지 송수신 시작
         if (custom_message_handler_->start()) {
-            std::cout << "  ✓ 커스텀 메시지 송수신 시작 (포트 " << mavlink_port << ")" << std::endl;
+            std::cout << "  ✓ 커스텀 메시지 송수신 시작 (수신 포트: 14551, 송신 포트: " << mavlink_port << ")" << std::endl;
+            std::cout << "  → 라우터의 로컬 엔드포인트(14551)를 통해 메시지 수신" << std::endl;
             std::cout << "  → 대상 주소: " << target_address << std::endl;
         } else {
             std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;

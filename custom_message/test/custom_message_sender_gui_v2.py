@@ -23,7 +23,7 @@ import sys
 class CustomMessageSenderGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Custom Message Sender (MAVLink 2.0 - 15000 Test Port)")
+        self.root.title("Custom Message Sender (MAVLink 2.0 - Port 14553)")
         self.root.geometry("900x900")  # 창 크기 확대 (새로운 섹션 추가로 인해)
 
         # ttk 스타일 설정
@@ -110,7 +110,7 @@ class CustomMessageSenderGUI:
 
         ttk.Label(conn_frame, text="포트:").grid(row=0, column=4, sticky="w", padx=(20, 0))
         self.port_entry = ttk.Entry(conn_frame, width=10)
-        self.port_entry.insert(0, "14550")
+        self.port_entry.insert(0, "14553")
         self.port_entry.grid(row=0, column=5, padx=5)
 
         # 시스템 ID / 컴포넌트 ID
@@ -724,26 +724,19 @@ class CustomMessageSenderGUI:
                     0.0, 0.0, 0.0, 0.0, 0.0  # param3-7 - float
                 )
 
-                # 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
-                # ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
-                time.sleep(0.2)  # 200ms 초기 지연 (FC 준비 시간 확보)
-                
-                # 여러 번 전송 (PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨)
-                # QGC처럼 지속적으로 전송하여 성공률 향상
+                # 여러 번 전송 (안정성 확보)
                 success_count = 0
-                send_count = 20  # 10회 → 20회로 증가 (QGC처럼 지속적 전송)
+                send_count = 5  # 5회 전송
                 for i in range(send_count):
                     sent = self.send_mavlink2_message(msg_id, payload)
                     if sent > 0:
                         success_count += 1
-                    time.sleep(0.1)  # 150ms → 100ms 간격으로 단축 (더 빠른 전송)
+                    time.sleep(0.08)  # 80ms 간격
                 
                 if success_count > 0:
-                    self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: {success_count}/{send_count} 성공")
-                    self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
-                    self.log(f"  → main_mode={custom_mode >> 16}, MAVLink 라우터가 자동으로 FC로 전달")
+                    self.log(f"✓ COMMAND_LONG (DO_SET_MODE) 전송: {success_count}/{send_count} 성공, {mode_name}")
                 else:
-                    self.log(f"✗ COMMAND_LONG (DO_SET_MODE) 전송 실패 (모든 {send_count}회 시도 실패)")
+                    self.log(f"✗ COMMAND_LONG (DO_SET_MODE) 전송 실패")
 
             else:
                 # SET_MODE (MSG_ID: 11) 사용 - 구형 방법
@@ -758,24 +751,17 @@ class CustomMessageSenderGUI:
                     custom_mode         # custom_mode - uint32_t
                 )
 
-                # 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
-                # ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
-                time.sleep(0.2)  # 200ms 초기 지연 (FC 준비 시간 확보)
-                
-                # 여러 번 전송 (PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨)
-                # QGC처럼 지속적으로 전송하여 성공률 향상
+                # 여러 번 전송 (안정성 확보)
                 success_count = 0
-                send_count = 20  # 10회 → 20회로 증가 (QGC처럼 지속적 전송)
+                send_count = 5  # 5회 전송
                 for i in range(send_count):
                     sent = self.send_mavlink2_message(msg_id, payload)
                     if sent > 0:
                         success_count += 1
-                    time.sleep(0.1)  # 150ms → 100ms 간격으로 단축 (더 빠른 전송)
+                    time.sleep(0.08)  # 80ms 간격
                 
                 if success_count > 0:
-                    self.log(f"✓ SET_MODE 전송: {success_count}/{send_count} 성공")
-                    self.log(f"  → target={target_system}, base_mode={base_mode}, custom_mode={custom_mode} ({mode_name})")
-                    self.log(f"  → MAVLink 라우터가 자동으로 FC로 전달 (VIM4 메인 프로그램 불필요)")
+                    self.log(f"✓ SET_MODE 전송: {success_count}/{send_count} 성공, {mode_name}")
                 else:
                     self.log(f"✗ SET_MODE 전송 실패")
 

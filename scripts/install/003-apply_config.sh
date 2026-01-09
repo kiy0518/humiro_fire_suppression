@@ -227,6 +227,12 @@ Mode = Normal
 Address = $WIFI_BROADCAST
 Port = $QGC_UDP_PORT
 
+# 외부 테스트/디버깅 도구 (SENDER GUI 등) - Server 모드로 직접 수신
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = $EXTERNAL_UDP_PORT
+
 # ROS2 노드 연결
 [UdpEndpoint ROS2]
 Mode = Normal

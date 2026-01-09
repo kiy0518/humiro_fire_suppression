@@ -221,6 +221,7 @@ public:
      * @brief 수신된 메시지 통계 정보
      */
     struct Statistics {
+        uint64_t messages_received = 0;  // 총 수신 메시지 수
         uint64_t mission_start_received = 0;
         uint64_t mission_status_received = 0;
         uint64_t launch_control_received = 0;
@@ -231,7 +232,7 @@ public:
         uint64_t suppression_result_sent = 0;
         uint64_t unknown_message_count = 0;
         uint64_t parse_error_count = 0;
-        uint64_t send_error_count = 0;
+        uint64_t send_error_count = 0;  // 송신 오류 수
     };
 
     /**

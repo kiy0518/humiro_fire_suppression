@@ -292,8 +292,8 @@ MavlinkDialect = common
 # FC (PX4) 연결 - Ethernet UDP
 # ============================================
 [UdpEndpoint FC]
-Mode = Normal
-Address = $FC_IP
+Mode = Server
+Address = 0.0.0.0
 Port = $FC_MAVLINK_PORT
 
 # ============================================
@@ -304,6 +304,14 @@ Port = $FC_MAVLINK_PORT
 Mode = Normal
 Address = $WIFI_BROADCAST
 Port = $QGC_UDP_PORT
+
+# ============================================
+# 외부 테스트/디버깅 도구 (SENDER GUI 등) - Server 모드
+# ============================================
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = $EXTERNAL_UDP_PORT
 
 # ============================================
 # ROS2 노드 연결 - localhost
