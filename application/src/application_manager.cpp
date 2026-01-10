@@ -288,8 +288,8 @@ void ApplicationManager::initializeCustomMessage() {
                         << (start.target_lon / 1e7) << ") Alt:" << start.target_alt << "m";
                     status_overlay_->setCustomMessage(oss.str(), 5.0);
 
-                // 미션 실행
-                executeMission(start);
+                // 테스트 미션 실행
+                testExeMission(start);
                 }
             }
         );
@@ -1355,5 +1355,123 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     mission_thread.detach();
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+#endif
+}
+
+void ApplicationManager::testExeMission(const custom_message::FireMissionStart& start) {
+#ifdef ENABLE_ROS2
+    if (!offboard_manager_) {
+        std::cerr << "[TestMission] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
+        return;
+    }
+
+    // 중복 실행 방지
+    bool expected = false;
+    if (!mission_running_.compare_exchange_strong(expected, true)) {
+        std::cout << "[TestMission] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
+        return;
+    }
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "[TestMission] 실내 테스트 미션 시작 (GPS 불필요)" << std::endl;
+    std::cout << "  시퀀스: OFFBOARD -> ARM -> 5초 대기 -> TAKEOFF 1m -> 5초 호버링 -> LAND -> 3초 대기 -> DISARM" << std::endl;
+    std::cout << "========================================\n" << std::endl;
+
+    // 별도 스레드에서 비동기 실행
+    std::thread mission_thread([this]() {
+        try {
+            // Step 1: OFFBOARD 모드 활성화
+            std::cout << "[TestMission] Step 1: OFFBOARD 모드 활성화" << std::endl;
+            bool success = offboard_manager_->getArmHandler().enableOffboardMode();
+            if (!success) {
+                std::cerr << "[TestMission] Error: OFFBOARD 모드 활성화 실패" << std::endl;
+                mission_running_ = false;
+                return;
+            }
+            std::cout << "[TestMission] ✓ OFFBOARD 모드 활성화 성공" << std::endl;
+
+            // Step 2: ARM
+            std::cout << "\n[TestMission] Step 2: ARM 시동 걸기" << std::endl;
+            success = offboard_manager_->getArmHandler().arm();
+            if (!success) {
+                std::cerr << "[TestMission] Error: ARM 실패" << std::endl;
+                offboard_manager_->getArmHandler().disableOffboardMode();
+                mission_running_ = false;
+                return;
+            }
+            std::cout << "[TestMission] ✓ ARM 성공" << std::endl;
+
+            // Step 3: ARM 확인 후 5초 대기
+            std::cout << "\n[TestMission] Step 3: ARM 확인 완료, 5초 대기 중..." << std::endl;
+            for (int i = 1; i <= 5; i++) {
+                std::cout << "[TestMission]   " << i << "/5초..." << std::endl;
+                offboard_manager_->getTakeoffHandler().hover();  // heartbeat 유지
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+
+            // Step 4: 이륙 1m
+            std::cout << "\n[TestMission] Step 4: 이륙 시작, 목표 고도: 1m" << std::endl;
+            success = offboard_manager_->getTakeoffHandler().takeoff(1.0f);
+            if (!success) {
+                std::cerr << "[TestMission] Error: 이륙 실패" << std::endl;
+                std::cout << "[TestMission] 긴급 착륙 시도..." << std::endl;
+                offboard_manager_->getRTLHandler().land();
+                mission_running_ = false;
+                return;
+            }
+            std::cout << "[TestMission] ✓ 이륙 완료, 고도 1m" << std::endl;
+
+            // Step 5: 5초 호버링
+            std::cout << "\n[TestMission] Step 5: 호버링 5초" << std::endl;
+            for (int i = 1; i <= 5; i++) {
+                std::cout << "[TestMission]   호버링 중... " << i << "/5초" << std::endl;
+                offboard_manager_->getTakeoffHandler().hover();
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+
+            // Step 6: 착륙
+            std::cout << "\n[TestMission] Step 6: 착륙 시작" << std::endl;
+            success = offboard_manager_->getRTLHandler().land();
+            if (!success) {
+                std::cerr << "[TestMission] Error: 착륙 실패" << std::endl;
+            } else {
+                std::cout << "[TestMission] ✓ 착륙 완료" << std::endl;
+            }
+
+            // Step 7: 착륙 후 3초 대기 후 DISARM
+            std::cout << "\n[TestMission] Step 7: 착륙 후 3초 대기 중..." << std::endl;
+            for (int i = 1; i <= 3; i++) {
+                std::cout << "[TestMission]   " << i << "/3초..." << std::endl;
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+
+            std::cout << "[TestMission] DISARM 시작" << std::endl;
+            success = offboard_manager_->getArmHandler().disarm();
+            if (!success) {
+                std::cerr << "[TestMission] Error: DISARM 실패" << std::endl;
+            } else {
+                std::cout << "[TestMission] ✓ DISARM 완료" << std::endl;
+            }
+
+            std::cout << "\n========================================" << std::endl;
+            std::cout << "[TestMission] 테스트 미션 완료!" << std::endl;
+            std::cout << "========================================\n" << std::endl;
+
+        } catch (const std::exception& e) {
+            std::cerr << "[TestMission] Exception: " << e.what() << std::endl;
+            try {
+                std::cout << "[TestMission] 긴급 착륙 시도..." << std::endl;
+                offboard_manager_->getRTLHandler().land();
+            } catch (...) {
+                std::cerr << "[TestMission] Error: 긴급 착륙 실패" << std::endl;
+            }
+        }
+
+        mission_running_ = false;
+    });
+
+    mission_thread.detach();
+#else
+    std::cout << "[TestMission] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif
 }

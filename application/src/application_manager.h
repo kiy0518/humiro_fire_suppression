@@ -133,6 +133,7 @@ private:
     
     // 미션 실행 (추가)
     void executeMission(const custom_message::FireMissionStart& start);
+    void testExeMission(const custom_message::FireMissionStart& start);
 };
 
 #endif // APPLICATION_MANAGER_H

@@ -80,6 +80,21 @@ public:
      */
     static std::string getStateName(MissionState state);
 
+    /**
+     * @brief ArmHandler 반환 (테스트용)
+     */
+    ArmHandler& getArmHandler() { return *arm_handler_; }
+
+    /**
+     * @brief TakeoffHandler 반환 (테스트용)
+     */
+    TakeoffHandler& getTakeoffHandler() { return *takeoff_handler_; }
+
+    /**
+     * @brief RTLHandler 반환 (테스트용)
+     */
+    RTLHandler& getRTLHandler() { return *rtl_handler_; }
+
 private:
     /**
      * @brief 상태 전환
