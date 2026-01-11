@@ -237,7 +237,24 @@ void ApplicationManager::initializeCustomMessage() {
             target_address = target_env;
             std::cout << "  → 환경 변수 MAVLINK_TARGET 사용: " << target_address << std::endl;
         }
-        
+
+        // System ID 설정 (DRONE_ID 환경 변수 기반)
+        // 군집 비행에서는 각 드론이 고유한 System ID를 가져야 QGC가 드론을 구분 가능
+        uint8_t system_id = 1;  // 기본값
+        const char* drone_id_env = std::getenv("DRONE_ID");
+        if (drone_id_env) {
+            try {
+                system_id = static_cast<uint8_t>(std::stoi(drone_id_env));
+                std::cout << "  → System ID 설정: " << static_cast<int>(system_id)
+                          << " (DRONE_ID 환경변수)" << std::endl;
+            } catch (...) {
+                std::cerr << "  ⚠ 잘못된 DRONE_ID 환경 변수, 기본값 1 사용" << std::endl;
+            }
+        } else {
+            std::cout << "  → System ID 설정: " << static_cast<int>(system_id)
+                      << " (기본값, DRONE_ID 환경변수 없음)" << std::endl;
+        }
+
         // CustomMessage 생성
         // MAVLink 라우터의 로컬 엔드포인트(14551)를 통해 메시지 수신
         // 라우터가 14550 포트를 리스닝하고, 커스텀 메시지를 14551로 전달
@@ -246,7 +263,7 @@ void ApplicationManager::initializeCustomMessage() {
             mavlink_port,  // 송신 포트: QGC로 전송 시 브로드캐스트 (14550)
             "127.0.0.1",  // 바인드 주소: 로컬 인터페이스만 (라우터에서 수신)
             target_address,  // 대상 주소: QGC 또는 브로드캐스트 (변경 없음)
-            1,  // 시스템 ID
+            system_id,  // 시스템 ID (DRONE_ID 기반, 드론별 고유 ID)
             1   // 컴포넌트 ID
         );
         
@@ -644,13 +661,14 @@ void ApplicationManager::initializeCustomMessage() {
 
         // ===== 테스트용 메시지 핸들러 추가 (15000 포트) =====
         std::cout << "\n[테스트 메시지 핸들러 초기화]" << std::endl;
-        
+        std::cout << "  → 테스트 핸들러 System ID: " << static_cast<int>(system_id) << std::endl;
+
         test_message_handler_ = new custom_message::CustomMessage(
             15000,  // 수신 포트 (테스트용)
             15000,  // 송신 포트 (테스트용)
             "0.0.0.0",  // 바인드 주소
             target_address,  // 대상 주소
-            1,  // 시스템 ID
+            system_id,  // 시스템 ID (메인 핸들러와 동일)
             1   // 컴포넌트 ID
         );
         

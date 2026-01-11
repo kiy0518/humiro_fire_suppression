@@ -11,7 +11,16 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # 환경 변수 로드
 if [ -f "$PROJECT_ROOT/config/device_config.env" ]; then
+    # device_config.env 파일을 source하고 필요한 변수를 명시적으로 export
     source "$PROJECT_ROOT/config/device_config.env"
+
+    # 기체 식별 정보 export (프로그램에서 사용)
+    export DRONE_ID
+    export ROS_DOMAIN_ID
+    export QGC_UDP_PORT
+    export MAVLINK_TARGET
+
+    echo "  [DEBUG] 환경변수 로드: DRONE_ID=$DRONE_ID, ROS_DOMAIN_ID=$ROS_DOMAIN_ID" >&2
 fi
 
 # ROS2 환경 설정
