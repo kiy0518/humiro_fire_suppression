@@ -283,14 +283,22 @@ void OffboardManager::resetToIdle()
 void OffboardManager::disableOffboardMode()
 {
     RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] Disabling OFFBOARD mode (heartbeat stop)...");
-    
+
+    // TakeoffHandler의 heartbeat 중지
+    if (takeoff_handler_) {
+        takeoff_handler_->stopOffboardHeartbeat();
+        RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] ✓ TakeoffHandler heartbeat stopped");
+    }
+
+    // ArmHandler의 heartbeat 중지
     if (arm_handler_) {
         if (arm_handler_->disableOffboardMode()) {
+            RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] ✓ ArmHandler heartbeat stopped");
             RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] ✓ OFFBOARD 모드 비활성화 성공");
             RCLCPP_INFO(node_->get_logger(), "[OFFBOARD]   → PX4가 자동으로 다른 모드로 전환됩니다");
             RCLCPP_INFO(node_->get_logger(), "[OFFBOARD]   → QGC나 다른 GCS에서 비행 모드 변경이 가능합니다");
         } else {
-            RCLCPP_WARN(node_->get_logger(), "[OFFBOARD] ⚠ OFFBOARD 모드 비활성화 실패");
+            RCLCPP_WARN(node_->get_logger(), "[OFFBOARD] ⚠ ArmHandler 비활성화 실패");
         }
     } else {
         RCLCPP_WARN(node_->get_logger(), "[OFFBOARD] ⚠ ArmHandler가 초기화되지 않음");

@@ -301,12 +301,15 @@ double RTLHandler::getDistanceFromHome() const
 
 bool RTLHandler::isLanded() const
 {
-    // 착륙 판정: Arming state가 STANDBY (disarmed)이거나
-    // 고도가 매우 낮은 경우
+    // 착륙 판정:
+    // 1. Arming state가 STANDBY (disarmed)
+    // 2. 고도가 매우 낮은 경우 (Optical Flow 센서 오프셋 고려: 18cm 이내)
+    // 3. landed_ 플래그가 true이고 고도가 25cm 이내
     bool is_disarmed = (arming_state_ == ARMING_STATE_STANDBY);
+    bool is_very_low = (std::abs(current_local_z_.load()) < 0.18f);  // 18cm 이내 (센서 오프셋 0.1~0.15m 고려)
     bool is_on_ground = (std::abs(current_local_z_.load()) < LANDED_THRESHOLD);
 
-    return is_disarmed || (landed_ && is_on_ground);
+    return is_disarmed || is_very_low || (landed_ && is_on_ground);
 }
 
 bool RTLHandler::isRTLActive() const

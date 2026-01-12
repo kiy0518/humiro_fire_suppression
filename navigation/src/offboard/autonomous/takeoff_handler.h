@@ -39,6 +39,11 @@ public:
      */
     void hover();
 
+    /**
+     * @brief OFFBOARD heartbeat 중지
+     */
+    void stopOffboardHeartbeat();
+
 private:
     /**
      * @brief VehicleLocalPosition 콜백

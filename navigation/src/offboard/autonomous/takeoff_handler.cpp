@@ -173,6 +173,15 @@ float TakeoffHandler::getCurrentAltitude() const
     return -current_altitude_.load();  // NED를 일반 고도로 변환 (양수 = 위)
 }
 
+void TakeoffHandler::stopOffboardHeartbeat()
+{
+    if (offboard_timer_) {
+        offboard_timer_->cancel();
+        offboard_timer_.reset();
+        RCLCPP_INFO(node_->get_logger(), "[TakeoffHandler] OFFBOARD heartbeat stopped");
+    }
+}
+
 bool TakeoffHandler::isTakeoffComplete() const
 {
     float altitude_error = std::abs(current_altitude_ - target_altitude_);

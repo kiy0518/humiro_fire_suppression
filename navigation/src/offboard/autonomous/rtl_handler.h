@@ -118,7 +118,7 @@ private:
     static constexpr double EARTH_RADIUS = 6371000.0;
     static constexpr float DEG_TO_RAD = M_PI / 180.0;
     static constexpr float HOME_THRESHOLD = 5.0f;  // 5m 이내면 Home 도달
-    static constexpr float LANDED_THRESHOLD = 0.3f;  // 지상 30cm 이내
+    static constexpr float LANDED_THRESHOLD = 0.25f;  // 지상 25cm 이내 (Optical Flow 센서 오프셋 고려)
 };
 
 #endif // RTL_HANDLER_H
