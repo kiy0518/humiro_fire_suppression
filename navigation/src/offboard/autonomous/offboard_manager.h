@@ -42,6 +42,14 @@ public:
     bool executeMission(const MissionConfig& config);
 
     /**
+     * @brief 실내 테스트 미션 실행 (GPS 불필요, Optical Flow 사용)
+     * @param takeoff_altitude 이륙 고도 (미터, 기본값 1.0m)
+     * @param hover_duration 호버링 시간 (초, 기본값 5초)
+     * @return 미션 성공 여부
+     */
+    bool testMission(float takeoff_altitude = 1.0f, float hover_duration = 5.0f);
+
+    /**
      * @brief 긴급 RTL 실행
      */
     void emergencyRTL();

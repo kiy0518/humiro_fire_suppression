@@ -279,17 +279,23 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[DEBUG]   - 최대 발사 횟수 (max_projectiles): "
                           << static_cast<int>(start.max_projectiles) << std::endl;
                 std::cout << "[DEBUG] ==============================================" << std::endl;
-                
+
                 // OSD 표시
                 if (status_overlay_) {
                     std::ostringstream oss;
-                    oss << "Mission Start: (" 
+                    oss << "Mission Start: ("
                         << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
                         << (start.target_lon / 1e7) << ") Alt:" << start.target_alt << "m";
                     status_overlay_->setCustomMessage(oss.str(), 5.0);
+                }
 
-                // 테스트 미션 실행
-                testExeMission(start);
+                // 좌표 체크: lat=0, lon=0이면 실내 테스트 미션
+                if (start.target_lat == 0 && start.target_lon == 0) {
+                    std::cout << "[INFO] 실내 테스트 미션 모드 감지 (lat=0, lon=0)" << std::endl;
+                    testExeMission(start);
+                } else {
+                    std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
+                    executeMission(start);
                 }
             }
         );
@@ -1373,100 +1379,29 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
     }
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "[TestMission] 실내 테스트 미션 시작 (GPS 불필요)" << std::endl;
-    std::cout << "  시퀀스: ARM -> OFFBOARD -> 2초 대기 -> TAKEOFF 1m -> 5초 호버링 -> LAND -> OFFBOARD 비활성화 -> IDLE" << std::endl;
+    std::cout << "[ApplicationManager] 실내 테스트 미션 요청 수신" << std::endl;
+    std::cout << "  → OffboardManager::testMission() 호출" << std::endl;
     std::cout << "========================================\n" << std::endl;
 
     // 별도 스레드에서 비동기 실행
     std::thread mission_thread([this]() {
         try {
-            // Step 1: ARM
-            std::cout << "[TestMission] Step 1: ARM 시동 걸기" << std::endl;
-            bool success = offboard_manager_->getArmHandler().arm();
-            if (!success) {
-                std::cerr << "[TestMission] Error: ARM 실패" << std::endl;
-                mission_running_ = false;
-                return;
-            }
-            std::cout << "[TestMission] ✓ ARM 성공" << std::endl;
+            // OffboardManager의 testMission 호출
+            bool success = offboard_manager_->testMission(1.0f, 5.0f);
 
-            // Step 2: ARM 확인 후 2초 대기
-            std::cout << "\n[TestMission] Step 2: ARM 안정화 2초 대기 중..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-
-            // Step 3: OFFBOARD 모드 활성화
-            std::cout << "\n[TestMission] Step 3: OFFBOARD 모드 활성화" << std::endl;
-            success = offboard_manager_->getArmHandler().enableOffboardMode();
-            if (!success) {
-                std::cerr << "[TestMission] Error: OFFBOARD 모드 활성화 실패" << std::endl;
-                offboard_manager_->getArmHandler().disarm();
-                mission_running_ = false;
-                return;
-            }
-            std::cout << "[TestMission] ✓ OFFBOARD 모드 활성화 성공" << std::endl;
-
-            // Step 4: OFFBOARD 안정화 2초 대기
-            std::cout << "\n[TestMission] Step 4: OFFBOARD 안정화 2초 대기 중..." << std::endl;
-            for (int i = 1; i <= 2; i++) {
-                std::cout << "[TestMission]   " << i << "/2초..." << std::endl;
-                offboard_manager_->getTakeoffHandler().hover();  // heartbeat 유지
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-
-            // Step 5: 이륙 1m
-            std::cout << "\n[TestMission] Step 5: 이륙 시작, 목표 고도: 1m" << std::endl;
-            success = offboard_manager_->getTakeoffHandler().takeoff(1.0f);
-            if (!success) {
-                std::cerr << "[TestMission] Error: 이륙 실패" << std::endl;
-                std::cout << "[TestMission] OFFBOARD 비활성화 후 복구..." << std::endl;
-                offboard_manager_->disableOffboardMode();
-                mission_running_ = false;
-                return;
-            }
-            std::cout << "[TestMission] ✓ 이륙 완료, 고도 1m" << std::endl;
-
-            // Step 6: 5초 호버링
-            std::cout << "\n[TestMission] Step 6: 호버링 5초" << std::endl;
-            for (int i = 1; i <= 5; i++) {
-                std::cout << "[TestMission]   호버링 중... " << i << "/5초" << std::endl;
-                offboard_manager_->getTakeoffHandler().hover();
-                std::this_thread::sleep_for(std::chrono::seconds(1));
-            }
-
-            // Step 7: 착륙
-            std::cout << "\n[TestMission] Step 7: 착륙 시작" << std::endl;
-            success = offboard_manager_->getRTLHandler().land();
-            if (!success) {
-                std::cerr << "[TestMission] Error: 착륙 실패 또는 타임아웃" << std::endl;
+            if (success) {
+                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 성공" << std::endl;
             } else {
-                std::cout << "[TestMission] ✓ 착륙 완료" << std::endl;
+                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 실패" << std::endl;
             }
-
-            // Step 8: 착륙 후 안정화 대기
-            std::cout << "\n[TestMission] Step 8: 착륙 후 안정화 2초 대기..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(2));
-
-            // Step 9: Disarm 확인 (land()가 자동으로 처리)
-            std::cout << "[TestMission] Step 9: Disarm 확인 (1초)..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-
-            // Step 10: OFFBOARD 비활성화
-            std::cout << "\n[TestMission] Step 10: OFFBOARD 모드 비활성화..." << std::endl;
-            offboard_manager_->disableOffboardMode();
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            std::cout << "[TestMission] ✓ OFFBOARD 비활성화 완료, IDLE 상태로 전환" << std::endl;
-
-            std::cout << "\n========================================" << std::endl;
-            std::cout << "[TestMission] 테스트 미션 완료!" << std::endl;
-            std::cout << "========================================\n" << std::endl;
 
         } catch (const std::exception& e) {
-            std::cerr << "[TestMission] Exception: " << e.what() << std::endl;
+            std::cerr << "[ApplicationManager] Exception: " << e.what() << std::endl;
             try {
-                std::cout << "[TestMission] OFFBOARD 비활성화 및 복구..." << std::endl;
+                std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
                 offboard_manager_->disableOffboardMode();
             } catch (...) {
-                std::cerr << "[TestMission] Error: 복구 실패" << std::endl;
+                std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
             }
         }
 

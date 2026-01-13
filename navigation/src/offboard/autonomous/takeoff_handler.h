@@ -92,6 +92,9 @@ private:
     // Takeoff parameters
     float target_altitude_{0.0f};
     float takeoff_start_altitude_{0.0f};
+    float takeoff_start_x_{0.0f};      // 이륙 시작 X 위치 (고정)
+    float takeoff_start_y_{0.0f};      // 이륙 시작 Y 위치 (고정)
+    float takeoff_start_yaw_{0.0f};    // 이륙 시작 헤딩 (고정)
 
     // FC 시스템 ID (DRONE_ID 환경 변수에서 읽음)
     uint8_t target_system_;

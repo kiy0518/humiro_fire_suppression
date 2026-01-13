@@ -74,22 +74,9 @@ bool TakeoffHandler::takeoff(float altitude_m, int timeout_ms)
 {
     RCLCPP_INFO(node_->get_logger(), "Starting takeoff to %.2f meters", altitude_m);
 
-    // 위치 정보 수신 대기
+    // 위치 정보 수신 대기 (메인 executor가 자동으로 콜백 처리)
     auto start_time = std::chrono::steady_clock::now();
     while (!position_received_) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
-        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -101,39 +88,32 @@ bool TakeoffHandler::takeoff(float altitude_m, int timeout_ms)
         }
     }
 
-    // 이륙 시작 위치 저장
+    // 이륙 시작 위치 저장 (X, Y, Yaw 고정하여 드리프트 방지)
     takeoff_start_altitude_ = current_altitude_;
+    takeoff_start_x_ = current_x_;
+    takeoff_start_y_ = current_y_;
+    takeoff_start_yaw_ = current_yaw_;
     target_altitude_ = -altitude_m;  // NED 좌표계: 위쪽이 음수
 
     RCLCPP_INFO(node_->get_logger(),
                 "Current altitude: %.2f m (NED), Target: %.2f m (NED)",
                 -current_altitude_.load(), -target_altitude_);
+    RCLCPP_INFO(node_->get_logger(),
+                "Starting position fixed: X=%.2f, Y=%.2f, Yaw=%.2f",
+                takeoff_start_x_, takeoff_start_y_, takeoff_start_yaw_);
 
     // OFFBOARD 모드로 이륙 (TrajectorySetpoint 지속 발행)
     start_time = std::chrono::steady_clock::now();
 
     while (true) {
-        // 현재 XY 위치 유지, Z만 목표 고도로
+        // 이륙 시작 위치 고정 (X, Y, Yaw), Z만 목표 고도로
         publishTrajectorySetpoint(
-            current_x_,
-            current_y_,
+            takeoff_start_x_,      // ← 고정된 X 위치
+            takeoff_start_y_,      // ← 고정된 Y 위치
             target_altitude_,
-            current_yaw_
+            takeoff_start_yaw_     // ← 고정된 헤딩
         );
 
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
-        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // 고도 도달 확인
@@ -190,13 +170,14 @@ bool TakeoffHandler::isTakeoffComplete() const
 
 void TakeoffHandler::hover()
 {
-    RCLCPP_INFO(node_->get_logger(), "Hovering at current position");
+    RCLCPP_INFO(node_->get_logger(), "Hovering at takeoff position (X=%.2f, Y=%.2f, Z=%.2f)",
+                takeoff_start_x_, takeoff_start_y_, target_altitude_);
 
     publishTrajectorySetpoint(
-        current_x_,
-        current_y_,
-        current_altitude_,  // 현재 고도 유지
-        current_yaw_
+        takeoff_start_x_,      // 이륙 시작 위치 고정
+        takeoff_start_y_,      // 이륙 시작 위치 고정
+        target_altitude_,      // 목표 고도 유지 (이륙 완료 고도)
+        takeoff_start_yaw_     // 이륙 시작 헤딩 고정
     );
 }
 
