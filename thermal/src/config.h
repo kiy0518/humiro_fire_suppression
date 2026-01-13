@@ -38,11 +38,11 @@
 #define RGB_TARGET_FPS 30
 
 // 열화상 데이터 처리 설정
-#define SCALE 0.75f
+#define SCALE 0.85f
 #define THERMAL_WIDTH (int)(640 * SCALE)  // 480
 #define THERMAL_HEIGHT (int)(480 * SCALE)  // 360
-#define THERMAL_DX -20
-#define THERMAL_DY 40
+#define THERMAL_DX -5  // 열화상 X축 오프셋 (음수=왼쪽, 양수=오른쪽)
+#define THERMAL_DY 5  // 열화상 Y축 오프셋 (음수=위로, 양수=아래로) - 상태바 높이 결정
 #define CUT_PIXELS 30
 #define THERMAL_CROPPED_HEIGHT (THERMAL_HEIGHT - CUT_PIXELS)  // 330
 

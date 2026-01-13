@@ -76,7 +76,7 @@ private:
     
     // 메디안 필터용 거리 히스토리
     std::vector<float> distance_history_;
-    static constexpr size_t MEDIAN_FILTER_SIZE = 7;  // 메디안 필터 윈도우 크기
+    static constexpr size_t MEDIAN_FILTER_SIZE = 3;  // 메디안 필터 윈도우 크기 (빠른 반응: 7→3)
     
     // LiDAR 포인트 표시 플래그
     bool show_lidar_points_;

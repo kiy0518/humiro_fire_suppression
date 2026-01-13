@@ -289,8 +289,8 @@ void StatusOverlay::draw(cv::Mat& frame) {
     cv::Rect status_bar_rect(0, 0, frame.cols, status_bar_height);
     cv::rectangle(frame, status_bar_rect, status_bar_color, -1);  // -1 = 채우기
     
-    const int MARGIN_LEFT = 10;
-    const int MARGIN_TOP = 10;
+    const int MARGIN_LEFT = 6;
+    const int MARGIN_TOP = 6;     // 상단 여백 (작을수록 글자가 위로)
     const int ITEM_SPACING = 15;  // 항목 간 간격
     const double FONT_SCALE = 0.6;
     const int FONT_THICKNESS = 1;  // 두께 줄임 (2 → 1)

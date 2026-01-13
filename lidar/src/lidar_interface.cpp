@@ -34,22 +34,28 @@ typedef struct __attribute__((packed))
 
 // CRC8 테이블 (LD19 Development Manual V2.5 기준)
 static const uint8_t crc_table[256] = {
-    0x00, 0x4d, 0x9a, 0xd7, 0x79, 0x34, 0xe3, 0xae, 0xf2, 0xbf, 0x68, 0x25, 0x8b, 0xc6, 0x11, 0x5c,
-    0xa9, 0xe4, 0x33, 0x7e, 0xd0, 0x9d, 0x4a, 0x07, 0x5b, 0x16, 0xc1, 0x8c, 0x22, 0x6f, 0xb8, 0xf5,
-    0x1f, 0x52, 0x85, 0xc8, 0x66, 0x2b, 0xfc, 0xb1, 0xed, 0xa0, 0x77, 0x3a, 0x94, 0xd9, 0x0e, 0x43,
-    0xb6, 0xfb, 0x2c, 0x61, 0xcf, 0x82, 0x55, 0x18, 0x44, 0x09, 0xde, 0x93, 0x3d, 0x70, 0xa7, 0xea,
-    0x3e, 0x73, 0xa4, 0xe9, 0x47, 0x0a, 0xdd, 0x90, 0xcc, 0x81, 0x56, 0x1b, 0xb5, 0xf8, 0x2f, 0x62,
-    0x97, 0xda, 0x0d, 0x40, 0xee, 0xa3, 0x74, 0x39, 0x65, 0x28, 0xff, 0xb2, 0x1c, 0x51, 0x86, 0xcb,
-    0x21, 0x6c, 0xbb, 0xf6, 0x58, 0x15, 0xc2, 0x8f, 0xd3, 0x9e, 0x49, 0x04, 0xaa, 0xe7, 0x30, 0x7d,
-    0x88, 0xc5, 0x12, 0x5f, 0xf1, 0xbc, 0x6b, 0x26, 0x7a, 0x37, 0xe0, 0xad, 0x03, 0x4e, 0x99, 0xd4,
-    0x7c, 0x31, 0xe6, 0xab, 0x05, 0x48, 0x9f, 0xd2, 0x8e, 0xc3, 0x14, 0x59, 0xf7, 0xba, 0x6d, 0x20,
-    0xd5, 0x98, 0x4f, 0x02, 0xac, 0xe1, 0x36, 0x7b, 0x27, 0x6a, 0xbd, 0xf0, 0x5e, 0x13, 0xc4, 0x89,
-    0x63, 0x2e, 0xf9, 0xb4, 0x1a, 0x57, 0x80, 0xcd, 0x91, 0xdc, 0x0b, 0x46, 0xe8, 0xa5, 0x72, 0x3f,
-    0xca, 0x87, 0x50, 0x1d, 0xb3, 0xfe, 0x29, 0x64, 0x38, 0x75, 0xa2, 0xef, 0x41, 0x0c, 0xdb, 0x96,
-    0x42, 0x0f, 0xd8, 0x95, 0x3b, 0x76, 0xa1, 0xec, 0xb0, 0xfd, 0x2a, 0x67, 0xc9, 0x84, 0x53, 0x1e,
-    0xeb, 0xa6, 0x71, 0x3c, 0x92, 0xdf, 0x08, 0x45, 0x19, 0x54, 0x83, 0xce, 0x60, 0x2d, 0xfa, 0xb7,
-    0x5d, 0x10, 0xc7, 0x8a, 0x24, 0x69, 0xbe, 0xf3, 0xaf, 0xe2, 0x35, 0x78, 0xd6, 0x9b, 0x4c, 0x01,
-    0xf4, 0xb9, 0x6e, 0x23, 0x8d, 0xc0, 0x17, 0x5a, 0x06, 0x4b, 0x9c, 0xd1, 0x7f, 0x32, 0xe5, 0xa8
+    0x00,0x4d,0x9a,0xd7,0x79,0x34,0xe3,
+    0xae,0xf2,0xbf,0x68,0x25,0x8b,0xc6,0x11,0x5c,0xa9,0xe4,0x33,
+    0x7e,0xd0,0x9d,0x4a,0x07,0x5b,0x16,0xc1,0x8c,0x22,0x6f,0xb8,
+    0xf5,0x1f,0x52,0x85,0xc8,0x66,0x2b,0xfc,0xb1,0xed,0xa0,0x77,
+    0x3a,0x94,0xd9,0x0e,0x43,0xb6,0xfb,0x2c,0x61,0xcf,0x82,0x55,
+    0x18,0x44,0x09,0xde,0x93,0x3d,0x70,0xa7,0xea,0x3e,0x73,0xa4,
+    0xe9,0x47,0x0a,0xdd,0x90,0xcc,0x81,0x56,0x1b,0xb5,0xf8,0x2f,
+    0x62,0x97,0xda,0x0d,0x40,0xee,0xa3,0x74,0x39,0x65,0x28,0xff,
+    0xb2,0x1c,0x51,0x86,0xcb,0x21,0x6c,0xbb,0xf6,0x58,0x15,0xc2,
+    0x8f,0xd3,0x9e,0x49,0x04,0xaa,0xe7,0x30,0x7d,0x88,0xc5,0x12,
+    0x5f,0xf1,0xbc,0x6b,0x26,0x7a,0x37,0xe0,0xad,0x03,0x4e,0x99,
+    0xd4,0x7c,0x31,0xe6,0xab,0x05,0x48,0x9f,0xd2,0x8e,0xc3,0x14,
+    0x59,0xf7,0xba,0x6d,0x20,0xd5,0x98,0x4f,0x02,0xac,0xe1,0x36,
+    0x7b,0x27,0x6a,0xbd,0xf0,0x5e,0x13,0xc4,0x89,0x63,0x2e,0xf9,
+    0xb4,0x1a,0x57,0x80,0xcd,0x91,0xdc,0x0b,0x46,0xe8,0xa5,0x72,
+    0x3f,0xca,0x87,0x50,0x1d,0xb3,0xfe,0x29,0x64,0x38,0x75,0xa2,
+    0xef,0x41,0x0c,0xdb,0x96,0x42,0x0f,0xd8,0x95,0x3b,0x76,0xa1,
+    0xec,0xb0,0xfd,0x2a,0x67,0xc9,0x84,0x53,0x1e,0xeb,0xa6,0x71,
+    0x3c,0x92,0xdf,0x08,0x45,0x19,0x54,0x83,0xce,0x60,0x2d,0xfa,
+    0xb7,0x5d,0x10,0xc7,0x8a,0x24,0x69,0xbe,0xf3,0xaf,0xe2,0x35,
+    0x78,0xd6,0x9b,0x4c,0x01,0xf4,0xb9,0x6e,0x23,0x8d,0xc0,0x17,
+    0x5a,0x06,0x4b,0x9c,0xd1,0x7f,0x32,0xe5,0xa8
 };
 
 /**
@@ -252,59 +258,117 @@ bool LidarInterface::configureGPIOUart() {
 }
 
 void LidarInterface::receiveThread() {
-    uint8_t buffer[1024];
+    // 스레드 우선순위를 높임 (realtime priority) - UART overrun 방지
+    struct sched_param param;
+    param.sched_priority = 50;  // 1~99 (99가 가장 높음, 50은 중간)
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &param) != 0) {
+        std::cerr << "Warning: Failed to set realtime priority for LiDAR thread (need sudo?)" << std::endl;
+        // 실패해도 계속 진행 (일반 우선순위로 동작)
+    } else {
+        std::cout << "LiDAR receive thread priority set to realtime (SCHED_FIFO, priority 50)" << std::endl;
+    }
+
+    uint8_t buffer[4096];  // 공식 SDK와 동일한 4KB 버퍼 (MAX_ACK_BUF_LEN)
     int consecutive_errors = 0;
     const int MAX_CONSECUTIVE_ERRORS = 100;
-    
+
+    // 패킷 파싱 통계
+    static int packets_parsed = 0;
+    static int packets_failed = 0;
+    static auto last_stats_time = std::chrono::steady_clock::now();
+
+    // pselect() 타임아웃 설정 (5ms로 조정 - UART overrun 최소화)
+    struct timespec timeout;
+    timeout.tv_sec = 0;
+    timeout.tv_nsec = 5 * 1000000;  // 5ms (10ms → 5ms)
+
     while (is_running_.load()) {
-        int bytes_read = read(serial_fd_, buffer, sizeof(buffer));
-        
-        if (bytes_read > 0) {
-            consecutive_errors = 0;  // 성공적으로 읽음
-            
-            // 패킷 버퍼에 추가
-            packet_buffer_.insert(packet_buffer_.end(), buffer, buffer + bytes_read);
-            
-            // 패킷 파싱
-            while (packet_buffer_.size() >= LD19_PACKET_SIZE) {
-                // 헤더 찾기
-                auto it = std::find(packet_buffer_.begin(), packet_buffer_.end(), static_cast<uint8_t>(LD19_HEADER));
-                
-                if (it == packet_buffer_.end()) {
-                    // 헤더 없음, 버퍼 비우기
-                    packet_buffer_.clear();
-                    break;
-                }
-                
-                // 헤더 위치로 이동
-                packet_buffer_.erase(packet_buffer_.begin(), it);
-                
-                if (packet_buffer_.size() < LD19_PACKET_SIZE) {
-                    break;
-                }
-                
-                // 패킷 파싱
-                if (parsePacket(packet_buffer_.data(), LD19_PACKET_SIZE)) {
-                    // 파싱 성공, 패킷 제거
-                    packet_buffer_.erase(packet_buffer_.begin(), 
-                                        packet_buffer_.begin() + LD19_PACKET_SIZE);
-                } else {
-                    // 파싱 실패, 헤더 건너뛰기
-                    packet_buffer_.erase(packet_buffer_.begin());
-                }
+        // pselect()를 사용한 비블로킹 I/O (공식 SDK 방식)
+        fd_set read_fds;
+        FD_ZERO(&read_fds);
+        FD_SET(serial_fd_, &read_fds);
+
+        int r = pselect(serial_fd_ + 1, &read_fds, NULL, NULL, &timeout, NULL);
+
+        if (r < 0) {
+            // pselect() 에러
+            if (errno == EINTR) {
+                // 인터럽트 발생, 계속 진행
+                continue;
             }
-        } else if (bytes_read < 0) {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                consecutive_errors++;
-                if (consecutive_errors >= MAX_CONSECUTIVE_ERRORS) {
-                    std::cerr << "Too many read errors, stopping..." << std::endl;
-                    is_connected_ = false;
-                    break;
+            consecutive_errors++;
+            if (consecutive_errors >= MAX_CONSECUTIVE_ERRORS) {
+                std::cerr << "Too many pselect errors, stopping..." << std::endl;
+                is_connected_ = false;
+                break;
+            }
+            continue;
+        } else if (r == 0) {
+            // 타임아웃, 데이터 없음 (정상)
+            continue;
+        }
+
+        // 데이터 수신 가능
+        if (FD_ISSET(serial_fd_, &read_fds)) {
+            int bytes_read = read(serial_fd_, buffer, sizeof(buffer));
+
+            if (bytes_read > 0) {
+                consecutive_errors = 0;  // 성공적으로 읽음
+
+                // 패킷 버퍼에 추가
+                packet_buffer_.insert(packet_buffer_.end(), buffer, buffer + bytes_read);
+
+                // 패킷 파싱
+                while (packet_buffer_.size() >= LD19_PACKET_SIZE) {
+                    // 헤더 찾기
+                    auto it = std::find(packet_buffer_.begin(), packet_buffer_.end(), static_cast<uint8_t>(LD19_HEADER));
+
+                    if (it == packet_buffer_.end()) {
+                        // 헤더 없음, 버퍼 비우기
+                        packet_buffer_.clear();
+                        break;
+                    }
+
+                    // 헤더 위치로 이동
+                    packet_buffer_.erase(packet_buffer_.begin(), it);
+
+                    if (packet_buffer_.size() < LD19_PACKET_SIZE) {
+                        break;
+                    }
+
+                    // 패킷 파싱
+                    if (parsePacket(packet_buffer_.data(), LD19_PACKET_SIZE)) {
+                        // 파싱 성공, 패킷 제거
+                        packets_parsed++;
+                        packet_buffer_.erase(packet_buffer_.begin(),
+                                            packet_buffer_.begin() + LD19_PACKET_SIZE);
+                    } else {
+                        // 파싱 실패, 헤더 건너뛰기
+                        packets_failed++;
+                        packet_buffer_.erase(packet_buffer_.begin());
+                    }
+
+                    // 10초마다 통계 출력
+                    auto now_stats = std::chrono::steady_clock::now();
+                    auto elapsed_stats = std::chrono::duration_cast<std::chrono::seconds>(now_stats - last_stats_time).count();
+                    if (elapsed_stats >= 10) {
+                        std::cout << "[LiDAR Stats] Parsed: " << packets_parsed
+                                  << " Failed: " << packets_failed
+                                  << " Buffer size: " << packet_buffer_.size() << " bytes" << std::endl;
+                        last_stats_time = now_stats;
+                    }
+                }
+            } else if (bytes_read < 0) {
+                if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    consecutive_errors++;
+                    if (consecutive_errors >= MAX_CONSECUTIVE_ERRORS) {
+                        std::cerr << "Too many read errors, stopping..." << std::endl;
+                        is_connected_ = false;
+                        break;
+                    }
                 }
             }
         }
-        
-        usleep(1000);  // 1ms 대기
     }
 }
 
@@ -362,6 +426,16 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
     // 12개의 측정 포인트 추출
     LidarScan new_scan;
     new_scan.timestamp = timestamp;  // 패킷의 timestamp 사용
+
+    // 디버깅: 수신된 패킷의 각도 범위 로그 (10초마다)
+    static auto last_packet_log = std::chrono::steady_clock::now();
+    auto now_packet = std::chrono::steady_clock::now();
+    auto elapsed_packet = std::chrono::duration_cast<std::chrono::seconds>(now_packet - last_packet_log).count();
+    if (elapsed_packet >= 10) {
+        std::cout << "[Packet] start_angle=" << start_angle << "° end_angle=" << end_angle
+                  << "° speed=" << speed << std::endl;
+        last_packet_log = now_packet;
+    }
     
     for (int i = 0; i < LD19_POINTS_PER_PACK; i++) {
         LidarPoint point;
@@ -397,97 +471,63 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
     {
         std::lock_guard<std::mutex> lock(scan_mutex_);
         
-        // 새 스캔 감지: 더 정확한 방법으로 감지
-        // 1. 각도가 0도 근처로 돌아왔거나 (정상적인 360도 회전 완료)
-        // 2. 타임스탬프가 크게 증가했거나 (100ms 이상, 새 스캔 시작)
-        // 3. 각도 범위가 크게 달라진 경우 (라이다 물리적 이동 감지)
+        // 새 스캔 감지: 각도 기반 + 타임아웃 기반 (패킷 손실 대응)
         bool is_new_scan = false;
-        if (!current_scan_.points.empty()) {
-            // 이전 스캔의 각도 범위 계산
-            float min_existing_angle = 360.0f;
-            float max_existing_angle = 0.0f;
-            for (const auto& p : current_scan_.points) {
-                if (p.angle < min_existing_angle) min_existing_angle = p.angle;
-                if (p.angle > max_existing_angle) max_existing_angle = p.angle;
+        static auto last_scan_time = std::chrono::steady_clock::now();
+        auto now_scan = std::chrono::steady_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now_scan - last_scan_time).count();
+
+        if (!current_scan_.points.empty() && !new_scan.points.empty()) {
+            float last_angle = current_scan_.points.back().angle;
+            float first_new_angle = new_scan.points.front().angle;
+
+            // 조건 1: 각도 기반 (공식 SDK 방식)
+            bool angle_wrapped = (first_new_angle < 20.0f && last_angle > 340.0f);
+
+            // 조건 2: 타임아웃 기반 (100ms 이상 경과 - 패킷 손실 대응)
+            // LD19는 10Hz 회전 = 100ms/회전, 정확히 1회전마다 리셋
+            bool timeout_exceeded = (elapsed_ms > 200);
+
+            // 디버깅 로그 (10초마다)
+            static auto last_debug = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::seconds>(now_scan - last_debug).count() >= 10) {
+                std::cout << "[Scan Debug] points=" << current_scan_.points.size()
+                          << " last=" << last_angle << "° first_new=" << first_new_angle
+                          << "° elapsed=" << elapsed_ms << "ms"
+                          << " angle_wrapped=" << angle_wrapped
+                          << " timeout=" << timeout_exceeded << std::endl;
+                last_debug = now_scan;
             }
-            
-            // 새 패킷의 각도 범위
-            float new_packet_end_angle = end_angle;
-            
-            // 타임스탬프 차이 계산 (오버플로우 처리)
-            uint16_t timestamp_diff = 0;
-            if (new_scan.timestamp >= current_scan_.timestamp) {
-                timestamp_diff = new_scan.timestamp - current_scan_.timestamp;
-            } else {
-                // 타임스탬프 오버플로우 (16비트, 0-65535ms)
-                timestamp_diff = (65535 - current_scan_.timestamp) + new_scan.timestamp + 1;
-            }
-            
-            // 새 스캔 감지 조건:
-            // 1. 각도가 0도 근처로 돌아옴 (정상 회전 완료)
-            bool angle_wrapped = (start_angle < 30.0f && max_existing_angle > 330.0f);
-            
-            // 2. 타임스탬프가 100ms 이상 증가 (새 스캔 시작)
-            bool timestamp_jump = (timestamp_diff > 100);
-            
-            // 3. 각도 범위가 크게 달라짐 (라이다 물리적 이동 또는 스캔 불연속)
-            // 기존 범위와 새 패킷 범위가 겹치지 않거나, 겹치는 부분이 작으면 새 스캔으로 간주
-            // 단, 이 조건은 너무 엄격하지 않도록 조정 (연속적인 스캔을 방해하지 않도록)
-            bool angle_range_changed = false;
-            float angle_span_existing = max_existing_angle - min_existing_angle;
-            
-            // 360도 경계 처리: 각도 차이 계산
-            float angle_diff = start_angle - max_existing_angle;
-            if (angle_diff > 180.0f) {
-                angle_diff -= 360.0f;
-            } else if (angle_diff < -180.0f) {
-                angle_diff += 360.0f;
-            }
-            
-            if (angle_span_existing > 180.0f) {
-                // 기존 범위가 360도를 거의 다 커버하는 경우 (거의 완전한 스캔)
-                // 새 패킷이 0도 근처로 돌아오면 새 스캔 (각도 차이가 30도 이상)
-                angle_range_changed = (start_angle < 30.0f && std::abs(angle_diff) > 30.0f);
-            } else {
-                // 기존 범위가 작은 경우: 새 패킷이 기존 범위와 연속적이지 않으면 새 스캔
-                // 각도 차이가 60도 이상이면 새 스캔으로 간주 (연속적인 스캔 허용)
-                angle_range_changed = (std::abs(angle_diff) > 60.0f);
-            }
-            
-            if (angle_wrapped || timestamp_jump || angle_range_changed) {
+
+            if (angle_wrapped || timeout_exceeded) {
                 is_new_scan = true;
+                last_scan_time = now_scan;
+
+                // 디버깅: 새 스캔 감지 로그
+                static int scan_count = 0;
+                scan_count++;
+                std::cout << "[Scan #" << scan_count << "] New scan detected! "
+                          << (angle_wrapped ? "angle" : "timeout")
+                          << " last=" << last_angle << "° first_new=" << first_new_angle
+                          << "° points=" << current_scan_.points.size()
+                          << " elapsed=" << elapsed_ms << "ms" << std::endl;
             }
-        } else {
-            // 첫 번째 스캔
-            is_new_scan = true;
+        } else if (current_scan_.points.empty()) {
+            // 첫 스캔
+            last_scan_time = now_scan;
         }
-        
+
         // 새 스캔이 시작되면 이전 데이터 초기화
         if (is_new_scan) {
             current_scan_.points.clear();
         }
-        
-        // 새 포인트 추가 (중복 제거: 같은 각도(±0.5도)의 포인트가 있으면 업데이트, 없으면 추가)
+
+        // 새 포인트를 모두 추가 (공식 SDK는 계속 축적)
         for (const auto& new_point : new_scan.points) {
-            bool found = false;
-            for (auto& existing_point : current_scan_.points) {
-                float angle_diff = std::abs(existing_point.angle - new_point.angle);
-                if (angle_diff > 180.0f) {
-                    angle_diff = 360.0f - angle_diff;
-                }
-                if (angle_diff < 0.5f) {
-                    // 같은 각도 범위의 포인트 업데이트
-                    existing_point = new_point;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                current_scan_.points.push_back(new_point);
-            }
+            current_scan_.points.push_back(new_point);
         }
-        
-        // 타임스탬프 업데이트 (항상 최신 타임스탬프로)
+
+        // 타임스탬프 업데이트
         current_scan_.timestamp = new_scan.timestamp;
         
         // 각도 순으로 정렬
@@ -587,12 +627,15 @@ float LidarInterface::getFrontDistance(float tolerance) {
             }
         }
         
-        // 디버깅 정보 출력 (첫 번째 호출 시에만)
-        static bool debug_printed = false;
-        if (!debug_printed) {
-            std::cout << "LiDAR Debug: Closest point to 0° is at angle=" << closest_ang 
+        // 디버깅 정보 출력 (5초마다)
+        static auto last_debug_time = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+
+        if (elapsed >= 5) {
+            std::cout << "LiDAR Debug: Closest point to 0° is at angle=" << closest_ang
                      << "° (diff=" << global_min_diff << "°), distance=" << closest_dist << "m" << std::endl;
-            
+
             // 각도 분포 샘플 출력 (다양한 각도 범위에서)
             std::vector<float> angle_samples;
             size_t sample_count = std::min(current_scan_.points.size(), size_t(20));
@@ -607,7 +650,7 @@ float LidarInterface::getFrontDistance(float tolerance) {
                 std::cout << ang << "° ";
             }
             std::cout << std::endl;
-            
+
             // 각도 범위 확인
             float min_angle = 360.0f, max_angle = 0.0f;
             for (const auto& p : current_scan_.points) {
@@ -615,7 +658,8 @@ float LidarInterface::getFrontDistance(float tolerance) {
                 if (p.angle > max_angle) max_angle = p.angle;
             }
             std::cout << "LiDAR Debug: Angle range: " << min_angle << "° ~ " << max_angle << "°" << std::endl;
-            debug_printed = true;
+            std::cout << "LiDAR Debug: Total points in scan: " << current_scan_.points.size() << std::endl;
+            last_debug_time = now;
         }
     }
     

@@ -28,7 +28,7 @@
 #define RGB_TARGET_FPS 30
 
 // 열화상 데이터 처리 설정
-#define SCALE 0.75f
+#define SCALE 0.8f
 #define THERMAL_WIDTH (int)(640 * SCALE)  // 480
 #define THERMAL_HEIGHT (int)(480 * SCALE)  // 360
 #define THERMAL_DX 0
