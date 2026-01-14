@@ -486,31 +486,12 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
 
             // 조건 2: 타임아웃 기반 (100ms 이상 경과 - 패킷 손실 대응)
             // LD19는 10Hz 회전 = 100ms/회전, 정확히 1회전마다 리셋
-            bool timeout_exceeded = (elapsed_ms > 200);
+            bool timeout_exceeded = (elapsed_ms > 100);
 
-            // 디버깅 로그 (10초마다)
-            static auto last_debug = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::seconds>(now_scan - last_debug).count() >= 10) {
-                std::cout << "[Scan Debug] points=" << current_scan_.points.size()
-                          << " last=" << last_angle << "° first_new=" << first_new_angle
-                          << "° elapsed=" << elapsed_ms << "ms"
-                          << " angle_wrapped=" << angle_wrapped
-                          << " timeout=" << timeout_exceeded << std::endl;
-                last_debug = now_scan;
-            }
-
+            // 스캔 리셋 (디버그 출력 제거)
             if (angle_wrapped || timeout_exceeded) {
                 is_new_scan = true;
                 last_scan_time = now_scan;
-
-                // 디버깅: 새 스캔 감지 로그
-                static int scan_count = 0;
-                scan_count++;
-                std::cout << "[Scan #" << scan_count << "] New scan detected! "
-                          << (angle_wrapped ? "angle" : "timeout")
-                          << " last=" << last_angle << "° first_new=" << first_new_angle
-                          << "° points=" << current_scan_.points.size()
-                          << " elapsed=" << elapsed_ms << "ms" << std::endl;
             }
         } else if (current_scan_.points.empty()) {
             // 첫 스캔
@@ -518,7 +499,7 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
         }
 
         // 새 스캔이 시작되면 이전 데이터 초기화
-        if (is_new_scan) {
+        if (is_new_scan) {./
             current_scan_.points.clear();
         }
 
