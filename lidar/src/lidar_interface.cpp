@@ -486,7 +486,7 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
 
             // 조건 2: 타임아웃 기반 (100ms 이상 경과 - 패킷 손실 대응)
             // LD19는 10Hz 회전 = 100ms/회전, 정확히 1회전마다 리셋
-            bool timeout_exceeded = (elapsed_ms > 100);
+            bool timeout_exceeded = (elapsed_ms > 200);
 
             // 스캔 리셋 (디버그 출력 제거)
             if (angle_wrapped || timeout_exceeded) {
@@ -499,7 +499,7 @@ bool LidarInterface::parsePacket(const uint8_t* data, size_t len) {
         }
 
         // 새 스캔이 시작되면 이전 데이터 초기화
-        if (is_new_scan) {./
+        if (is_new_scan) {
             current_scan_.points.clear();
         }
 

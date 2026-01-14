@@ -60,6 +60,11 @@ private:
     void publishTrajectorySetpoint(float x, float y, float z, float yaw);
 
     /**
+     * @brief Velocity Setpoint 발행 (NED Frame 기준)
+     */
+    void publishVelocitySetpoint(float vx, float vy, float vz, float yaw_rate);
+
+    /**
      * @brief OffboardControlMode 발행
      */
     void publishOffboardControlMode();
@@ -96,7 +101,7 @@ private:
 
     // Constants
     static constexpr float MAX_DISTANCE_ERROR = 5.0f;  // 최대 거리 오차 (안전)
-    static constexpr float APPROACH_SPEED = 1.0f;      // 접근 속도 (m/s)
+    static constexpr float APPROACH_SPEED = 0.1f;      // 접근 속도 (m/s)
 };
 
 #endif // DISTANCE_ADJUSTER_H

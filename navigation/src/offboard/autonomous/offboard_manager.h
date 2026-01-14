@@ -50,6 +50,19 @@ public:
     bool testMission(float takeoff_altitude = 1.0f, float hover_duration = 5.0f);
 
     /**
+     * @brief 실내 테스트 미션 2 - LiDAR 기반 전진/후진 테스트
+     * @param takeoff_altitude 이륙 고도 (미터, 기본값 1.0m)
+     * @param hover_duration 호버링 시간 (초, 기본값 3초)
+     * @param target_distance 목표 전방 거리 (미터, 기본값 1.0m)
+     * @param movement_speed 이동 속도 (m/s, 기본값 0.1m/s)
+     * @return 미션 성공 여부
+     */
+    bool testMission2(float takeoff_altitude = 1.0f,
+                      float hover_duration = 3.0f,
+                      float target_distance = 1.0f,
+                      float movement_speed = 0.1f);
+
+    /**
      * @brief 긴급 RTL 실행
      */
     void emergencyRTL();

@@ -326,6 +326,207 @@ bool OffboardManager::testMission(float takeoff_altitude, float hover_duration)
     }
 }
 
+bool OffboardManager::testMission2(float takeoff_altitude, float hover_duration,
+                                    float target_distance, float movement_speed)
+{
+    try {
+        // 이미 미션이 실행 중이면 중복 실행 방지
+        if (current_state_ != MissionState::IDLE) {
+            RCLCPP_WARN(node_->get_logger(),
+                       "[testMission2] Mission already running (current state: %s). Ignoring new mission request.",
+                       getStateName(current_state_).c_str());
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "  실내 테스트 미션 2 - LiDAR 기반 전진/후진");
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "  시퀀스: OFFBOARD -> ARM -> TAKEOFF %.1fm -> HOVER %.0fs",
+                    takeoff_altitude, hover_duration);
+        RCLCPP_INFO(node_->get_logger(), "         -> FORWARD(%.1fm, %.2fm/s) -> HOVER %.0fs",
+                    target_distance, movement_speed, hover_duration);
+        RCLCPP_INFO(node_->get_logger(), "         -> BACKWARD(원래위치, %.2fm/s) -> HOVER %.0fs -> LAND",
+                    movement_speed, hover_duration);
+        RCLCPP_INFO(node_->get_logger(), "======================================\n");
+
+        // === State: ARMING ===
+        if (!transitionToState(MissionState::ARMING)) {
+            handleError("Failed to transition to ARMING state");
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 1: OFFBOARD 모드 활성화");
+        if (!arm_handler_->enableOffboardMode()) {
+            handleError("Failed to enable OFFBOARD mode");
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ OFFBOARD 모드 활성화 성공\n");
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 2: ARM 시동 걸기");
+        if (!arm_handler_->arm()) {
+            handleError("Failed to arm vehicle");
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ ARM 성공\n");
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        // === State: TAKEOFF ===
+        if (!transitionToState(MissionState::TAKEOFF)) {
+            handleError("Failed to transition to TAKEOFF state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 3: 이륙 시작, 목표 고도: %.1fm", takeoff_altitude);
+        if (!takeoff_handler_->takeoff(takeoff_altitude)) {
+            handleError("Takeoff failed");
+            emergencyRTL();
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 이륙 완료, 고도: %.2fm\n",
+                    takeoff_handler_->getCurrentAltitude());
+
+        // === State: HOVER (첫 번째) ===
+        if (!transitionToState(MissionState::HOVER)) {
+            handleError("Failed to transition to HOVER state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 4: 호버링 %.0f초 (이륙 후)", hover_duration);
+        int hover_iterations = static_cast<int>(hover_duration);
+        for (int i = 1; i <= hover_iterations; i++) {
+            RCLCPP_INFO(node_->get_logger(), "[testMission2]   호버링 중... %d/%d초", i, hover_iterations);
+            takeoff_handler_->hover();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 호버링 완료\n");
+
+        // === State: ADJUST_DISTANCE (전진) ===
+        if (!transitionToState(MissionState::ADJUST_DISTANCE)) {
+            handleError("Failed to transition to ADJUST_DISTANCE state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 5: LiDAR 기반 전진 - 목표 거리 %.1fm (속도: %.2fm/s)",
+                    target_distance, movement_speed);
+
+        // 현재 전방 거리 저장 (복귀용)
+        float initial_front_distance = distance_adjuster_->getFrontDistance();
+        RCLCPP_INFO(node_->get_logger(), "[testMission2]   초기 전방 거리: %.2fm", initial_front_distance);
+
+        // 거리 허용 오차: 0.2m
+        float distance_tolerance = 0.2f;
+
+        if (!distance_adjuster_->adjustDistance(target_distance, distance_tolerance, 30000)) {
+            RCLCPP_WARN(node_->get_logger(), "[testMission2] ⚠ 전진 실패 또는 타임아웃");
+            emergencyRTL();
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 전진 완료, 현재 전방 거리: %.2fm\n",
+                    distance_adjuster_->getFrontDistance());
+
+        // === State: HOVER (두 번째) ===
+        if (!transitionToState(MissionState::HOVER)) {
+            handleError("Failed to transition to HOVER state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 6: 호버링 %.0f초 (전진 후)", hover_duration);
+        for (int i = 1; i <= hover_iterations; i++) {
+            RCLCPP_INFO(node_->get_logger(), "[testMission2]   호버링 중... %d/%d초", i, hover_iterations);
+            takeoff_handler_->hover();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 호버링 완료\n");
+
+        // === State: ADJUST_DISTANCE (후진 - 원래 위치) ===
+        if (!transitionToState(MissionState::ADJUST_DISTANCE)) {
+            handleError("Failed to transition to ADJUST_DISTANCE state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 7: LiDAR 기반 후진 - 원래 거리 %.2fm로 복귀 (속도: %.2fm/s)",
+                    initial_front_distance, movement_speed);
+
+        if (!distance_adjuster_->adjustDistance(initial_front_distance, distance_tolerance, 30000)) {
+            RCLCPP_WARN(node_->get_logger(), "[testMission2] ⚠ 후진 실패 또는 타임아웃");
+            emergencyRTL();
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 후진 완료, 현재 전방 거리: %.2fm\n",
+                    distance_adjuster_->getFrontDistance());
+
+        // === State: HOVER (세 번째) ===
+        if (!transitionToState(MissionState::HOVER)) {
+            handleError("Failed to transition to HOVER state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 8: 호버링 %.0f초 (후진 후)", hover_duration);
+        for (int i = 1; i <= hover_iterations; i++) {
+            RCLCPP_INFO(node_->get_logger(), "[testMission2]   호버링 중... %d/%d초", i, hover_iterations);
+            takeoff_handler_->hover();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 호버링 완료\n");
+
+        // === State: RTL (착륙) ===
+        if (!transitionToState(MissionState::RTL)) {
+            handleError("Failed to transition to RTL state");
+            emergencyRTL();
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 9: 착륙 시작");
+        if (!rtl_handler_->land()) {
+            handleError("Landing failed");
+            return false;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] ✓ 착륙 완료\n");
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        // === State: IDLE ===
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 10: OFFBOARD 모드 비활성화");
+        disableOffboardMode();
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        if (!transitionToState(MissionState::IDLE)) {
+            RCLCPP_WARN(node_->get_logger(), "[testMission2] Failed to transition to IDLE");
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "  테스트 미션 2 완료!");
+        RCLCPP_INFO(node_->get_logger(), "======================================\n");
+
+        return true;
+
+    } catch (const std::runtime_error& e) {
+        std::string error_msg = e.what();
+        if (error_msg.find("already been added to an executor") != std::string::npos) {
+            RCLCPP_WARN(node_->get_logger(), "[testMission2] executor 충돌 (계속 진행): %s", e.what());
+            return true;
+        } else {
+            RCLCPP_ERROR(node_->get_logger(), "[testMission2] runtime_error: %s", e.what());
+            handleError("Test mission 2 failed");
+            return false;
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "[testMission2] 예외: %s", e.what());
+        handleError("Test mission 2 failed");
+        return false;
+    } catch (...) {
+        RCLCPP_ERROR(node_->get_logger(), "[testMission2] 알 수 없는 예외 발생");
+        handleError("Test mission 2 failed");
+        return false;
+    }
+}
+
 void OffboardManager::emergencyRTL()
 {
     RCLCPP_ERROR(node_->get_logger(), "\n!!! EMERGENCY RTL TRIGGERED !!!\n");

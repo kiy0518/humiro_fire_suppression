@@ -291,8 +291,19 @@ void ApplicationManager::initializeCustomMessage() {
 
                 // 좌표 체크: lat=0, lon=0이면 실내 테스트 미션
                 if (start.target_lat == 0 && start.target_lon == 0) {
-                    std::cout << "[INFO] 실내 테스트 미션 모드 감지 (lat=0, lon=0)" << std::endl;
-                    testExeMission(start);
+                    // target_alt 값으로 testMission/testMission2 구분
+                    // target_alt = 1 → testMission (기존: ARM->TAKEOFF->HOVER->LAND)
+                    // target_alt = 2 → testMission2 (LiDAR 기반: ARM->TAKEOFF->HOVER->FORWARD->HOVER->BACKWARD->HOVER->LAND)
+                    if (start.target_alt == 2) {
+                        std::cout << "[INFO] 실내 테스트 미션 2 모드 감지 (lat=0, lon=0, alt=2)" << std::endl;
+                        std::cout << "[INFO]   → LiDAR 기반 전진/후진 테스트" << std::endl;
+                        testExeMission2(start);
+                    } else {
+                        std::cout << "[INFO] 실내 테스트 미션 모드 감지 (lat=0, lon=0, alt="
+                                  << start.target_alt << ")" << std::endl;
+                        std::cout << "[INFO]   → 기본 호버링 테스트" << std::endl;
+                        testExeMission(start);
+                    }
                 } else {
                     std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
                     executeMission(start);
@@ -1411,5 +1422,56 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
     mission_thread.detach();
 #else
     std::cout << "[TestMission] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+#endif
+}
+
+void ApplicationManager::testExeMission2(const custom_message::FireMissionStart& start) {
+#ifdef ENABLE_ROS2
+    if (!offboard_manager_) {
+        std::cerr << "[TestMission2] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
+        return;
+    }
+
+    // 중복 실행 방지
+    bool expected = false;
+    if (!mission_running_.compare_exchange_strong(expected, true)) {
+        std::cout << "[TestMission2] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
+        return;
+    }
+
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "[ApplicationManager] 실내 테스트 미션 2 요청 수신 (LiDAR 기반)" << std::endl;
+    std::cout << "  → OffboardManager::testMission2() 호출" << std::endl;
+    std::cout << "========================================\n" << std::endl;
+
+    // 별도 스레드에서 비동기 실행
+    std::thread mission_thread([this]() {
+        try {
+            // OffboardManager의 testMission2 호출
+            // 파라미터: takeoff_altitude=1.0m, hover_duration=3s, target_distance=1.0m, movement_speed=0.1m/s
+            bool success = offboard_manager_->testMission2(1.0f, 3.0f, 1.0f, 0.1f);
+
+            if (success) {
+                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 2 성공" << std::endl;
+            } else {
+                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 2 실패" << std::endl;
+            }
+
+        } catch (const std::exception& e) {
+            std::cerr << "[ApplicationManager] Exception: " << e.what() << std::endl;
+            try {
+                std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
+                offboard_manager_->disableOffboardMode();
+            } catch (...) {
+                std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
+            }
+        }
+
+        mission_running_ = false;
+    });
+
+    mission_thread.detach();
+#else
+    std::cout << "[TestMission2] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif
 }

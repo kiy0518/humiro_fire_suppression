@@ -61,22 +61,10 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
                 target_distance, tolerance);
 
     // LiDAR 데이터 및 위치 정보 수신 대기
+    // 메인 executor가 백그라운드에서 콜백을 처리하므로 단순히 대기만 함
     auto start_time = std::chrono::steady_clock::now();
     while (!distance_received_ || !position_received_) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time).count();
@@ -96,11 +84,10 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
     RCLCPP_INFO(node_->get_logger(),
                 "Current front distance: %.2f m", initial_distance);
 
-    // 시작 위치 저장
-    start_x_ = current_local_x_.load();
-
-    // 거리 조정 루프
+    // 거리 조정 루프 (Position Control 사용 - 작은 증분으로 이동)
     start_time = std::chrono::steady_clock::now();
+    auto last_heartbeat_time = start_time;
+    auto last_position_update = start_time;
 
     while (true) {
         float current_distance = front_distance_.load();
@@ -114,48 +101,74 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
             return true;
         }
 
-        // 이동 거리 계산 (전방 거리가 목표보다 크면 전진, 작으면 후진)
-        // NED 좌표계에서 X는 북쪽(전방)
-        float movement = distance_error;  // 양수면 전진, 음수면 후진
+        // 현재 시간 (루프 전체에서 사용)
+        auto now = std::chrono::steady_clock::now();
 
-        // 안전 제한
-        if (std::abs(movement) > MAX_DISTANCE_ERROR) {
-            movement = (movement > 0) ? MAX_DISTANCE_ERROR : -MAX_DISTANCE_ERROR;
-            RCLCPP_WARN(node_->get_logger(),
-                       "Movement limited to %.2f m for safety", MAX_DISTANCE_ERROR);
-        }
+        // Velocity control update (100ms마다)
+        auto velocity_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_position_update).count();
 
-        // 목표 위치 계산
-        float target_x = start_x_ + movement;
+        if (velocity_elapsed >= 100) {
+            // 현재 상태 가져오기
+            float current_yaw = current_yaw_.load();
+            float current_z = current_local_z_.load();
+            float current_distance = front_distance_.load();
 
-        // TrajectorySetpoint 발행
-        publishTrajectorySetpoint(
-            target_x,
-            current_local_y_,
-            current_local_z_,
-            current_yaw_
-        );
+            // Body Frame 속도 계산
+            // distance_error > 0: 현재 거리가 목표보다 크다 → 전진 필요 (라이다 방향으로)
+            // distance_error < 0: 현재 거리가 목표보다 작다 → 후진 필요 (라이다 반대 방향으로)
+            float body_velocity_x = (distance_error > 0) ? APPROACH_SPEED : -APPROACH_SPEED;
 
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
+            // Body Frame → NED Frame 변환
+            // NED에서: X=North, Y=East, Yaw=0이 북쪽
+            float ned_velocity_x = body_velocity_x * std::cos(current_yaw);  // 북쪽 성분
+            float ned_velocity_y = body_velocity_x * std::sin(current_yaw);  // 동쪽 성분
+
+            // 고도 유지 (PID 제어)
+            // 목표 고도: -1.0m (NED), 현재 고도: current_z
+            float altitude_error = -1.0f - current_z;  // 양수: 상승 필요, 음수: 하강 필요
+            float ned_velocity_z = altitude_error * 0.5f;  // 비례 제어 (P gain = 0.5)
+
+            // 속도 제한 (안전)
+            ned_velocity_z = std::max(-0.5f, std::min(0.5f, ned_velocity_z));  // ±0.5 m/s
+
+            // 디버그 출력 (500ms마다)
+            static auto last_debug_time = std::chrono::steady_clock::now();
+            auto debug_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_debug_time).count();
+            if (debug_elapsed >= 500) {
+                RCLCPP_INFO(node_->get_logger(),
+                           "[OFFBOARD] Dist: %.2fm | Alt: %.2fm (err: %.2fm) | Yaw: %.1f° | "
+                           "Body Vel: %.2fm/s | NED Vel: [%.2f, %.2f, %.2f]",
+                           current_distance,
+                           -current_z,  // NED Z는 음수이므로 양수로 변환
+                           altitude_error,
+                           current_yaw * 180.0f / M_PI,  // 라디안 → 도
+                           body_velocity_x,
+                           ned_velocity_x, ned_velocity_y, ned_velocity_z);
+                last_debug_time = now;
             }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
+
+            // Velocity setpoint 발행 (NED Frame 기준, 고도 제어 포함)
+            publishVelocitySetpoint(ned_velocity_x, ned_velocity_y, ned_velocity_z, 0.0f);
+
+            last_position_update = now;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // OFFBOARD heartbeat 수동 전송 (500ms마다)
+        auto heartbeat_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_heartbeat_time).count();
+        if (heartbeat_elapsed >= 500) {
+            publishOffboardControlMode();
+            last_heartbeat_time = now;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
         // 타임아웃 확인
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start_time).count();
 
         if (elapsed > timeout_ms) {
+            // 타임아웃 시 정지
+            publishVelocitySetpoint(0.0f, 0.0f, 0.0f, 0.0f);
             RCLCPP_ERROR(node_->get_logger(),
                         "Distance adjustment timeout! Front distance: %.2f m (target: %.2f m)",
                         current_distance, target_distance);
@@ -165,8 +178,8 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
         // 진행 상황 로깅 (2초마다)
         if (static_cast<int>(elapsed) % 2000 < 100) {
             RCLCPP_INFO(node_->get_logger(),
-                       "Adjusting... Distance: %.2f m, Error: %.2f m, Movement: %.2f m",
-                       current_distance, distance_error, movement);
+                       "Adjusting... Distance: %.2f m, Error: %.2f m",
+                       current_distance, distance_error);
         }
     }
 
@@ -241,13 +254,45 @@ void DistanceAdjuster::publishTrajectorySetpoint(float x, float y, float z, floa
     trajectory_setpoint_pub_->publish(msg);
 }
 
+void DistanceAdjuster::publishVelocitySetpoint(float vx, float vy, float vz, float yaw_rate)
+{
+    px4_msgs::msg::TrajectorySetpoint msg{};
+
+    msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+
+    // Velocity setpoint (NED Frame 기준)
+    msg.velocity[0] = vx;  // 북쪽 속도 (North)
+    msg.velocity[1] = vy;  // 동쪽 속도 (East)
+    msg.velocity[2] = vz;  // 하방 속도 (Down)
+
+    msg.yawspeed = yaw_rate;
+
+    // Position은 NaN으로 설정 (사용 안 함)
+    msg.position[0] = std::nanf("");
+    msg.position[1] = std::nanf("");
+    msg.position[2] = std::nanf("");
+
+    msg.yaw = std::nanf("");
+
+    // Acceleration, Jerk도 NaN
+    msg.acceleration[0] = std::nanf("");
+    msg.acceleration[1] = std::nanf("");
+    msg.acceleration[2] = std::nanf("");
+
+    msg.jerk[0] = std::nanf("");
+    msg.jerk[1] = std::nanf("");
+    msg.jerk[2] = std::nanf("");
+
+    trajectory_setpoint_pub_->publish(msg);
+}
+
 void DistanceAdjuster::publishOffboardControlMode()
 {
     px4_msgs::msg::OffboardControlMode msg{};
 
     msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-    msg.position = true;
-    msg.velocity = false;
+    msg.position = false;
+    msg.velocity = true;   // Velocity control 활성화
     msg.acceleration = false;
     msg.attitude = false;
     msg.body_rate = false;
