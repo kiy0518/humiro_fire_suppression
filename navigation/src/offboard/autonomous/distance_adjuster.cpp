@@ -93,14 +93,6 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
         float current_distance = front_distance_.load();
         float distance_error = current_distance - target_distance;
 
-        // 목표 거리 도달 확인
-        if (std::abs(distance_error) < tolerance) {
-            RCLCPP_INFO(node_->get_logger(),
-                       "Distance adjusted! Front distance: %.2f m (error: %.2f m)",
-                       current_distance, distance_error);
-            return true;
-        }
-
         // 현재 시간 (루프 전체에서 사용)
         auto now = std::chrono::steady_clock::now();
 
@@ -113,10 +105,20 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
             float current_z = current_local_z_.load();
             float current_distance = front_distance_.load();
 
-            // Body Frame 속도 계산
-            // distance_error > 0: 현재 거리가 목표보다 크다 → 전진 필요 (라이다 방향으로)
-            // distance_error < 0: 현재 거리가 목표보다 작다 → 후진 필요 (라이다 반대 방향으로)
-            float body_velocity_x = (distance_error > 0) ? APPROACH_SPEED : -APPROACH_SPEED;
+            // Body Frame 속도 계산 (비례 제어로 부드러운 거리 유지)
+            // distance_error가 클수록 빠르게 이동, 작을수록 천천히 이동
+            float body_velocity_x;
+
+            if (std::abs(distance_error) < tolerance) {
+                // 목표 범위 내: 미세 조정 (비례 제어, P gain = 0.5)
+                body_velocity_x = distance_error * 0.5f;
+
+                // 속도 제한 (±0.05 m/s, 부드러운 유지)
+                body_velocity_x = std::max(-0.05f, std::min(0.05f, body_velocity_x));
+            } else {
+                // 목표 범위 밖: 일정 속도로 접근
+                body_velocity_x = (distance_error > 0) ? APPROACH_SPEED : -APPROACH_SPEED;
+            }
 
             // Body Frame → NED Frame 변환
             // NED에서: X=North, Y=East, Yaw=0이 북쪽
@@ -167,19 +169,18 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
             std::chrono::steady_clock::now() - start_time).count();
 
         if (elapsed > timeout_ms) {
-            // 타임아웃 시 정지
-            publishVelocitySetpoint(0.0f, 0.0f, 0.0f, 0.0f);
-            RCLCPP_ERROR(node_->get_logger(),
-                        "Distance adjustment timeout! Front distance: %.2f m (target: %.2f m)",
+            // 타임아웃 도달 - 거리 유지 완료
+            RCLCPP_INFO(node_->get_logger(),
+                        "Distance maintain completed! Front distance: %.2f m (target: %.2f m)",
                         current_distance, target_distance);
-            return false;
+            return true;  // 성공으로 처리
         }
 
         // 진행 상황 로깅 (2초마다)
         if (static_cast<int>(elapsed) % 2000 < 100) {
             RCLCPP_INFO(node_->get_logger(),
-                       "Adjusting... Distance: %.2f m, Error: %.2f m",
-                       current_distance, distance_error);
+                       "Maintaining distance... Current: %.2f m, Target: %.2f m, Error: %.2f m",
+                       current_distance, target_distance, distance_error);
         }
     }
 

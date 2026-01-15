@@ -13,6 +13,7 @@
 #include "custom_message/custom_message.h"
 #include "custom_message/custom_message_type.h"
 #include <iostream>
+#include <fstream>
 #include <signal.h>
 #include <gst/gst.h>
 #include <opencv2/core/utils/logger.hpp>
@@ -291,18 +292,18 @@ void ApplicationManager::initializeCustomMessage() {
 
                 // 좌표 체크: lat=0, lon=0이면 실내 테스트 미션
                 if (start.target_lat == 0 && start.target_lon == 0) {
-                    // target_alt 값으로 testMission/testMission2 구분
+                    // target_alt 값으로 testMission 구분
                     // target_alt = 1 → testMission (기존: ARM->TAKEOFF->HOVER->LAND)
-                    // target_alt = 2 → testMission2 (LiDAR 기반: ARM->TAKEOFF->HOVER->FORWARD->HOVER->BACKWARD->HOVER->LAND)
-                    if (start.target_alt == 2) {
-                        std::cout << "[INFO] 실내 테스트 미션 2 모드 감지 (lat=0, lon=0, alt=2)" << std::endl;
-                        std::cout << "[INFO]   → LiDAR 기반 전진/후진 테스트" << std::endl;
-                        testExeMission2(start);
+                    // target_alt = 3 → testMission3 (다중 드론 소방 미션: 리더/팔로워 포메이션)
+                    if (start.target_alt == 3) {
+                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt=3)" << std::endl;
+                        std::cout << "[INFO]   → 다중 드론 소방 미션 (리더/팔로워 포메이션)" << std::endl;
+                        testExeMission3(start);
                     } else {
-                        std::cout << "[INFO] 실내 테스트 미션 모드 감지 (lat=0, lon=0, alt="
+                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt="
                                   << start.target_alt << ")" << std::endl;
-                        std::cout << "[INFO]   → 기본 호버링 테스트" << std::endl;
-                        testExeMission(start);
+                        std::cout << "[INFO]   → 다중 드론 소방 미션 (기본 모드)" << std::endl;
+                        testExeMission3(start);
                     }
                 } else {
                     std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
@@ -1425,36 +1426,58 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
 #endif
 }
 
-void ApplicationManager::testExeMission2(const custom_message::FireMissionStart& start) {
+void ApplicationManager::testExeMission3(const custom_message::FireMissionStart& start) {
 #ifdef ENABLE_ROS2
     if (!offboard_manager_) {
-        std::cerr << "[TestMission2] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
+        std::cerr << "[TestMission3] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
         return;
     }
 
     // 중복 실행 방지
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
-        std::cout << "[TestMission2] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
+        std::cout << "[TestMission3] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
         return;
     }
 
+    // device_config.env에서 DRONE_ID 읽기
+    uint8_t vehicle_id = 1;  // 기본값: 리더
+    std::ifstream config_file("/home/khadas/humiro_fire_suppression/config/device_config.env");
+    if (config_file.is_open()) {
+        std::string line;
+        while (std::getline(config_file, line)) {
+            if (line.find("DRONE_ID=") == 0) {
+                try {
+                    vehicle_id = std::stoi(line.substr(9));
+                    std::cout << "[TestMission3] DRONE_ID 읽기 성공: " << (int)vehicle_id << std::endl;
+                } catch (...) {
+                    std::cerr << "[TestMission3] Warning: DRONE_ID 파싱 실패, 기본값(1) 사용" << std::endl;
+                }
+                break;
+            }
+        }
+        config_file.close();
+    } else {
+        std::cerr << "[TestMission3] Warning: device_config.env 읽기 실패, 기본값(1) 사용" << std::endl;
+    }
+
     std::cout << "\n========================================" << std::endl;
-    std::cout << "[ApplicationManager] 실내 테스트 미션 2 요청 수신 (LiDAR 기반)" << std::endl;
-    std::cout << "  → OffboardManager::testMission2() 호출" << std::endl;
+    std::cout << "[ApplicationManager] 테스트 미션 3 요청 수신 (다중 드론 소방)" << std::endl;
+    std::cout << "  → Vehicle ID: " << (int)vehicle_id << (vehicle_id == 1 ? " (리더)" : " (팔로워)") << std::endl;
+    std::cout << "  → OffboardManager::testMission3() 호출" << std::endl;
     std::cout << "========================================\n" << std::endl;
 
     // 별도 스레드에서 비동기 실행
-    std::thread mission_thread([this]() {
+    std::thread mission_thread([this, vehicle_id]() {
         try {
-            // OffboardManager의 testMission2 호출
-            // 파라미터: takeoff_altitude=1.0m, hover_duration=3s, target_distance=1.0m, movement_speed=0.1m/s
-            bool success = offboard_manager_->testMission2(1.0f, 3.0f, 1.0f, 0.1f);
+            // OffboardManager의 testMission3 호출
+            // 파라미터: vehicle_id, takeoff_altitude=10.0m, target_distance=10.0m
+            bool success = offboard_manager_->testMission3(vehicle_id, 1.0f, 1.5f);
 
             if (success) {
-                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 2 성공" << std::endl;
+                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 3 성공" << std::endl;
             } else {
-                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 2 실패" << std::endl;
+                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 3 실패" << std::endl;
             }
 
         } catch (const std::exception& e) {
@@ -1472,6 +1495,6 @@ void ApplicationManager::testExeMission2(const custom_message::FireMissionStart&
 
     mission_thread.detach();
 #else
-    std::cout << "[TestMission2] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+    std::cout << "[TestMission3] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif
 }
