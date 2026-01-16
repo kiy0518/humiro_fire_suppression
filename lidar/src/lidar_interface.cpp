@@ -348,15 +348,15 @@ void LidarInterface::receiveThread() {
                         packet_buffer_.erase(packet_buffer_.begin());
                     }
 
-                    // 10초마다 통계 출력
-                    auto now_stats = std::chrono::steady_clock::now();
-                    auto elapsed_stats = std::chrono::duration_cast<std::chrono::seconds>(now_stats - last_stats_time).count();
-                    if (elapsed_stats >= 10) {
-                        std::cout << "[LiDAR Stats] Parsed: " << packets_parsed
-                                  << " Failed: " << packets_failed
-                                  << " Buffer size: " << packet_buffer_.size() << " bytes" << std::endl;
-                        last_stats_time = now_stats;
-                    }
+                    // 10초마다 통계 출력 (디버그용 - 비활성화)
+                    // auto now_stats = std::chrono::steady_clock::now();
+                    // auto elapsed_stats = std::chrono::duration_cast<std::chrono::seconds>(now_stats - last_stats_time).count();
+                    // if (elapsed_stats >= 10) {
+                    //     std::cout << "[LiDAR Stats] Parsed: " << packets_parsed
+                    //               << " Failed: " << packets_failed
+                    //               << " Buffer size: " << packet_buffer_.size() << " bytes" << std::endl;
+                    //     last_stats_time = now_stats;
+                    // }
                 }
             } else if (bytes_read < 0) {
                 if (errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -609,39 +609,14 @@ float LidarInterface::getFrontDistance(float tolerance) {
         }
         
         // 디버깅 정보 출력 (5초마다)
-        static auto last_debug_time = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
-
-        if (elapsed >= 5) {
-            std::cout << "LiDAR Debug: Closest point to 0° is at angle=" << closest_ang
-                     << "° (diff=" << global_min_diff << "°), distance=" << closest_dist << "m" << std::endl;
-
-            // 각도 분포 샘플 출력 (다양한 각도 범위에서)
-            std::vector<float> angle_samples;
-            size_t sample_count = std::min(current_scan_.points.size(), size_t(20));
-            for (size_t i = 0; i < sample_count; i++) {
-                size_t idx = (i * current_scan_.points.size()) / sample_count;
-                if (idx < current_scan_.points.size()) {
-                    angle_samples.push_back(current_scan_.points[idx].angle);
-                }
-            }
-            std::cout << "LiDAR Debug: Sample angles (20 points): ";
-            for (float ang : angle_samples) {
-                std::cout << ang << "° ";
-            }
-            std::cout << std::endl;
-
-            // 각도 범위 확인
-            float min_angle = 360.0f, max_angle = 0.0f;
-            for (const auto& p : current_scan_.points) {
-                if (p.angle < min_angle) min_angle = p.angle;
-                if (p.angle > max_angle) max_angle = p.angle;
-            }
-            std::cout << "LiDAR Debug: Angle range: " << min_angle << "° ~ " << max_angle << "°" << std::endl;
-            std::cout << "LiDAR Debug: Total points in scan: " << current_scan_.points.size() << std::endl;
-            last_debug_time = now;
-        }
+        // 디버그 출력 비활성화
+        // static auto last_debug_time = std::chrono::steady_clock::now();
+        // auto now = std::chrono::steady_clock::now();
+        // auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+        // if (elapsed >= 5) {
+        //     std::cout << "LiDAR Debug: ..." << std::endl;
+        //     last_debug_time = now;
+        // }
     }
     
     return front_distance;
