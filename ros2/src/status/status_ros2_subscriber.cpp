@@ -61,13 +61,12 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     
     std::cout << "  [DEBUG] QoS 설정: Reliability=BestEffort, Durability=TransientLocal, History=KeepLast, Depth=10" << std::endl;
     
-    // PX4 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_status_v1)
-    // PX4 v1.14+에서는 vehicle_status_v1 토픽 사용
+    // PX4 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_status)
     try {
         vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-            "/fmu/out/vehicle_status_v1", px4_qos,
+            "/fmu/out/vehicle_status", px4_qos,
             std::bind(&StatusROS2Subscriber::vehicleStatusCallback, this, std::placeholders::_1));
-        std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_status_v1 (uXRCE-DDS, BestEffort QoS)" << std::endl;
+        std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_status (uXRCE-DDS, BestEffort QoS)" << std::endl;
         std::cout << "    → QGC에서 비행 모드 변경 시 즉시 반영됩니다" << std::endl;
         std::cout << "    ⚠ 토픽 수신 대기 중... (PX4가 연결되면 자동으로 수신됩니다)" << std::endl;
         std::cout << "    [DEBUG] 구독자 생성 완료: vehicle_status_sub_=" << (vehicle_status_sub_ ? "OK" : "NULL") << std::endl;
@@ -205,7 +204,7 @@ void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleSta
     // 첫 수신 확인 (토픽 연결 확인)
     static bool first_received = false;
     if (!first_received) {
-        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_status_v1 첫 메시지 수신!" << std::endl;
+        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_status 첫 메시지 수신!" << std::endl;
         std::cout << "    → PX4 uXRCE-DDS 연결 성공" << std::endl;
         // PX4 arming_state: 1 = STANDBY (disarmed), 2 = ARMED
         bool first_armed = (msg->arming_state == 2);

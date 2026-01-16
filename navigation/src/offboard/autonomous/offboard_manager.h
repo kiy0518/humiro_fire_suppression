@@ -49,7 +49,7 @@ public:
      * @param hover_duration 호버링 시간 (초, 기본값 5초)
      * @return 미션 성공 여부
      */
-    bool indoorMission(float takeoff_altitude = 1.0f, float hover_duration = 5.0f);
+    bool testMission(float takeoff_altitude = 1.0f, float hover_duration = 5.0f);
 
     /**
      * @brief 실내 테스트 미션 2 - LiDAR 기반 전진/후진 테스트
@@ -59,22 +59,22 @@ public:
      * @param movement_speed 이동 속도 (m/s, 기본값 0.1m/s)
      * @return 미션 성공 여부
      */
-    bool indoorMission2(float takeoff_altitude = 1.0f,
-                        float hover_duration = 3.0f,
-                        float target_distance = 1.0f,
-                        float movement_speed = 0.1f);
+    bool testMission2(float takeoff_altitude = 1.0f,
+                      float hover_duration = 3.0f,
+                      float target_distance = 1.0f,
+                      float movement_speed = 0.1f);
 
 
     /**
-     * @brief 실내 미션 3 - 삼각 포메이션 자동 조준 및 격발
+     * @brief 실내 테스트 미션 3 - 삼각 포메이션 자동 조준 및 격발
      * @param vehicle_id 기체 번호 (1: 리더, 2: 좌측 팔로워, 3: 우측 팔로워)
      * @param takeoff_altitude 이륙 고도 (미터, 기본값 10.0m)
      * @param target_distance 목표물까지 거리 (미터, 기본값 10.0m)
      * @return 미션 성공 여부
      */
-    bool indoorMission3(uint8_t vehicle_id,
-                        float takeoff_altitude = 10.0f,
-                        float target_distance = 10.0f);
+    bool testMission3(uint8_t vehicle_id,
+                      float takeoff_altitude = 10.0f,
+                      float target_distance = 10.0f);
 
     /**
      * @brief 긴급 RTL 실행
