@@ -199,8 +199,9 @@ def api_fc_version():
     try:
         from pymavlink import mavutil
 
-        # MAVLink 연결 (UDP)
-        connection_string = f"udpin:0.0.0.0:14550"
+        # MAVLink 연결 (mavlink-router TCP 포트 사용)
+        # mavlink-router 설정: TcpServerPort = 5790
+        connection_string = "tcp:127.0.0.1:5790"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
         # 하트비트 대기 (FC 연결 확인)
