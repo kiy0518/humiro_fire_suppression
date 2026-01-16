@@ -1,0 +1,20 @@
+# Humiro Fire Suppression GUI Management Tool
+# Python 3.10+
+
+# GUI Framework
+PyQt6>=6.4.0
+
+# MAVLink communication
+pymavlink>=2.4.0
+
+# Async support
+aiofiles>=23.0.0
+
+# YAML parsing (for netplan)
+PyYAML>=6.0
+
+# System utilities
+psutil>=5.9.0
+
+# Additional utilities
+python-dotenv>=1.0.0
