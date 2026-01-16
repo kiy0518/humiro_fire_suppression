@@ -290,25 +290,18 @@ void ApplicationManager::initializeCustomMessage() {
                     status_overlay_->setCustomMessage(oss.str(), 5.0);
                 }
 
-                // 좌표 체크: lat=0, lon=0이면 실내 테스트 미션
+                // 좌표 체크로 INDOOR/OUTDOOR 모드 자동 판단
                 if (start.target_lat == 0 && start.target_lon == 0) {
-                    // target_alt 값으로 testMission 구분
-                    // target_alt = 1 → testMission (기존: ARM->TAKEOFF->HOVER->LAND)
-                    // target_alt = 3 → testMission3 (다중 드론 소방 미션: 리더/팔로워 포메이션)
-                    if (start.target_alt == 3) {
-                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt=3)" << std::endl;
-                        std::cout << "[INFO]   → 다중 드론 소방 미션 (리더/팔로워 포메이션)" << std::endl;
-                        testExeMission3(start);
-                    } else {
-                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt="
-                                  << start.target_alt << ")" << std::endl;
-                        std::cout << "[INFO]   → 다중 드론 소방 미션 (기본 모드)" << std::endl;
-                        testExeMission3(start);
-                    }
+                    std::cout << "[INFO] INDOOR 모드 감지 (lat=0, lon=0)" << std::endl;
+                    std::cout << "[INFO]   → LiDAR 기반 포메이션 비행 (실내)" << std::endl;
                 } else {
-                    std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
-                    executeMission(start);
+                    std::cout << "[INFO] OUTDOOR 모드 감지 (GPS 좌표: "
+                              << start.target_lat / 1e7 << ", " << start.target_lon / 1e7 << ")" << std::endl;
+                    std::cout << "[INFO]   → GPS 기반 웨이포인트 비행 (실외)" << std::endl;
                 }
+
+                // 통합된 executeMission() 호출 (내부에서 모드 자동 판단)
+                executeMission(start);
             }
         );
         
@@ -1261,34 +1254,77 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         offboard_manager_->resetToIdle();
     }
 
-    std::cout << "\n[미션 실행 시작] Arming -> 이륙 -> 목표 위치 이동" << std::endl;
+    // INDOOR/OUTDOOR 모드 자동 판단
+    MissionMode mode = (start.target_lat == 0 && start.target_lon == 0)
+                        ? MissionMode::INDOOR
+                        : MissionMode::OUTDOOR;
 
-    // 미션 설정 구성
-    MissionConfig config;
-    
-    // 목표 위치 설정 (lat/lon을 1e7로 나누어 degrees로 변환)
-    config.target_waypoint.latitude = start.target_lat / 1e7;
-    config.target_waypoint.longitude = start.target_lon / 1e7;
-    config.target_waypoint.altitude = start.target_alt;
-    
-    // 이륙 고도 설정
-    config.takeoff_altitude = start.target_alt;
-    
-    // 목표 거리 설정 (10m)
-    config.target_distance = 10.0f;
-    config.distance_tolerance = 1.0f;
-    config.hover_duration_sec = 5.0f;
+    if (mode == MissionMode::INDOOR) {
+        std::cout << "\n[미션 실행 시작 - INDOOR 모드] LiDAR 기반 포메이션 비행" << std::endl;
+        std::cout << "  - 이륙 고도: 1.0m" << std::endl;
+        std::cout << "  - 목표 거리: 1.5m" << std::endl;
+        std::cout << "  - 비행 모드: 리더/팔로워 포메이션" << std::endl;
 
-    std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m" << std::endl;
-    std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
-              << config.target_waypoint.longitude << ", " << config.target_waypoint.altitude << ")" << std::endl;
-    std::cout << "  - 목표 거리: " << config.target_distance << " m" << std::endl;
+        // INDOOR 모드: testMission3 호출
+        uint8_t vehicle_id = start.target_component;
 
-    // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
-    std::thread mission_thread([this, config, start]() {
-        bool success = false;
-        try {
-            success = offboard_manager_->executeMission(config);
+        std::thread mission_thread([this, vehicle_id]() {
+            try {
+                // OffboardManager의 indoorMission3 호출
+                // 파라미터: vehicle_id, takeoff_altitude=1.0m, target_distance=1.5m
+                bool success = offboard_manager_->indoorMission3(vehicle_id, 1.0f, 1.5f);
+
+                if (success) {
+                    std::cout << "\n[INDOOR 미션 성공]" << std::endl;
+                } else {
+                    std::cerr << "\n[INDOOR 미션 실패]" << std::endl;
+                }
+
+            } catch (const std::exception& e) {
+                std::cerr << "[INDOOR 미션 오류] " << e.what() << std::endl;
+                try {
+                    std::cout << "[긴급 복구 시도]" << std::endl;
+                    offboard_manager_->disableOffboardMode();
+                } catch (...) {
+                    std::cerr << "[복구 실패]" << std::endl;
+                }
+            }
+
+            mission_running_ = false;
+        });
+
+        mission_thread.detach();
+
+    } else {
+        // OUTDOOR 모드: GPS 기반 웨이포인트 미션
+        std::cout << "\n[미션 실행 시작 - OUTDOOR 모드] GPS 기반 웨이포인트 비행" << std::endl;
+
+        // 미션 설정 구성
+        MissionConfig config;
+
+        // 목표 위치 설정 (lat/lon을 1e7로 나누어 degrees로 변환)
+        config.target_waypoint.latitude = start.target_lat / 1e7;
+        config.target_waypoint.longitude = start.target_lon / 1e7;
+        config.target_waypoint.altitude = start.target_alt;
+
+        // 이륙 고도 설정
+        config.takeoff_altitude = start.target_alt;
+
+        // 목표 거리 설정 (10m)
+        config.target_distance = 10.0f;
+        config.distance_tolerance = 1.0f;
+        config.hover_duration_sec = 5.0f;
+
+        std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m" << std::endl;
+        std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
+                  << config.target_waypoint.longitude << ", " << config.target_waypoint.altitude << ")" << std::endl;
+        std::cout << "  - 목표 거리: " << config.target_distance << " m" << std::endl;
+
+        // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
+        std::thread mission_thread([this, config, start]() {
+            bool success = false;
+            try {
+                success = offboard_manager_->executeMission(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();
@@ -1367,10 +1403,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
                 custom_message_handler_->sendFireMissionStatus(status);
             }
         }
-    });
-    
-    // 스레드 분리 (백그라운드 실행)
-    mission_thread.detach();
+        });
+
+        // 스레드 분리 (백그라운드 실행)
+        mission_thread.detach();
+    }  // end of OUTDOOR mode
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif
@@ -1391,20 +1428,20 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
     }
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "[ApplicationManager] 실내 테스트 미션 요청 수신" << std::endl;
-    std::cout << "  → OffboardManager::testMission() 호출" << std::endl;
+    std::cout << "[ApplicationManager] 실내 미션 요청 수신" << std::endl;
+    std::cout << "  → OffboardManager::indoorMission() 호출" << std::endl;
     std::cout << "========================================\n" << std::endl;
 
     // 별도 스레드에서 비동기 실행
     std::thread mission_thread([this]() {
         try {
-            // OffboardManager의 testMission 호출
-            bool success = offboard_manager_->testMission(1.0f, 5.0f);
+            // OffboardManager의 indoorMission 호출
+            bool success = offboard_manager_->indoorMission(1.0f, 5.0f);
 
             if (success) {
-                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 성공" << std::endl;
+                std::cout << "\n[ApplicationManager] ✓ 실내 미션 성공" << std::endl;
             } else {
-                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 실패" << std::endl;
+                std::cerr << "\n[ApplicationManager] ✗ 실내 미션 실패" << std::endl;
             }
 
         } catch (const std::exception& e) {
@@ -1426,7 +1463,17 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
 #endif
 }
 
+// DEPRECATED: testExeMission3()는 더 이상 사용되지 않습니다.
+// executeMission()을 사용하세요. executeMission()은 lat=0,lon=0일 때 자동으로 INDOOR 모드로 실행됩니다.
 void ApplicationManager::testExeMission3(const custom_message::FireMissionStart& start) {
+    std::cout << "[DEPRECATED] testExeMission3()는 더 이상 사용되지 않습니다." << std::endl;
+    std::cout << "             executeMission()을 사용하세요 (자동으로 INDOOR/OUTDOOR 모드 판단)" << std::endl;
+
+    // 기존 기능 유지를 위해 executeMission()으로 리다이렉트
+    executeMission(start);
+    return;
+
+    // === 이하 코드는 더 이상 실행되지 않음 ===
 #ifdef ENABLE_ROS2
     if (!offboard_manager_) {
         std::cerr << "[TestMission3] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
@@ -1462,22 +1509,22 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
     }
 
     std::cout << "\n========================================" << std::endl;
-    std::cout << "[ApplicationManager] 테스트 미션 3 요청 수신 (다중 드론 소방)" << std::endl;
+    std::cout << "[ApplicationManager] 실내 미션 3 요청 수신 (다중 드론 소방)" << std::endl;
     std::cout << "  → Vehicle ID: " << (int)vehicle_id << (vehicle_id == 1 ? " (리더)" : " (팔로워)") << std::endl;
-    std::cout << "  → OffboardManager::testMission3() 호출" << std::endl;
+    std::cout << "  → OffboardManager::indoorMission3() 호출" << std::endl;
     std::cout << "========================================\n" << std::endl;
 
     // 별도 스레드에서 비동기 실행
     std::thread mission_thread([this, vehicle_id]() {
         try {
-            // OffboardManager의 testMission3 호출
-            // 파라미터: vehicle_id, takeoff_altitude=10.0m, target_distance=10.0m
-            bool success = offboard_manager_->testMission3(vehicle_id, 1.0f, 1.5f);
+            // OffboardManager의 indoorMission3 호출
+            // 파라미터: vehicle_id, takeoff_altitude=1.0m, target_distance=1.5m
+            bool success = offboard_manager_->indoorMission3(vehicle_id, 1.0f, 1.5f);
 
             if (success) {
-                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 3 성공" << std::endl;
+                std::cout << "\n[ApplicationManager] ✓ 실내 미션 3 성공" << std::endl;
             } else {
-                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 3 실패" << std::endl;
+                std::cerr << "\n[ApplicationManager] ✗ 실내 미션 3 실패" << std::endl;
             }
 
         } catch (const std::exception& e) {

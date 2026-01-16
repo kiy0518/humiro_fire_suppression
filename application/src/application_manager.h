@@ -23,6 +23,12 @@ struct FireMissionStart;
 class CustomMessage;
 }
 
+// 미션 모드 정의
+enum class MissionMode {
+    INDOOR,   // 실내 모드: LiDAR 기반, 포메이션 비행 (lat=0, lon=0)
+    OUTDOOR   // 실외 모드: GPS 기반 웨이포인트 비행 (실제 GPS 좌표)
+};
+
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
 class ThermalROS2Publisher;
@@ -131,8 +137,10 @@ private:
     void cleanupComponents();
     void cleanupROS2();
     
-    // 미션 실행 (추가)
+    // 미션 실행
     void executeMission(const custom_message::FireMissionStart& start);
+
+    // DEPRECATED: 하위 호환성을 위해 유지 (executeMission()으로 리다이렉트)
     void testExeMission(const custom_message::FireMissionStart& start);
     void testExeMission3(const custom_message::FireMissionStart& start);
 };

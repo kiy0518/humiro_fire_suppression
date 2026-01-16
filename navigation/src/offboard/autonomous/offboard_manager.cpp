@@ -217,13 +217,13 @@ bool OffboardManager::executeMission(const MissionConfig& config)
     }
 }
 
-bool OffboardManager::testMission(float takeoff_altitude, float hover_duration)
+bool OffboardManager::indoorMission(float takeoff_altitude, float hover_duration)
 {
     try {
         // 이미 미션이 실행 중이면 중복 실행 방지
         if (current_state_ != MissionState::IDLE) {
             RCLCPP_WARN(node_->get_logger(),
-                       "[testMission] Mission already running (current state: %s). Ignoring new mission request.",
+                       "[indoorMission] Mission already running (current state: %s). Ignoring new mission request.",
                        getStateName(current_state_).c_str());
             return false;
         }
@@ -340,14 +340,14 @@ bool OffboardManager::testMission(float takeoff_altitude, float hover_duration)
     }
 }
 
-bool OffboardManager::testMission2(float takeoff_altitude, float hover_duration,
-                                    float target_distance, float movement_speed)
+bool OffboardManager::indoorMission2(float takeoff_altitude, float hover_duration,
+                                     float target_distance, float movement_speed)
 {
     try {
         // 이미 미션이 실행 중이면 중복 실행 방지
         if (current_state_ != MissionState::IDLE) {
             RCLCPP_WARN(node_->get_logger(),
-                       "[testMission2] Mission already running (current state: %s). Ignoring new mission request.",
+                       "[indoorMission2] Mission already running (current state: %s). Ignoring new mission request.",
                        getStateName(current_state_).c_str());
             return false;
         }
@@ -735,21 +735,21 @@ std::pair<double, double> OffboardManager::calculateTargetPosition(
 }
 // ========== testMission3 구현 (1단계: 기본 골격) ==========
 
-bool OffboardManager::testMission3(uint8_t vehicle_id,
-                                    float takeoff_altitude,
-                                    float target_distance)
+bool OffboardManager::indoorMission3(uint8_t vehicle_id,
+                                     float takeoff_altitude,
+                                     float target_distance)
 {
     try {
         // 이미 미션이 실행 중이면 중복 실행 방지
         if (current_state_ != MissionState::IDLE) {
             RCLCPP_WARN(node_->get_logger(),
-                       "[testMission3] Mission already running (current state: %s). Ignoring new mission request.",
+                       "[indoorMission3] Mission already running (current state: %s). Ignoring new mission request.",
                        getStateName(current_state_).c_str());
             return false;
         }
 
         RCLCPP_INFO(node_->get_logger(), "======================================");
-        RCLCPP_INFO(node_->get_logger(), "  테스트 미션 3 - 삼각 포메이션 자동 조준");
+        RCLCPP_INFO(node_->get_logger(), "  실내 미션 3 - 삼각 포메이션 자동 조준");
         RCLCPP_INFO(node_->get_logger(), "======================================");
         RCLCPP_INFO(node_->get_logger(), "  기체 번호: %d (1=리더, 2=좌측, 3=우측)", vehicle_id);
         RCLCPP_INFO(node_->get_logger(), "  이륙 고도: %.1fm", takeoff_altitude);
