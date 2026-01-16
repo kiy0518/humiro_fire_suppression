@@ -194,13 +194,10 @@ def api_fc_params(mode):
 @app.route('/api/fc/version')
 def api_fc_version():
     """FC 펌웨어 버전 조회 API (MAVLink)"""
-    fc_ip = config_manager.get_fc_ip()
-
     try:
         from pymavlink import mavutil
 
         # MAVLink 연결 (mavlink-router TCP 포트 사용)
-        # mavlink-router 설정: TcpServerPort = 5790
         connection_string = "tcp:127.0.0.1:5790"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
@@ -213,18 +210,18 @@ def api_fc_version():
                 "message": "FC 연결 실패 (하트비트 없음)"
             })
 
-        # AUTOPILOT_VERSION 요청
+        # MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES 사용 (더 안정적)
         mav.mav.command_long_send(
             mav.target_system,
             mav.target_component,
-            mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE,
+            mavutil.mavlink.MAV_CMD_REQUEST_AUTOPILOT_CAPABILITIES,
             0,  # confirmation
-            mavutil.mavlink.MAVLINK_MSG_ID_AUTOPILOT_VERSION,
+            1,  # param1: 1 = request capabilities
             0, 0, 0, 0, 0, 0
         )
 
         # 응답 대기
-        version_msg = mav.recv_match(type='AUTOPILOT_VERSION', blocking=True, timeout=3)
+        version_msg = mav.recv_match(type='AUTOPILOT_VERSION', blocking=True, timeout=5)
         mav.close()
 
         if version_msg:
@@ -242,16 +239,13 @@ def api_fc_version():
             if version_type != 255:
                 version_str += f"-{type_name}"
 
-            # 보드 정보
-            board_version = version_msg.board_version
-
             return jsonify({
                 "success": True,
                 "firmware_version": version_str,
-                "board_version": board_version,
+                "board_version": version_msg.board_version,
                 "raw": {
                     "flight_sw_version": fw_version,
-                    "board_version": board_version,
+                    "board_version": version_msg.board_version,
                     "vendor_id": version_msg.vendor_id,
                     "product_id": version_msg.product_id
                 }
@@ -260,6 +254,63 @@ def api_fc_version():
             return jsonify({
                 "success": False,
                 "message": "버전 정보를 받지 못했습니다"
+            })
+
+    except ImportError:
+        return jsonify({
+            "success": False,
+            "message": "pymavlink이 설치되지 않았습니다"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+
+@app.route('/api/fc/reboot', methods=['POST'])
+def api_fc_reboot():
+    """FC 재부팅 API (MAVLink)"""
+    try:
+        from pymavlink import mavutil
+
+        connection_string = "tcp:127.0.0.1:5790"
+        mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
+
+        # 하트비트 대기
+        msg = mav.wait_heartbeat(timeout=3)
+        if not msg:
+            mav.close()
+            return jsonify({
+                "success": False,
+                "message": "FC 연결 실패"
+            })
+
+        # MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN
+        # param1: 1 = reboot autopilot
+        mav.mav.command_long_send(
+            mav.target_system,
+            mav.target_component,
+            mavutil.mavlink.MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN,
+            0,  # confirmation
+            1,  # param1: 1 = Reboot autopilot
+            0, 0, 0, 0, 0, 0
+        )
+
+        # ACK 대기 (재부팅 시 응답이 안 올 수 있음)
+        ack = mav.recv_match(type='COMMAND_ACK', blocking=True, timeout=3)
+        mav.close()
+
+        if ack and ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+            return jsonify({
+                "success": True,
+                "message": "FC 재부팅 명령 전송 완료"
+            })
+        else:
+            # 재부팅 명령은 ACK 없이 바로 재부팅될 수 있음
+            return jsonify({
+                "success": True,
+                "message": "FC 재부팅 명령 전송됨 (응답 없음 - 정상)"
             })
 
     except ImportError:
