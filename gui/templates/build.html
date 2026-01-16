@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% block title %}빌드{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-hammer"></i> 빌드 타겟 선택
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="lidar" id="target_lidar" checked>
+                            <label class="form-check-label" for="target_lidar">LiDAR</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="thermal" id="target_thermal" checked>
+                            <label class="form-check-label" for="target_thermal">Thermal</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="targeting" id="target_targeting" checked>
+                            <label class="form-check-label" for="target_targeting">Targeting</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="osd" id="target_osd" checked>
+                            <label class="form-check-label" for="target_osd">OSD</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="streaming" id="target_streaming" checked>
+                            <label class="form-check-label" for="target_streaming">Streaming</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="ros2" id="target_ros2" checked>
+                            <label class="form-check-label" for="target_ros2">ROS2 메시지</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="navigation" id="target_navigation" checked>
+                            <label class="form-check-label" for="target_navigation">Navigation</label>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="form-check">
+                            <input class="form-check-input target-check" type="checkbox" value="application" id="target_application" checked>
+                            <label class="form-check-label" for="target_application">Application</label>
+                        </div>
+                    </div>
+                </div>
+
+                <hr>
+
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(true)">전체 선택</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="selectAll(false)">전체 해제</button>
+
+                    <div class="form-check ms-auto">
+                        <input class="form-check-input" type="checkbox" id="cleanBuild">
+                        <label class="form-check-label" for="cleanBuild">클린 빌드</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-terminal"></i> 빌드 로그</span>
+                <span id="buildStatusBadge" class="badge bg-secondary">대기</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-output" id="buildLog" style="height: 400px;">
+                    빌드 시작을 기다리는 중...
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-primary btn-lg" id="buildBtn" onclick="startBuild()">
+                <i class="bi bi-play-fill"></i> 빌드 시작
+            </button>
+            <button class="btn btn-outline-danger" id="stopBtn" disabled>
+                <i class="bi bi-stop-fill"></i> 중지
+            </button>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning"></i> 빠른 빌드
+            </div>
+            <div class="card-body d-grid gap-2">
+                <button class="btn btn-outline-primary" onclick="quickBuild(['application'])">
+                    <i class="bi bi-app"></i> Application만
+                </button>
+                <button class="btn btn-outline-primary" onclick="quickBuild(['navigation'])">
+                    <i class="bi bi-compass"></i> Navigation만
+                </button>
+                <button class="btn btn-outline-primary" onclick="quickBuild(['navigation', 'application'])">
+                    <i class="bi bi-stack"></i> Nav + App
+                </button>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 빌드 순서
+            </div>
+            <div class="card-body small">
+                <ol class="mb-0 ps-3">
+                    <li>lidar</li>
+                    <li>thermal</li>
+                    <li>targeting</li>
+                    <li>osd</li>
+                    <li>streaming</li>
+                    <li>ros2</li>
+                    <li>navigation</li>
+                    <li>application</li>
+                </ol>
+                <hr>
+                <p class="text-muted mb-0">
+                    의존성에 따라 순서대로 빌드됩니다.
+                </p>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-clock-history"></i> 현재 상태
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span>상태:</span>
+                    <span id="currentStatus">대기</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>현재 타겟:</span>
+                    <span id="currentTarget">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let buildInterval = null;
+
+    function selectAll(checked) {
+        document.querySelectorAll('.target-check').forEach(cb => {
+            cb.checked = checked;
+        });
+    }
+
+    function getSelectedTargets() {
+        return Array.from(document.querySelectorAll('.target-check:checked'))
+            .map(cb => cb.value);
+    }
+
+    function startBuild() {
+        const targets = getSelectedTargets();
+        if (targets.length === 0) {
+            showToast('빌드 타겟을 선택하세요', 'warning');
+            return;
+        }
+
+        const cleanBuild = document.getElementById('cleanBuild').checked;
+
+        fetch('/api/build/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targets, clean: cleanBuild })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('buildBtn').disabled = true;
+                document.getElementById('buildLog').innerHTML = '';
+                startPolling();
+            } else {
+                showToast(data.message, 'danger');
+            }
+        });
+    }
+
+    function quickBuild(targets) {
+        selectAll(false);
+        targets.forEach(t => {
+            const cb = document.getElementById(`target_${t}`);
+            if (cb) cb.checked = true;
+        });
+        startBuild();
+    }
+
+    function startPolling() {
+        buildInterval = setInterval(pollBuildStatus, 1000);
+    }
+
+    function pollBuildStatus() {
+        fetch('/api/build/status')
+            .then(r => r.json())
+            .then(data => {
+                const logEl = document.getElementById('buildLog');
+                logEl.innerHTML = data.logs.join('\n');
+                logEl.scrollTop = logEl.scrollHeight;
+
+                document.getElementById('currentTarget').textContent = data.current_target || '-';
+
+                const badge = document.getElementById('buildStatusBadge');
+                const statusText = document.getElementById('currentStatus');
+
+                if (data.running) {
+                    badge.className = 'badge bg-primary';
+                    badge.textContent = '빌드 중';
+                    statusText.textContent = '빌드 중...';
+                } else {
+                    clearInterval(buildInterval);
+                    document.getElementById('buildBtn').disabled = false;
+
+                    if (data.success === true) {
+                        badge.className = 'badge bg-success';
+                        badge.textContent = '완료';
+                        statusText.textContent = '성공';
+                        showToast('빌드 완료!', 'success');
+                    } else if (data.success === false) {
+                        badge.className = 'badge bg-danger';
+                        badge.textContent = '실패';
+                        statusText.textContent = '실패';
+                        showToast('빌드 실패', 'danger');
+                    } else {
+                        badge.className = 'badge bg-secondary';
+                        badge.textContent = '대기';
+                        statusText.textContent = '대기';
+                    }
+                }
+            });
+    }
+</script>
+{% endblock %}

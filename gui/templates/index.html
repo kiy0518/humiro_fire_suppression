@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}대시보드{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 상태 카드들 -->
+    <div class="col-md-3">
+        <div class="card status-card">
+            <div class="status-icon text-primary" id="fcIcon">
+                <i class="bi bi-cpu"></i>
+            </div>
+            <div class="status-value" id="fcStatusValue">확인 중...</div>
+            <div class="status-label">FC 연결</div>
+            <small class="text-muted" id="fcIp"></small>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card status-card">
+            <div class="status-icon text-info" id="networkIcon">
+                <i class="bi bi-ethernet"></i>
+            </div>
+            <div class="status-value" id="networkStatusValue">확인 중...</div>
+            <div class="status-label">네트워크</div>
+            <small class="text-muted" id="networkIp"></small>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card status-card">
+            <div class="status-icon text-success" id="ros2Icon">
+                <i class="bi bi-diagram-3"></i>
+            </div>
+            <div class="status-value" id="ros2StatusValue">확인 중...</div>
+            <div class="status-label">ROS2</div>
+            <small class="text-muted">micro-ros-agent</small>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card status-card">
+            <div class="status-icon text-warning" id="serviceIcon">
+                <i class="bi bi-gear-wide-connected"></i>
+            </div>
+            <div class="status-value" id="serviceStatusValue">0/0</div>
+            <div class="status-label">서비스</div>
+            <small class="text-muted" id="serviceDetail"></small>
+        </div>
+    </div>
+</div>
+
+<!-- 시스템 리소스 -->
+<div class="row g-4 mt-2">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-cpu"></i> CPU</h6>
+                <div class="progress mb-2">
+                    <div class="progress-bar bg-primary" id="cpuProgress" style="width: 0%"></div>
+                </div>
+                <span id="cpuValue">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-memory"></i> 메모리</h6>
+                <div class="progress mb-2">
+                    <div class="progress-bar bg-success" id="memProgress" style="width: 0%"></div>
+                </div>
+                <span id="memValue">0 / 0 GB (0%)</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h6 class="card-title"><i class="bi bi-hdd"></i> 디스크</h6>
+                <div class="progress mb-2">
+                    <div class="progress-bar bg-warning" id="diskProgress" style="width: 0%"></div>
+                </div>
+                <span id="diskValue">0 / 0 GB (0%)</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 서비스 상태 테이블 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-check"></i> 서비스 상태</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadServices()">
+                    <i class="bi bi-arrow-clockwise"></i> 새로고침
+                </button>
+            </div>
+            <div class="card-body">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>서비스</th>
+                            <th>상태</th>
+                            <th>PID</th>
+                            <th>액션</th>
+                        </tr>
+                    </thead>
+                    <tbody id="serviceTable">
+                        <tr>
+                            <td colspan="4" class="text-center">로딩 중...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 빠른 작업 -->
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-lightning"></i> 빠른 작업</div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/checklist" class="btn btn-outline-primary">
+                        <i class="bi bi-check2-square"></i> 비행 전 체크리스트 시작
+                    </a>
+                    <a href="/build" class="btn btn-outline-success">
+                        <i class="bi bi-hammer"></i> Application 빌드
+                    </a>
+                    <a href="/vehicle-setup" class="btn btn-outline-warning">
+                        <i class="bi bi-drone"></i> 기체 설정 변경
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-info-circle"></i> 시스템 정보</div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr>
+                        <td><strong>기체 번호</strong></td>
+                        <td id="infoDroneId">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>역할</strong></td>
+                        <td id="infoRole">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>FC IP</strong></td>
+                        <td id="infoFcIp">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>ETH0 IP</strong></td>
+                        <td id="infoEth0">-</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function updatePageStatus(data) {
+        // FC 상태
+        const fcIcon = document.getElementById('fcIcon');
+        const fcValue = document.getElementById('fcStatusValue');
+        if (data.fc.connected) {
+            fcIcon.className = 'status-icon text-success';
+            fcValue.textContent = '연결됨';
+            fcValue.className = 'status-value text-success';
+        } else {
+            fcIcon.className = 'status-icon text-danger';
+            fcValue.textContent = '연결 안됨';
+            fcValue.className = 'status-value text-danger';
+        }
+        document.getElementById('fcIp').textContent = data.fc.ip;
+
+        // 네트워크 상태
+        const netIcon = document.getElementById('networkIcon');
+        const netValue = document.getElementById('networkStatusValue');
+        if (data.network.eth0) {
+            netIcon.className = 'status-icon text-success';
+            netValue.textContent = '정상';
+            netValue.className = 'status-value text-success';
+            document.getElementById('networkIp').textContent = data.network.eth0;
+        } else {
+            netIcon.className = 'status-icon text-warning';
+            netValue.textContent = 'eth0 없음';
+            netValue.className = 'status-value text-warning';
+        }
+
+        // ROS2 상태
+        const ros2Icon = document.getElementById('ros2Icon');
+        const ros2Value = document.getElementById('ros2StatusValue');
+        if (data.ros2.running) {
+            ros2Icon.className = 'status-icon text-success';
+            ros2Value.textContent = '실행 중';
+            ros2Value.className = 'status-value text-success';
+        } else {
+            ros2Icon.className = 'status-icon text-warning';
+            ros2Value.textContent = '중지됨';
+            ros2Value.className = 'status-value text-warning';
+        }
+
+        // 서비스 상태
+        const services = data.services;
+        const running = Object.values(services).filter(v => v).length;
+        const total = Object.keys(services).length;
+        document.getElementById('serviceStatusValue').textContent = `${running}/${total}`;
+
+        // 시스템 리소스
+        document.getElementById('cpuProgress').style.width = `${data.resources.cpu}%`;
+        document.getElementById('cpuValue').textContent = `${data.resources.cpu}%`;
+
+        const mem = data.resources.memory;
+        document.getElementById('memProgress').style.width = `${mem.percent}%`;
+        document.getElementById('memValue').textContent = `${mem.used} / ${mem.total} GB (${mem.percent}%)`;
+
+        const disk = data.resources.disk;
+        document.getElementById('diskProgress').style.width = `${disk.percent}%`;
+        document.getElementById('diskValue').textContent = `${disk.used} / ${disk.total} GB (${disk.percent}%)`;
+
+        // 시스템 정보
+        document.getElementById('infoDroneId').textContent = data.drone_id + '번';
+        document.getElementById('infoRole').textContent = data.role;
+        document.getElementById('infoFcIp').textContent = data.fc.ip;
+        document.getElementById('infoEth0').textContent = data.network.eth0 || '-';
+    }
+
+    function loadServices() {
+        fetch('/api/services')
+            .then(r => r.json())
+            .then(services => {
+                const tbody = document.getElementById('serviceTable');
+                tbody.innerHTML = services.map(s => `
+                    <tr>
+                        <td><strong>${s.name}</strong></td>
+                        <td>
+                            <span class="badge ${s.status === 'active' ? 'bg-success' : 'bg-secondary'}">
+                                ${s.status}
+                            </span>
+                        </td>
+                        <td>${s.pid}</td>
+                        <td>
+                            ${s.status === 'active' ? `
+                                <button class="btn btn-sm btn-outline-warning" onclick="controlService('restart', '${s.name}')">재시작</button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="controlService('stop', '${s.name}')">중지</button>
+                            ` : `
+                                <button class="btn btn-sm btn-outline-success" onclick="controlService('start', '${s.name}')">시작</button>
+                            `}
+                        </td>
+                    </tr>
+                `).join('');
+            });
+    }
+
+    function controlService(action, service) {
+        fetch(`/api/service/${action}/${service}`, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.message, data.success ? 'success' : 'danger');
+                loadServices();
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', loadServices);
+</script>
+{% endblock %}

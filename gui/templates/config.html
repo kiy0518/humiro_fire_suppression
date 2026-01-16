@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}설정{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-gear"></i> 기본 설정
+            </div>
+            <div class="card-body">
+                <form id="configForm">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">드론 ID</label>
+                            <select class="form-select" id="DRONE_ID">
+                                <option value="1">1 (Leader)</option>
+                                <option value="2">2 (Follower)</option>
+                                <option value="3">3 (Follower)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ETH0 IP</label>
+                            <input type="text" class="form-control" id="ETH0_IP" placeholder="192.168.10.x">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">FC IP</label>
+                            <input type="text" class="form-control" id="FC_IP" placeholder="192.168.10.x">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">WiFi IP</label>
+                            <input type="text" class="form-control" id="WIFI_IP" placeholder="192.168.50.x">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6 class="section-title"><i class="bi bi-diagram-3"></i> ROS2 설정</h6>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">ROS Namespace</label>
+                            <input type="text" class="form-control" id="ROS_NAMESPACE" placeholder="drone1">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ROS Domain ID</label>
+                            <input type="number" class="form-control" id="ROS_DOMAIN_ID" placeholder="0">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6 class="section-title"><i class="bi bi-send"></i> MAVLink 설정</h6>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">MAV System ID</label>
+                            <input type="number" class="form-control" id="MAV_SYS_ID" placeholder="1">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">MAV Component ID</label>
+                            <input type="number" class="form-control" id="MAV_COMP_ID" placeholder="1">
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h6 class="section-title"><i class="bi bi-camera-video"></i> 스트리밍 설정</h6>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">RTSP 포트</label>
+                            <input type="number" class="form-control" id="RTSP_PORT" placeholder="8554">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">스트림 이름</label>
+                            <input type="text" class="form-control" id="STREAM_NAME" placeholder="thermal">
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-4">
+                        <button type="button" class="btn btn-outline-secondary" onclick="loadConfig()">
+                            <i class="bi bi-arrow-clockwise"></i> 다시 로드
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> 저장
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 설정 정보
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    설정 파일: <code>device_config.env</code>
+                </p>
+                <hr>
+                <h6>기체별 권장 설정</h6>
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>1번</th>
+                            <th>2번</th>
+                            <th>3번</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>역할</td>
+                            <td>Leader</td>
+                            <td>Follower</td>
+                            <td>Follower</td>
+                        </tr>
+                        <tr>
+                            <td>ETH0</td>
+                            <td>.101</td>
+                            <td>.102</td>
+                            <td>.103</td>
+                        </tr>
+                        <tr>
+                            <td>FC</td>
+                            <td>.11</td>
+                            <td>.12</td>
+                            <td>.13</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <hr>
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    설정 변경 후 서비스 재시작이 필요합니다.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const configFields = [
+        'DRONE_ID', 'ETH0_IP', 'FC_IP', 'WIFI_IP',
+        'ROS_NAMESPACE', 'ROS_DOMAIN_ID',
+        'MAV_SYS_ID', 'MAV_COMP_ID',
+        'RTSP_PORT', 'STREAM_NAME'
+    ];
+
+    function loadConfig() {
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(config => {
+                configFields.forEach(field => {
+                    const el = document.getElementById(field);
+                    if (el && config[field] !== undefined) {
+                        el.value = config[field];
+                    }
+                });
+            });
+    }
+
+    document.getElementById('configForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const data = {};
+        configFields.forEach(field => {
+            const el = document.getElementById(field);
+            if (el) {
+                data[field] = el.value;
+            }
+        });
+
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(result => {
+            showToast(result.message, result.success ? 'success' : 'danger');
+        });
+    });
+
+    document.addEventListener('DOMContentLoaded', loadConfig);
+</script>
+{% endblock %}

@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}기체 설정{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-1-circle"></i> Step 1: 기체 선택
+            </div>
+            <div class="card-body">
+                <div class="row g-4 justify-content-center">
+                    <div class="col-md-3">
+                        <div class="card vehicle-card text-center p-4" data-id="1" onclick="selectVehicle(1)">
+                            <i class="bi bi-drone display-3 text-primary mb-3"></i>
+                            <h4>1번 기체</h4>
+                            <span class="badge bg-primary">Leader</span>
+                            <small class="text-muted d-block mt-2">중앙 위치</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card vehicle-card text-center p-4" data-id="2" onclick="selectVehicle(2)">
+                            <i class="bi bi-drone display-3 text-secondary mb-3"></i>
+                            <h4>2번 기체</h4>
+                            <span class="badge bg-secondary">Follower</span>
+                            <small class="text-muted d-block mt-2">좌측 위치</small>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card vehicle-card text-center p-4" data-id="3" onclick="selectVehicle(3)">
+                            <i class="bi bi-drone display-3 text-secondary mb-3"></i>
+                            <h4>3번 기체</h4>
+                            <span class="badge bg-secondary">Follower</span>
+                            <small class="text-muted d-block mt-2">우측 위치</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-2-circle"></i> Step 2: 설정 확인
+            </div>
+            <div class="card-body">
+                <div id="presetPreview" class="text-muted text-center py-4">
+                    기체를 선택하면 설정이 표시됩니다.
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <i class="bi bi-3-circle"></i> Step 3: 적용
+            </div>
+            <div class="card-body">
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="rebootCheck">
+                    <label class="form-check-label" for="rebootCheck">
+                        설정 적용 후 서비스 재시작 (권장)
+                    </label>
+                </div>
+
+                <button class="btn btn-primary btn-lg w-100" id="applyBtn" disabled onclick="applyPreset()">
+                    <i class="bi bi-check-circle"></i> 설정 적용
+                </button>
+
+                <div class="alert alert-warning mt-3 mb-0">
+                    <i class="bi bi-exclamation-triangle"></i>
+                    설정 변경 후 서비스 재시작이 필요합니다!
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-table"></i> 기체별 설정 비교
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>항목</th>
+                            <th>1번</th>
+                            <th>2번</th>
+                            <th>3번</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>역할</td>
+                            <td class="text-primary">Leader</td>
+                            <td>Follower</td>
+                            <td>Follower</td>
+                        </tr>
+                        <tr>
+                            <td>ETH0 IP</td>
+                            <td>.101</td>
+                            <td>.102</td>
+                            <td>.103</td>
+                        </tr>
+                        <tr>
+                            <td>FC IP</td>
+                            <td>.11</td>
+                            <td>.12</td>
+                            <td>.13</td>
+                        </tr>
+                        <tr>
+                            <td>WIFI IP</td>
+                            <td>.201</td>
+                            <td>.202</td>
+                            <td>.203</td>
+                        </tr>
+                        <tr>
+                            <td>Namespace</td>
+                            <td>drone1</td>
+                            <td>drone2</td>
+                            <td>drone3</td>
+                        </tr>
+                        <tr>
+                            <td>MAV_SYS_ID</td>
+                            <td>1</td>
+                            <td>2</td>
+                            <td>3</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 안내
+            </div>
+            <div class="card-body small">
+                <p><strong>Leader (1번):</strong> 스웜 비행 시 기준점 역할</p>
+                <p><strong>Follower (2, 3번):</strong> Leader를 따라 편대 비행</p>
+                <hr>
+                <p class="mb-0 text-muted">
+                    설정 적용 시 <code>device_config.env</code> 파일이 업데이트됩니다.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .vehicle-card {
+        cursor: pointer;
+        transition: all 0.2s;
+        border: 3px solid transparent;
+    }
+    .vehicle-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+    }
+    .vehicle-card.selected {
+        border-color: var(--accent-color);
+        background-color: rgba(52, 152, 219, 0.05);
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let selectedVehicle = null;
+
+    function selectVehicle(id) {
+        selectedVehicle = id;
+
+        document.querySelectorAll('.vehicle-card').forEach(card => {
+            card.classList.remove('selected');
+        });
+        document.querySelector(`.vehicle-card[data-id="${id}"]`).classList.add('selected');
+
+        document.getElementById('applyBtn').disabled = false;
+
+        // 프리셋 로드
+        fetch(`/api/vehicle-preset/${id}`)
+            .then(r => r.json())
+            .then(preset => {
+                document.getElementById('presetPreview').innerHTML = `
+                    <table class="table table-bordered mb-0">
+                        <tbody>
+                            ${Object.entries(preset).map(([key, value]) => `
+                                <tr>
+                                    <td class="fw-bold" style="width: 40%">${key}</td>
+                                    <td><code>${value}</code></td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                `;
+            });
+    }
+
+    function applyPreset() {
+        if (!selectedVehicle) return;
+
+        if (!confirm(`${selectedVehicle}번 기체 설정을 적용하시겠습니까?`)) return;
+
+        fetch(`/api/vehicle-preset/${selectedVehicle}`, { method: 'POST' })
+            .then(r => r.json())
+            .then(result => {
+                if (result.success) {
+                    showToast(result.message, 'success');
+
+                    if (document.getElementById('rebootCheck').checked) {
+                        showToast('서비스 재시작 중...', 'info');
+                        // 서비스 재시작
+                        fetch('/api/service/restart/micro-ros-agent', { method: 'POST' });
+                        fetch('/api/service/restart/mavlink-router', { method: 'POST' });
+                    }
+                } else {
+                    showToast(result.message, 'danger');
+                }
+            });
+    }
+</script>
+{% endblock %}

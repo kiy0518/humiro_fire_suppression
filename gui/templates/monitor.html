@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}모니터{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-gear-wide-connected"></i> 서비스 상태</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="loadServices()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>서비스</th>
+                            <th>상태</th>
+                            <th>PID</th>
+                            <th>액션</th>
+                        </tr>
+                    </thead>
+                    <tbody id="serviceTable">
+                        <tr><td colspan="4" class="text-center">로딩 중...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-sm btn-warning" onclick="restartAll()">
+                    <i class="bi bi-arrow-repeat"></i> 모두 재시작
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-diagram-3"></i> ROS2 토픽 모니터
+            </div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <select class="form-select" id="topicSelect">
+                        <option value="/fmu/out/vehicle_status">/fmu/out/vehicle_status</option>
+                        <option value="/fmu/out/battery_status">/fmu/out/battery_status</option>
+                        <option value="/fmu/out/vehicle_local_position">/fmu/out/vehicle_local_position</option>
+                        <option value="/fmu/out/vehicle_attitude">/fmu/out/vehicle_attitude</option>
+                    </select>
+                    <button class="btn btn-outline-secondary" onclick="refreshTopicList()">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+
+                <div class="btn-group mb-3 w-100">
+                    <button class="btn btn-primary" onclick="echoTopic()">
+                        <i class="bi bi-eye"></i> Echo
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="getTopicInfo()">
+                        <i class="bi bi-info-circle"></i> Info
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="clearOutput()">
+                        <i class="bi bi-trash"></i> Clear
+                    </button>
+                </div>
+
+                <div class="log-output" id="topicOutput" style="height: 300px;">
+                    토픽을 선택하고 Echo를 클릭하세요.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 시스템 로그 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-journal-text"></i> 시스템 로그</span>
+                <div>
+                    <select class="form-select form-select-sm d-inline-block" style="width: auto;" id="logService">
+                        <option value="humiro-fire-suppression">humiro-fire-suppression</option>
+                        <option value="micro-ros-agent">micro-ros-agent</option>
+                        <option value="mavlink-router">mavlink-router</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary ms-2" onclick="loadServiceLog()">
+                        <i class="bi bi-arrow-clockwise"></i> 로그 보기
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-output" id="serviceLog" style="height: 200px;">
+                    서비스를 선택하고 "로그 보기"를 클릭하세요.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function loadServices() {
+        fetch('/api/services')
+            .then(r => r.json())
+            .then(services => {
+                const tbody = document.getElementById('serviceTable');
+                tbody.innerHTML = services.map(s => `
+                    <tr>
+                        <td><strong>${s.name}</strong></td>
+                        <td>
+                            <span class="badge ${s.status === 'active' ? 'bg-success' : 'bg-secondary'}">
+                                ${s.status}
+                            </span>
+                        </td>
+                        <td><code>${s.pid}</code></td>
+                        <td>
+                            ${s.status === 'active' ? `
+                                <button class="btn btn-sm btn-outline-warning" onclick="controlService('restart', '${s.name}')">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="controlService('stop', '${s.name}')">
+                                    <i class="bi bi-stop-fill"></i>
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm btn-outline-success" onclick="controlService('start', '${s.name}')">
+                                    <i class="bi bi-play-fill"></i>
+                                </button>
+                            `}
+                        </td>
+                    </tr>
+                `).join('');
+            });
+    }
+
+    function controlService(action, service) {
+        fetch(`/api/service/${action}/${service}`, { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.message, data.success ? 'success' : 'danger');
+                loadServices();
+            });
+    }
+
+    function restartAll() {
+        if (!confirm('모든 서비스를 재시작하시겠습니까?')) return;
+
+        ['micro-ros-agent', 'mavlink-router'].forEach(service => {
+            controlService('restart', service);
+        });
+    }
+
+    function refreshTopicList() {
+        fetch('/api/ros2/topics')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const select = document.getElementById('topicSelect');
+                    select.innerHTML = data.topics.map(t =>
+                        `<option value="${t}">${t}</option>`
+                    ).join('');
+                    showToast(`${data.topics.length}개 토픽 발견`, 'info');
+                } else {
+                    showToast(data.message, 'warning');
+                }
+            });
+    }
+
+    function echoTopic() {
+        const topic = document.getElementById('topicSelect').value;
+        const output = document.getElementById('topicOutput');
+
+        output.innerHTML += `\n${'='.repeat(40)}\nEcho: ${topic}\n${'='.repeat(40)}\n`;
+
+        fetch('/api/ros2/topic/echo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic })
+        })
+        .then(r => r.json())
+        .then(data => {
+            output.innerHTML += data.success ? data.data : `오류: ${data.message}`;
+            output.innerHTML += '\n';
+            output.scrollTop = output.scrollHeight;
+        });
+    }
+
+    function getTopicInfo() {
+        const topic = document.getElementById('topicSelect').value;
+        const output = document.getElementById('topicOutput');
+
+        output.innerHTML += `\n토픽 정보: ${topic}\n`;
+        output.innerHTML += '(ROS2 topic info 명령 필요)\n';
+    }
+
+    function clearOutput() {
+        document.getElementById('topicOutput').innerHTML = '';
+    }
+
+    function loadServiceLog() {
+        const service = document.getElementById('logService').value;
+        const logEl = document.getElementById('serviceLog');
+
+        logEl.innerHTML = `${service} 로그 로딩 중...\n\n(journalctl -u ${service} -n 50 명령 필요)`;
+    }
+
+    document.addEventListener('DOMContentLoaded', loadServices);
+    setInterval(loadServices, 10000);
+</script>
+{% endblock %}

@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}체크리스트{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-check2-square"></i> 체크리스트
+                    <select class="form-select form-select-sm d-inline-block ms-2" style="width: auto;" id="checklistMode" onchange="loadChecklist()">
+                        <option value="indoor">실내 테스트 비행 전</option>
+                        <option value="outdoor">야외 비행 전</option>
+                        <option value="postflight">비행 후</option>
+                    </select>
+                </div>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="autoCheckAll()">
+                        <i class="bi bi-lightning"></i> 자동 확인
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="checkAll(true)">
+                        <i class="bi bi-check-all"></i> 모두 체크
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="checkAll(false)">
+                        <i class="bi bi-x"></i> 모두 해제
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- 진행률 -->
+                <div class="mb-4">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span>진행률</span>
+                        <span id="progressText">0/0</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar bg-success" id="progressBar" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- 체크리스트 항목들 -->
+                <div id="checklistContent">
+                    <div class="text-center text-muted py-4">로딩 중...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 안내
+            </div>
+            <div class="card-body small">
+                <p><strong>자동 확인:</strong> <i class="bi bi-lightning text-warning"></i> 아이콘이 있는 항목은 자동으로 확인 가능합니다.</p>
+                <hr>
+                <h6>모드 설명</h6>
+                <p><strong>실내 테스트:</strong> Optical Flow 기반 비행 전 점검</p>
+                <p><strong>야외 비행:</strong> GPS 기반 비행 전 점검</p>
+                <p class="mb-0"><strong>비행 후:</strong> 비행 완료 후 점검</p>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-shield-check"></i> 비행 준비 상태
+            </div>
+            <div class="card-body text-center">
+                <div id="readyStatus" class="display-6 text-secondary">
+                    <i class="bi bi-question-circle"></i>
+                </div>
+                <p id="readyText" class="text-muted">체크리스트를 완료하세요</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .checklist-section {
+        margin-bottom: 20px;
+    }
+    .checklist-section h6 {
+        background-color: #f8f9fa;
+        padding: 10px 15px;
+        margin: 0 -15px 15px -15px;
+        border-bottom: 1px solid #dee2e6;
+        font-weight: 600;
+    }
+    .checklist-item {
+        display: flex;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .checklist-item:last-child {
+        border-bottom: none;
+    }
+    .checklist-item .form-check-input {
+        width: 1.2em;
+        height: 1.2em;
+    }
+    .checklist-item label {
+        flex: 1;
+        margin-left: 10px;
+        cursor: pointer;
+    }
+    .checklist-item .auto-check {
+        margin-left: auto;
+    }
+    .check-result {
+        font-size: 0.85rem;
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+    .check-result.success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .check-result.fail {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let checklistData = [];
+
+    function loadChecklist() {
+        const mode = document.getElementById('checklistMode').value;
+
+        fetch(`/api/checklist/${mode}`)
+            .then(r => r.json())
+            .then(data => {
+                checklistData = data;
+                renderChecklist();
+            });
+    }
+
+    function renderChecklist() {
+        const container = document.getElementById('checklistContent');
+        let html = '';
+
+        checklistData.forEach(section => {
+            html += `<div class="checklist-section">
+                <h6><i class="bi bi-folder"></i> ${section.section}</h6>`;
+
+            section.items.forEach(item => {
+                html += `
+                    <div class="checklist-item">
+                        <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
+                        <label for="${item.id}">${item.text}</label>
+                        ${item.auto ? `
+                            <button class="btn btn-sm btn-outline-warning auto-check" onclick="runAutoCheck('${item.id}', '${item.check}')">
+                                <i class="bi bi-lightning"></i> 확인
+                            </button>
+                            <span class="check-result ms-2" id="${item.id}_result"></span>
+                        ` : ''}
+                    </div>
+                `;
+            });
+
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+        updateProgress();
+    }
+
+    function updateProgress() {
+        const checkboxes = document.querySelectorAll('#checklistContent input[type="checkbox"]');
+        const total = checkboxes.length;
+        const checked = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+        const percent = total > 0 ? Math.round(checked / total * 100) : 0;
+
+        document.getElementById('progressBar').style.width = `${percent}%`;
+        document.getElementById('progressText').textContent = `${checked}/${total}`;
+
+        // 준비 상태
+        const readyStatus = document.getElementById('readyStatus');
+        const readyText = document.getElementById('readyText');
+
+        if (checked === total && total > 0) {
+            readyStatus.className = 'display-6 text-success';
+            readyStatus.innerHTML = '<i class="bi bi-check-circle-fill"></i>';
+            readyText.textContent = '비행 준비 완료!';
+            readyText.className = 'text-success fw-bold';
+        } else if (percent >= 80) {
+            readyStatus.className = 'display-6 text-warning';
+            readyStatus.innerHTML = '<i class="bi bi-exclamation-circle"></i>';
+            readyText.textContent = '거의 완료됨';
+            readyText.className = 'text-warning';
+        } else {
+            readyStatus.className = 'display-6 text-secondary';
+            readyStatus.innerHTML = '<i class="bi bi-circle"></i>';
+            readyText.textContent = '체크리스트를 완료하세요';
+            readyText.className = 'text-muted';
+        }
+    }
+
+    function checkAll(checked) {
+        document.querySelectorAll('#checklistContent input[type="checkbox"]').forEach(cb => {
+            cb.checked = checked;
+        });
+        updateProgress();
+    }
+
+    function runAutoCheck(itemId, checkType) {
+        const resultEl = document.getElementById(`${itemId}_result`);
+        resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 확인 중...';
+        resultEl.className = 'check-result';
+
+        fetch(`/api/check/${checkType}`)
+            .then(r => r.json())
+            .then(data => {
+                const checkbox = document.getElementById(itemId);
+                checkbox.checked = data.success;
+
+                resultEl.textContent = data.message;
+                resultEl.className = `check-result ${data.success ? 'success' : 'fail'}`;
+
+                updateProgress();
+            })
+            .catch(() => {
+                resultEl.textContent = '오류';
+                resultEl.className = 'check-result fail';
+            });
+    }
+
+    function autoCheckAll() {
+        const autoItems = document.querySelectorAll('.auto-check');
+        autoItems.forEach(btn => btn.click());
+    }
+
+    document.addEventListener('DOMContentLoaded', loadChecklist);
+</script>
+{% endblock %}
