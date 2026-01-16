@@ -142,7 +142,12 @@
 
     <div class="col-md-6">
         <div class="card">
-            <div class="card-header"><i class="bi bi-info-circle"></i> 시스템 정보</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-info-circle"></i> 시스템 정보</span>
+                <button class="btn btn-sm btn-outline-info" onclick="loadFcVersion()">
+                    <i class="bi bi-arrow-clockwise"></i> FC 버전
+                </button>
+            </div>
             <div class="card-body">
                 <table class="table table-sm mb-0">
                     <tr>
@@ -160,6 +165,10 @@
                     <tr>
                         <td><strong>ETH0 IP</strong></td>
                         <td id="infoEth0">-</td>
+                    </tr>
+                    <tr>
+                        <td><strong>FC 펌웨어</strong></td>
+                        <td id="infoFcVersion"><span class="text-muted">-</span></td>
                     </tr>
                 </table>
             </div>
@@ -270,6 +279,24 @@
             .then(data => {
                 showToast(data.message, data.success ? 'success' : 'danger');
                 loadServices();
+            });
+    }
+
+    function loadFcVersion() {
+        const el = document.getElementById('infoFcVersion');
+        el.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split"></i> 조회 중...</span>';
+
+        fetch('/api/fc/version')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    el.innerHTML = `<span class="text-success fw-bold">${data.firmware_version}</span>`;
+                } else {
+                    el.innerHTML = `<span class="text-danger">${data.message}</span>`;
+                }
+            })
+            .catch(err => {
+                el.innerHTML = '<span class="text-danger">조회 실패</span>';
             });
     }
 

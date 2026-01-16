@@ -191,6 +191,88 @@ def api_fc_params(mode):
     return jsonify(params)
 
 
+@app.route('/api/fc/version')
+def api_fc_version():
+    """FC 펌웨어 버전 조회 API (MAVLink)"""
+    fc_ip = config_manager.get_fc_ip()
+
+    try:
+        from pymavlink import mavutil
+
+        # MAVLink 연결 (UDP)
+        connection_string = f"udpin:0.0.0.0:14550"
+        mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
+
+        # 하트비트 대기 (FC 연결 확인)
+        msg = mav.wait_heartbeat(timeout=3)
+        if not msg:
+            mav.close()
+            return jsonify({
+                "success": False,
+                "message": "FC 연결 실패 (하트비트 없음)"
+            })
+
+        # AUTOPILOT_VERSION 요청
+        mav.mav.command_long_send(
+            mav.target_system,
+            mav.target_component,
+            mavutil.mavlink.MAV_CMD_REQUEST_MESSAGE,
+            0,  # confirmation
+            mavutil.mavlink.MAVLINK_MSG_ID_AUTOPILOT_VERSION,
+            0, 0, 0, 0, 0, 0
+        )
+
+        # 응답 대기
+        version_msg = mav.recv_match(type='AUTOPILOT_VERSION', blocking=True, timeout=3)
+        mav.close()
+
+        if version_msg:
+            # 펌웨어 버전 파싱
+            fw_version = version_msg.flight_sw_version
+            major = (fw_version >> 24) & 0xFF
+            minor = (fw_version >> 16) & 0xFF
+            patch = (fw_version >> 8) & 0xFF
+            version_type = fw_version & 0xFF
+
+            type_names = {0: "dev", 64: "alpha", 128: "beta", 192: "rc", 255: "release"}
+            type_name = type_names.get(version_type, f"type{version_type}")
+
+            version_str = f"v{major}.{minor}.{patch}"
+            if version_type != 255:
+                version_str += f"-{type_name}"
+
+            # 보드 정보
+            board_version = version_msg.board_version
+
+            return jsonify({
+                "success": True,
+                "firmware_version": version_str,
+                "board_version": board_version,
+                "raw": {
+                    "flight_sw_version": fw_version,
+                    "board_version": board_version,
+                    "vendor_id": version_msg.vendor_id,
+                    "product_id": version_msg.product_id
+                }
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "버전 정보를 받지 못했습니다"
+            })
+
+    except ImportError:
+        return jsonify({
+            "success": False,
+            "message": "pymavlink이 설치되지 않았습니다"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+
 @app.route('/api/services')
 def api_services():
     """서비스 상태 API"""
@@ -198,7 +280,6 @@ def api_services():
         "micro-ros-agent",
         "mavlink-router",
         "humiro-fire-suppression",
-        "humiro-thermal-streaming",
     ]
 
     result = []
@@ -239,7 +320,6 @@ def api_service_control(action, service):
         "micro-ros-agent",
         "mavlink-router",
         "humiro-fire-suppression",
-        "humiro-thermal-streaming",
     ]
 
     if service not in allowed_services:
