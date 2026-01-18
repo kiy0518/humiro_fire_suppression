@@ -138,6 +138,28 @@ def api_status():
     })
 
 
+@app.route('/api/system/voltage')
+def api_system_voltage():
+    """VIM4 입력 전압 조회 API"""
+    try:
+        # VIM4 SARADC 채널 2가 입력 전압 (분압 비율 적용 필요)
+        with open('/sys/devices/platform/fe026000.saradc/iio:device0/in_voltage2_input', 'r') as f:
+            raw_value = int(f.read().strip())
+        # SARADC 값을 실제 전압으로 변환
+        # raw 값 범위: 0-1023 (10-bit ADC), 기준 전압: 1.8V, 분압 비율: 약 6.67
+        voltage = (raw_value / 1023.0) * 1.8 * 6.67
+        return jsonify({
+            "success": True,
+            "voltage": round(voltage, 2),
+            "raw": raw_value
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e)
+        })
+
+
 @app.route('/api/config', methods=['GET'])
 def api_get_config():
     """설정 조회 API"""
@@ -187,6 +209,20 @@ def api_fc_params(mode):
         params = config_manager.get_indoor_params()
     elif mode == "outdoor_rtk":
         params = config_manager.get_outdoor_rtk_params()
+    elif mode == "offboard_norc":
+        params = config_manager.get_offboard_norc_params()
+    elif mode == "failsafe":
+        raw_params = config_manager.get_failsafe_params()
+        # 튜플 키를 분리하여 설명 포함 형식으로 변환
+        params = []
+        for key, value in raw_params.items():
+            param_name, description = key
+            params.append({
+                "name": param_name,
+                "value": value,
+                "description": description
+            })
+        return jsonify(params)
     else:
         params = config_manager.get_outdoor_gps_params()
 

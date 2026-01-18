@@ -251,6 +251,5 @@ class SystemChecker:
             "micro-ros-agent",
             "mavlink-router",
             "humiro-fire-suppression",
-            "humiro-thermal-streaming",
         ]
         return {s: self.is_service_running(s) for s in services}

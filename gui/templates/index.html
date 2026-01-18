@@ -2,10 +2,10 @@
 {% block title %}대시보드{% endblock %}
 
 {% block content %}
-<div class="row g-4">
+<div class="row g-3">
     <!-- 상태 카드들 -->
-    <div class="col-md-3">
-        <div class="card status-card">
+    <div class="col">
+        <div class="card status-card h-100">
             <div class="status-icon text-primary" id="fcIcon">
                 <i class="bi bi-cpu"></i>
             </div>
@@ -15,8 +15,8 @@
         </div>
     </div>
 
-    <div class="col-md-3">
-        <div class="card status-card">
+    <div class="col">
+        <div class="card status-card h-100">
             <div class="status-icon text-info" id="networkIcon">
                 <i class="bi bi-ethernet"></i>
             </div>
@@ -26,9 +26,9 @@
         </div>
     </div>
 
-    <div class="col-md-3">
-        <div class="card status-card">
-            <div class="status-icon text-success" id="ros2Icon">
+    <div class="col">
+        <div class="card status-card h-100">
+            <div class="status-icon text-info" id="ros2Icon">
                 <i class="bi bi-diagram-3"></i>
             </div>
             <div class="status-value" id="ros2StatusValue">확인 중...</div>
@@ -37,14 +37,36 @@
         </div>
     </div>
 
-    <div class="col-md-3">
-        <div class="card status-card">
+    <div class="col">
+        <div class="card status-card h-100">
             <div class="status-icon text-warning" id="serviceIcon">
                 <i class="bi bi-gear-wide-connected"></i>
             </div>
             <div class="status-value" id="serviceStatusValue">0/0</div>
             <div class="status-label">서비스</div>
-            <small class="text-muted" id="serviceDetail"></small>
+            <small class="text-muted" id="serviceDetail">&nbsp;</small>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card status-card h-100">
+            <div class="status-icon text-secondary" id="fwIcon">
+                <i class="bi bi-motherboard"></i>
+            </div>
+            <div class="status-value" id="fwVersionValue">-</div>
+            <div class="status-label">FC 펌웨어</div>
+            <small class="text-muted" id="fwDetail">&nbsp;</small>
+        </div>
+    </div>
+
+    <div class="col">
+        <div class="card status-card h-100">
+            <div class="status-icon text-danger" id="voltageIcon">
+                <i class="bi bi-lightning-charge text-danger"></i>
+            </div>
+            <div class="status-value text-danger" id="voltageValue">-</div>
+            <div class="status-label">입력 전압</div>
+            <small class="text-muted">Mission Computer</small>
         </div>
     </div>
 </div>
@@ -217,9 +239,9 @@
         const ros2Icon = document.getElementById('ros2Icon');
         const ros2Value = document.getElementById('ros2StatusValue');
         if (data.ros2.running) {
-            ros2Icon.className = 'status-icon text-success';
+            ros2Icon.className = 'status-icon text-info';
             ros2Value.textContent = '실행 중';
-            ros2Value.className = 'status-value text-success';
+            ros2Value.className = 'status-value text-info';
         } else {
             ros2Icon.className = 'status-icon text-warning';
             ros2Value.textContent = '중지됨';
@@ -322,6 +344,48 @@
             });
     }
 
-    document.addEventListener('DOMContentLoaded', loadServices);
+    function loadFcVersionCard() {
+        fetch('/api/fc/version')
+            .then(r => r.json())
+            .then(data => {
+                const fwIcon = document.getElementById('fwIcon');
+                const fwValue = document.getElementById('fwVersionValue');
+                if (data.success && data.firmware_version) {
+                    fwIcon.className = 'status-icon text-success';
+                    fwValue.textContent = 'PX4 ' + data.firmware_version;
+                    fwValue.className = 'status-value text-success';
+                } else {
+                    fwIcon.className = 'status-icon text-danger';
+                    fwValue.textContent = '조회 실패';
+                    fwValue.className = 'status-value text-danger';
+                }
+            })
+            .catch(err => {
+                document.getElementById('fwVersionValue').textContent = '-';
+            });
+    }
+
+    function loadVoltage() {
+        fetch('/api/system/voltage')
+            .then(r => r.json())
+            .then(data => {
+                const voltValue = document.getElementById('voltageValue');
+                if (data.success) {
+                    voltValue.textContent = data.voltage.toFixed(2) + 'V';
+                } else {
+                    voltValue.textContent = '-';
+                }
+            })
+            .catch(err => {
+                document.getElementById('voltageValue').textContent = '-';
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadServices();
+        loadFcVersionCard();
+        loadVoltage();
+        setInterval(loadVoltage, 5000);
+    });
 </script>
 {% endblock %}

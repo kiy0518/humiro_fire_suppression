@@ -9,31 +9,49 @@
                 <i class="bi bi-airplane"></i> 비행 모드 선택
             </div>
             <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-4">
+                <div class="d-flex gap-2" style="flex-wrap: nowrap;">
+                    <div style="flex: 1; min-width: 0;">
                         <div class="card h-100 mode-card" data-mode="indoor" onclick="selectMode('indoor')">
-                            <div class="card-body text-center">
-                                <i class="bi bi-house display-4 text-primary mb-3"></i>
-                                <h5>실내 테스트</h5>
-                                <p class="text-muted small">Optical Flow + LiDAR<br>GPS 없이 실내 비행</p>
+                            <div class="card-body text-center p-2">
+                                <i class="bi bi-house fs-2 text-primary"></i>
+                                <h6 class="mb-0 mt-1">실내</h6>
+                                <p class="text-muted mb-0 small">Optical Flow<br>+ LiDAR</p>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div style="flex: 1; min-width: 0;">
                         <div class="card h-100 mode-card" data-mode="outdoor_gps" onclick="selectMode('outdoor_gps')">
-                            <div class="card-body text-center">
-                                <i class="bi bi-globe display-4 text-success mb-3"></i>
-                                <h5>야외 GPS</h5>
-                                <p class="text-muted small">GPS 기반 위치 제어<br>일반 야외 비행</p>
+                            <div class="card-body text-center p-2">
+                                <i class="bi bi-globe fs-2 text-success"></i>
+                                <h6 class="mb-0 mt-1">야외 GPS</h6>
+                                <p class="text-muted mb-0 small">GPS 기반<br>위치 제어</p>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div style="flex: 1; min-width: 0;">
                         <div class="card h-100 mode-card" data-mode="outdoor_rtk" onclick="selectMode('outdoor_rtk')">
-                            <div class="card-body text-center">
-                                <i class="bi bi-geo-alt display-4 text-warning mb-3"></i>
-                                <h5>야외 RTK</h5>
-                                <p class="text-muted small">RTK GPS 정밀 제어<br>센티미터 정밀도</p>
+                            <div class="card-body text-center p-2">
+                                <i class="bi bi-geo-alt fs-2 text-warning"></i>
+                                <h6 class="mb-0 mt-1">야외 RTK</h6>
+                                <p class="text-muted mb-0 small">RTK GPS<br>정밀 제어</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="card h-100 mode-card" data-mode="offboard_norc" onclick="selectMode('offboard_norc')">
+                            <div class="card-body text-center p-2">
+                                <i class="bi bi-controller fs-2 text-danger"></i>
+                                <h6 class="mb-0 mt-1">RC 없음</h6>
+                                <p class="text-muted mb-0 small">OFFBOARD<br>모드 전용</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div class="card h-100 mode-card" data-mode="failsafe" onclick="selectMode('failsafe')">
+                            <div class="card-body text-center p-2">
+                                <i class="bi bi-shield-exclamation fs-2 text-info"></i>
+                                <h6 class="mb-0 mt-1">페일세이프</h6>
+                                <p class="text-muted mb-0 small">두절 시<br>동작 설정</p>
                             </div>
                         </div>
                     </div>
@@ -41,7 +59,7 @@
 
                 <hr class="my-4">
 
-                <h6 class="section-title"><i class="bi bi-sliders"></i> FC 파라미터 (선택 모드: <span id="selectedMode">-</span>)</h6>
+                <h6 class="section-title"><i class="bi bi-sliders"></i> FC 파라미터 (선택 모드: <span id="selectedMode">-</span>)<span id="opticalFlowInfo"></span></h6>
 
                 <div class="table-responsive">
                     <table class="table table-sm">
@@ -59,43 +77,14 @@
                         </tbody>
                     </table>
                 </div>
+
+                <div class="alert alert-warning mt-3 mb-0">
+                    <i class="bi bi-info-circle"></i>
+                    위 파라미터를 <strong>QGC</strong>에서 수동으로 설정하세요.
+                </div>
             </div>
         </div>
 
-        <!-- 페일세이프 설정 -->
-        <div class="card mt-4">
-            <div class="card-header">
-                <i class="bi bi-shield-exclamation"></i> 페일세이프 설정
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label">OFFBOARD 두절 시</label>
-                        <select class="form-select" id="offboardAction">
-                            <option value="0">0 - Position 모드</option>
-                            <option value="1">1 - Altitude 모드</option>
-                            <option value="2">2 - Manual 모드</option>
-                            <option value="3">3 - RTL (복귀)</option>
-                            <option value="4">4 - Land (착륙)</option>
-                            <option value="5" selected>5 - Hold (Loiter)</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label">RC 두절 시</label>
-                        <select class="form-select" id="rcAction">
-                            <option value="0">0 - 무시</option>
-                            <option value="1">1 - Hold</option>
-                            <option value="2" selected>2 - RTL</option>
-                            <option value="3">3 - Land</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="alert alert-info mt-3 mb-0">
-                    <i class="bi bi-lightbulb"></i>
-                    <strong>권장:</strong> 실내 → Land, 야외 → RTL
-                </div>
-            </div>
-        </div>
     </div>
 
     <div class="col-md-4">
@@ -114,13 +103,14 @@
             </div>
             <div class="card-body">
                 <ul class="mb-0 small">
-                    <li>파라미터 변경 후 FC 재부팅 필요</li>
-                    <li>QGC에서 파라미터 수동 설정 필요</li>
+                    <li>파라미터는 <strong>QGC에서 수동 설정</strong> 필요</li>
+                    <li>파라미터 변경 후 <strong>FC 재부팅 필요</strong></li>
                     <li>실내 비행 시 GPS 비활성화 필수</li>
                     <li>야외 비행 시 GPS Fix 확인 필수</li>
                 </ul>
             </div>
         </div>
+
     </div>
 </div>
 
@@ -188,10 +178,55 @@
                 <li>RTK GPS 모듈</li>
                 <li>베이스스테이션 또는 NTRIP</li>
             </ul>
+        `,
+        offboard_norc: `
+            <h6><i class="bi bi-controller text-danger"></i> RC 없이 OFFBOARD 모드</h6>
+            <p>조종기 없이 OFFBOARD 모드만 사용</p>
+            <ul class="small">
+                <li>RC 연결 없이 비행 가능</li>
+                <li>컴패니언 컴퓨터로만 제어</li>
+                <li>자율 비행 전용</li>
+            </ul>
+            <hr>
+            <strong class="text-danger">주의사항:</strong>
+            <ul class="small mb-0">
+                <li>비상 시 수동 제어 불가</li>
+                <li>OFFBOARD 두절 시 자동 착륙</li>
+                <li>충분한 테스트 필수</li>
+            </ul>
+        `,
+        failsafe: `
+            <h6><i class="bi bi-shield-exclamation text-info"></i> 페일세이프 권장 설정</h6>
+            <p>두절 상황 시 자동 동작 설정</p>
+            <table class="table table-sm small">
+                <thead><tr><th>상황</th><th>실내</th><th>야외</th></tr></thead>
+                <tbody>
+                    <tr><td>RC 두절</td><td class="text-success">Land (3)</td><td class="text-primary">RTL (2)</td></tr>
+                    <tr><td>OFFBOARD 두절</td><td class="text-success">Land (4)</td><td class="text-primary">RTL (3)</td></tr>
+                    <tr><td>Data Link 두절</td><td class="text-success">Land (3)</td><td class="text-primary">RTL (2)</td></tr>
+                    <tr><td>배터리 저전압</td><td class="text-success">Land (1)</td><td class="text-primary">RTL or Land (3)</td></tr>
+                </tbody>
+            </table>
+            <hr>
+            <strong>판정 시간:</strong>
+            <ul class="small">
+                <li>RC 두절: 0.5초</li>
+                <li>OFFBOARD 두절: 1.0초</li>
+                <li>Data Link 두절: 10초</li>
+            </ul>
+            <strong>배터리 임계값:</strong>
+            <ul class="small mb-0">
+                <li>저전압 (Warning): 15%</li>
+                <li>위험 (Critical): 10%</li>
+                <li>비상 (Emergency): 5%</li>
+            </ul>
         `
     };
 
+    let currentMode = null;
+
     function selectMode(mode) {
+        currentMode = mode;
         document.querySelectorAll('.mode-card').forEach(card => {
             card.classList.remove('selected');
         });
@@ -200,11 +235,12 @@
         document.getElementById('selectedMode').textContent = mode;
         document.getElementById('modeDescription').innerHTML = modeDescriptions[mode];
 
-        // 페일세이프 권장 설정
+        // 옵티컬플로 정보 표시 (실내 모드만)
+        const opticalFlowInfo = document.getElementById('opticalFlowInfo');
         if (mode === 'indoor') {
-            document.getElementById('offboardAction').value = '4';  // Land
+            opticalFlowInfo.innerHTML = ', <span class="text-primary">옵티컬플로 설정 포함 (모델: MTF-01)</span>';
         } else {
-            document.getElementById('offboardAction').value = '3';  // RTL
+            opticalFlowInfo.innerHTML = '';
         }
 
         // 파라미터 로드
@@ -213,21 +249,52 @@
             .then(params => {
                 const tbody = document.getElementById('paramsTable');
                 const descriptions = {
+                    'EKF2_BARO_CTRL': '-',
                     'EKF2_GPS_CTRL': 'GPS 융합 제어',
                     'EKF2_OF_CTRL': 'Optical Flow 융합',
                     'EKF2_RNG_CTRL': 'Range Finder 융합',
                     'EKF2_HGT_REF': '고도 기준 소스',
-                    'SYS_HAS_GPS': 'GPS 존재 여부',
-                    'GPS_1_CONFIG': 'GPS 포트 설정'
+                    'EKF2_RNG_A_HMAX': '-',
+                    'GPS_1_CONFIG': 'GPS 포트 설정',
+                    'GPS_1_PROTOCOL': 'GPS 프로토콜',
+                    'GPS_UBX_MODE': 'u-blox RTK 모드',
+                    'SENS_FLOW_ROT': '-',
+                    'MAV_1_CONFIG': 'FC 재부팅 필요',
+                    'MAV_1_MODE': '-',
+                    'SER_TEL3_BAUD': '-',
+                    'COM_RCL_EXCEPT': 'RC 두절 예외 모드',
+                    'COM_RC_IN_MODE': 'RC 입력 모드',
+                    'COM_OBL_RC_ACT': 'OFFBOARD 두절 시 동작',
+                    'COM_OF_LOSS_T': 'OFFBOARD 두절 판정 시간',
+                    'NAV_RCL_ACT': 'RC 두절 시 동작',
+                    'COM_RC_LOSS_T': 'RC 두절 판정 시간'
                 };
 
-                tbody.innerHTML = Object.entries(params).map(([key, value]) => `
-                    <tr>
-                        <td><code>${key}</code></td>
-                        <td><strong>${value}</strong></td>
-                        <td class="text-muted small">${descriptions[key] || '-'}</td>
-                    </tr>
-                `).join('');
+                // failsafe 모드는 배열 형식으로 반환됨
+                if (mode === 'failsafe' && Array.isArray(params)) {
+                    tbody.innerHTML = params.map(item => `
+                        <tr>
+                            <td><code>${item.name}</code></td>
+                            <td><strong>${item.value}</strong></td>
+                            <td class="small">${item.description}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = Object.entries(params).map(([key, value]) => {
+                        let description = descriptions[key] || '-';
+                        // 야외 GPS 모드에서 EKF2_HGT_REF에 붉은색 추가 정보 표시
+                        if (key === 'EKF2_HGT_REF' && currentMode === 'outdoor_gps') {
+                            description += '<br><span class="text-danger">(RANGE SENSOR 선택도 가능)</span>';
+                        }
+                        return `
+                            <tr>
+                                <td><code>${key}</code></td>
+                                <td><strong>${value}</strong></td>
+                                <td class="small">${description}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
             });
     }
 

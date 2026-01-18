@@ -150,6 +150,7 @@ class ConfigManager:
 
     def get_indoor_params(self) -> Dict[str, Any]:
         """실내 테스트 모드 파라미터 (PX4 v1.15.0)
+        MTF-01 옵티컬플로 센서 설정 포함
 
         v1.14 이후 변경사항:
         - EKF2_AID_MASK 삭제됨 → 개별 _CTRL 파라미터로 분리
@@ -158,31 +159,20 @@ class ConfigManager:
         """
         return {
             # === EKF2 센서 융합 제어 (v1.15.0) ===
-            # GPS 비활성화
             "EKF2_GPS_CTRL": 0,  # GPS 융합 비활성화
-
-            # Optical Flow 활성화
-            "EKF2_OF_CTRL": 1,  # Optical Flow 융합 활성화
-
-            # Range Finder 활성화
-            "EKF2_RNG_CTRL": 2,  # 2=Enabled (항상 활성화), 1=Conditional
-
-            # 고도 기준 설정
-            "EKF2_HGT_REF": 2,  # 0=Baro, 1=GPS, 2=Range sensor, 3=Vision
-
-            # === Optical Flow 파라미터 ===
-            "EKF2_OF_DELAY": 20,  # OF 지연 (ms)
-            "EKF2_OF_QMIN": 1,  # 최소 품질 (1-255)
-            "EKF2_OF_N_MIN": 0.15,  # 최소 노이즈 (rad/s)
-            "EKF2_OF_N_MAX": 0.5,  # 최대 노이즈 (rad/s)
-
-            # === Range Finder 파라미터 ===
-            "EKF2_RNG_A_HMAX": 5.0,  # Range aid 최대 고도 (m)
-            "EKF2_RNG_NOISE": 0.1,  # Range 노이즈 (m)
+            "EKF2_HGT_REF": "Range sensor",  # 고도 기준: Range sensor
+            "EKF2_OF_CTRL": "Enabled",  # Optical Flow 융합 활성화
+            "EKF2_RNG_A_HMAX": 8,  # Range aid 최대 고도 (m)
+            "EKF2_RNG_CTRL": "Enabled",  # Range Finder 융합 활성화
 
             # === 센서 설정 ===
-            "SENS_FLOW_ROT": 0,  # Optical Flow 센서 회전 (0=No rotation)
             "GPS_1_CONFIG": 0,  # GPS 포트 비활성화
+            "SENS_FLOW_ROT": "No rotation",  # Optical Flow 센서 회전 (기본 방향)
+
+            # === MTF-01 옵티컬플로 센서 (MAVLink) ===
+            "MAV_1_CONFIG": "TELEM3",  # MAVLink 포트
+            "MAV_1_MODE": "Normal",  # MAVLink 모드
+            "SER_TEL3_BAUD": "115200 8N1",  # 시리얼 통신 속도
         }
 
     def get_outdoor_gps_params(self) -> Dict[str, Any]:
@@ -201,51 +191,58 @@ class ConfigManager:
         """
         return {
             # === EKF2 센서 융합 제어 (v1.15.0) ===
-            # GPS 활성화: 1(Lon/Lat) + 2(Alt) + 4(Vel) = 7
-            "EKF2_GPS_CTRL": 7,  # GPS 위치/고도/속도 융합
-
-            # Optical Flow 비활성화
-            "EKF2_OF_CTRL": 0,  # Optical Flow 융합 비활성화
-
-            # Range Finder 비활성화 (야외에서는 불필요)
-            "EKF2_RNG_CTRL": 0,  # Range Finder 융합 비활성화
-
-            # 고도 기준 설정
-            "EKF2_HGT_REF": 1,  # 0=Baro, 1=GPS, 2=Range, 3=Vision
+            "EKF2_BARO_CTRL": 1,  # Barometer 융합 활성화
+            "EKF2_GPS_CTRL": 7,  # GPS 위치/고도/속도 융합 (1+2+4)
+            "EKF2_HGT_REF": "GPS",  # 고도 기준: GPS (Range sensor도 가능)
+            "EKF2_OF_CTRL": "Disable",  # Optical Flow 융합 비활성화
+            "EKF2_RNG_CTRL": 2,  # Conditional range aiding (조건부 Range 융합)
 
             # === GPS 파라미터 ===
-            "GPS_1_CONFIG": 201,  # GPS UART 포트 (TELEM2)
-            "EKF2_GPS_DELAY": 110,  # GPS 지연 (ms)
-
-            # === Barometer (백업용) ===
-            "EKF2_BARO_CTRL": 1,  # Barometer 융합 활성화 (백업)
+            "GPS_1_CONFIG": "GPS1",  # GPS 포트 설정
         }
 
     def get_outdoor_rtk_params(self) -> Dict[str, Any]:
         """야외 RTK-GPS 모드 파라미터 (PX4 v1.15.0)
 
-        RTK GPS는 Dual antenna heading 지원 시:
-        - EKF2_GPS_CTRL = 15 (1+2+4+8)로 설정하여 GPS Yaw 사용
+        야외 GPS 기반 + RTK 프로토콜 설정 추가
 
-        v1.14 이후 변경사항:
-        - EKF2_AID_MASK 삭제됨 → EKF2_GPS_CTRL 사용
-        - GPS Yaw는 bit 3 (8) 추가로 활성화
+        GPS_1_PROTOCOL: 0=Auto, 1=u-blox, 2=MTK, 3=Ashtech/Trimble, 4=Emlid, 5=Femtomes, 6=NMEA
+        GPS_UBX_MODE: 0=Default(RTK포함), 1=Heading Rover, 2=Moving Base, 3=Heading 921600, 4=Moving Base 921600, 5=Static Base UART2
         """
         params = self.get_outdoor_gps_params()
         params.update({
-            # === RTK GPS 설정 ===
-            # GPS 융합: 1(Lon/Lat) + 2(Alt) + 4(Vel) + 8(Yaw) = 15
-            "EKF2_GPS_CTRL": 15,  # Dual antenna heading 포함
-
-            # GPS 프로토콜 설정
-            "GPS_1_PROTOCOL": 1,  # 1=uBlox
-            "GPS_UBX_MODE": 2,  # 2=RTK Float/Fixed
-
-            # RTK 정확도 설정
-            "EKF2_GPS_P_NOISE": 0.5,  # GPS 위치 노이즈 (m) - RTK용 낮은 값
-            "EKF2_GPS_V_NOISE": 0.3,  # GPS 속도 노이즈 (m/s)
+            # RTK GPS 프로토콜 설정
+            "GPS_1_PROTOCOL": 1,  # 1=u-blox
+            "GPS_UBX_MODE": 0,  # 0=Default (RTK 포함)
         })
         return params
+
+    def get_offboard_norc_params(self) -> Dict[str, Any]:
+        """RC 없이 OFFBOARD 모드 파라미터 (PX4 v1.15.0)
+
+        조종기 없이 OFFBOARD 모드로만 비행할 때 사용
+
+        COM_RCL_EXCEPT: RC 두절 예외 (비트마스크)
+        - bit 0 (1): Mission mode
+        - bit 1 (2): Hold mode
+        - bit 2 (4): Offboard mode
+
+        COM_RC_IN_MODE: RC 입력 모드
+        - 0: RC Transmitter only (RC 필수)
+        - 1: RC 선택 (Joystick에서 스틱 입력)
+        - 2: Virtual RC by Joystick (가상 RC)
+        - 3: RC Scan (RC 연결 전 대기)
+        - 4: RC not required (RC 불필요)
+        """
+        return {
+            # RC 없이 OFFBOARD 모드 사용 설정
+            "COM_RCL_EXCEPT": 4,  # OFFBOARD 모드에서 RC 두절 페일세이프 예외
+            "COM_RC_IN_MODE": 4,  # RC not required (RC 불필요)
+
+            # OFFBOARD 페일세이프 설정
+            "COM_OBL_RC_ACT": 4,  # OFFBOARD 두절 시 Land (착륙)
+            "COM_OF_LOSS_T": 1.0,  # OFFBOARD 두절 판정 시간 (초)
+        }
 
     def save_fc_params_preset(self, name: str, params: Dict[str, Any]) -> bool:
         """FC 파라미터 프리셋 저장"""
@@ -300,35 +297,56 @@ class ConfigManager:
     # === 페일세이프 설정 ===
 
     def get_failsafe_params(self) -> Dict[str, Any]:
-        """기본 페일세이프 파라미터"""
+        """페일세이프 권장 설정 파라미터 (PX4 v1.15.0)
+
+        실내/야외 공통 권장 설정
+
+        NAV_RCL_ACT: RC 두절 시 동작
+        - 0: 경고만
+        - 1: Hold mode
+        - 2: RTL (야외 권장)
+        - 3: Land (실내 권장)
+        - 5: Disarm
+        - 6: Terminate
+
+        COM_OBL_RC_ACT: OFFBOARD 두절 시 동작
+        - 0: Position mode
+        - 1: Altitude mode
+        - 2: Manual mode
+        - 3: RTL (야외 권장)
+        - 4: Land (실내 권장)
+        - 5: Hold (Loiter)
+
+        NAV_DLL_ACT: Data Link (통신) 두절 시 동작
+        - 0: Disabled (비활성화)
+        - 1: Hold mode
+        - 2: RTL (야외 권장)
+        - 3: Land (실내 권장)
+        - 5: Disarm
+        - 6: Terminate
+
+        COM_LOW_BAT_ACT: 배터리 저전압 시 동작
+        - 0: 경고만
+        - 1: Land (실내 권장)
+        - 2: RTL (야외 권장)
+        - 3: RTL or Land (RTL 가능시 RTL, 아니면 Land)
+        """
         return {
-            # OFFBOARD 모드 페일세이프
-            "COM_OBL_RC_ACT": 5,  # OFFBOARD 두절 시 → Hold (Loiter)
-            "COM_OF_LOSS_T": 1.0,  # OFFBOARD 두절 판정 시간 (초)
+            # === RC 페일세이프 ===
+            ("NAV_RCL_ACT", "RC 두절 시 동작"): "실내:3(Land) / 야외:2(RTL)",
+            ("COM_RC_LOSS_T", "RC 두절 판정 시간"): 0.5,
 
-            # RC 페일세이프
-            "COM_RC_LOSS_T": 0.5,  # RC 두절 판정 시간 (초)
-            "NAV_RCL_ACT": 2,  # RC 두절 시 → RTL
+            # === OFFBOARD 페일세이프 ===
+            ("COM_OBL_RC_ACT", "OFFBOARD 두절 시 동작"): "실내:4(Land) / 야외:3(RTL)",
+            ("COM_OF_LOSS_T", "OFFBOARD 두절 판정 시간"): 1.0,
 
-            # 데이터링크 페일세이프
-            "NAV_DLL_ACT": 0,  # 데이터링크 두절 시 → 동작 없음
-            "COM_DL_LOSS_T": 10,  # 데이터링크 두절 판정 시간 (초)
+            # === Data Link (통신) 페일세이프 ===
+            ("NAV_DLL_ACT", "Data Link 두절 시 동작"): "실내:3(Land) / 야외:2(RTL)",
+            ("COM_DL_LOSS_T", "Data Link 두절 판정 시간"): 10,
 
-            # 배터리 페일세이프
-            "COM_LOW_BAT_ACT": 3,  # 저전압 시 → RTL
-            "BAT_LOW_THR": 0.15,  # 15% 이하 경고
-            "BAT_CRIT_THR": 0.07,  # 7% 이하 긴급 착륙
-            "BAT_EMERGEN_THR": 0.05,  # 5% 이하 즉시 착륙
+            # === 배터리 페일세이프 ===
+            ("COM_LOW_BAT_ACT", "배터리 저전압 시 동작"): "실내:1(Land) / 야외:3(RTL or Land)",
+            ("BAT_LOW_THR", "저전압 임계값 (%)"): 15,
+            ("BAT_CRIT_THR", "위험 전압 임계값 (%)"): 10,
+            ("BAT_EMERGEN_THR", "비상 전압 임계값 (%)"): 5,
         }
-
-    def get_indoor_failsafe_params(self) -> Dict[str, Any]:
-        """실내 페일세이프 파라미터"""
-        params = self.get_failsafe_params()
-        params["COM_OBL_RC_ACT"] = 4  # Land (실내에서는 착륙)
-        return params
-
-    def get_outdoor_failsafe_params(self) -> Dict[str, Any]:
-        """야외 페일세이프 파라미터"""
-        params = self.get_failsafe_params()
-        params["COM_OBL_RC_ACT"] = 3  # RTL (야외에서는 복귀)
-        return params
