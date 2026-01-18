@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 
 # 프로젝트 경로 설정
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -187,16 +187,22 @@ def build_page():
     return render_template('build.html', active_tab='build')
 
 
-@app.route('/monitor')
-def monitor_page():
-    """모니터 페이지"""
-    return render_template('monitor.html', active_tab='monitor')
-
-
 @app.route('/terminal')
 def terminal_page():
     """웹 터미널 페이지"""
     return render_template('terminal.html', active_tab='terminal')
+
+
+@app.route('/router')
+def router_page():
+    """MAVLink 라우터 페이지"""
+    return render_template('router.html', active_tab='router')
+
+
+@app.route('/micro-ros')
+def micro_ros_page():
+    """micro-ros-agent 테스트 페이지"""
+    return render_template('micro_ros.html', active_tab='micro-ros')
 
 
 # ==================== API 라우트 ====================
@@ -771,6 +777,495 @@ def api_drone_ping(ip):
             "message": str(e),
             "ip": ip
         })
+
+
+def parse_mavlink_router_config():
+    """mavlink-router 설정 파일 파싱"""
+    config_path = '/etc/mavlink-router/main.conf'
+    endpoints = []
+    general = {}
+
+    try:
+        with open(config_path, 'r') as f:
+            current_section = None
+            current_data = {}
+
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                # 섹션 헤더
+                if line.startswith('[') and line.endswith(']'):
+                    # 이전 섹션 저장
+                    if current_section:
+                        if current_section == 'General':
+                            general = current_data.copy()
+                        else:
+                            current_data['section'] = current_section
+                            endpoints.append(current_data.copy())
+
+                    current_section = line[1:-1]
+                    current_data = {}
+                elif '=' in line:
+                    key, value = line.split('=', 1)
+                    current_data[key.strip()] = value.strip()
+
+            # 마지막 섹션 저장
+            if current_section:
+                if current_section == 'General':
+                    general = current_data.copy()
+                else:
+                    current_data['section'] = current_section
+                    endpoints.append(current_data.copy())
+
+    except Exception as e:
+        print(f"설정 파일 파싱 오류: {e}")
+
+    return general, endpoints
+
+
+@app.route('/api/router/config')
+def api_router_config():
+    """MAVLink 라우터 설정 파일 API"""
+    general, endpoints = parse_mavlink_router_config()
+
+    # 엔드포인트 정보 정리
+    nodes = []
+    for ep in endpoints:
+        section = ep.get('section', '')
+        # UdpEndpoint NAME 형식에서 이름 추출
+        if section.startswith('UdpEndpoint '):
+            name = section.replace('UdpEndpoint ', '')
+            node = {
+                'id': name.lower().replace(' ', '_'),
+                'name': name,
+                'type': 'udp',
+                'port': int(ep.get('Port', 0)),
+                'address': ep.get('Address', ''),
+                'mode': ep.get('Mode', 'Normal'),
+                'direction': 'in' if ep.get('Mode') == 'Server' else 'out'
+            }
+            nodes.append(node)
+        elif section.startswith('TcpEndpoint '):
+            name = section.replace('TcpEndpoint ', '')
+            node = {
+                'id': name.lower().replace(' ', '_'),
+                'name': name,
+                'type': 'tcp',
+                'port': int(ep.get('Port', 0)),
+                'address': ep.get('Address', ''),
+                'mode': ep.get('Mode', 'Normal'),
+                'direction': 'both'
+            }
+            nodes.append(node)
+
+    # TCP 서버 포트 추가 (General 섹션)
+    tcp_port = int(general.get('TcpServerPort', 5790))
+
+    return jsonify({
+        'general': general,
+        'tcp_server_port': tcp_port,
+        'nodes': nodes
+    })
+
+
+@app.route('/api/router/status')
+def api_router_status():
+    """MAVLink 라우터 상태 API"""
+    import socket
+
+    # 서비스 실행 상태
+    service_running = system_checker.is_service_running("mavlink-router")
+
+    # 설정 파일에서 엔드포인트 정보 가져오기
+    general, endpoints = parse_mavlink_router_config()
+    tcp_server_port = int(general.get('TcpServerPort', 5790))
+
+    # ss 명령 한 번만 실행
+    try:
+        ss_result = subprocess.run(
+            ['ss', '-uln'],
+            capture_output=True, text=True, timeout=2
+        )
+        ss_output = ss_result.stdout
+    except:
+        ss_output = ''
+
+    # 각 포트 상태 확인
+    ports = {}
+
+    for ep in endpoints:
+        section = ep.get('section', '')
+        if section.startswith('UdpEndpoint '):
+            name = section.replace('UdpEndpoint ', '')
+            port_id = name.lower().replace(' ', '_')
+            port_num = int(ep.get('Port', 0))
+            mode = ep.get('Mode', 'Normal')
+
+            ports[port_id] = {'connected': False, 'message': '', 'port': port_num}
+
+            if mode == 'Server':
+                # Server 모드: 포트 리슨 상태 확인
+                if f':{port_num}' in ss_output:
+                    ports[port_id]['connected'] = True
+                    ports[port_id]['message'] = '수신 대기 중'
+            else:
+                # Normal 모드 (브로드캐스트/유니캐스트): 서비스 실행 여부로 판단
+                ports[port_id]['connected'] = service_running
+                ports[port_id]['message'] = '송신 중' if service_running else ''
+
+    # TCP 서버 상태
+    ports['tcp'] = {'connected': False, 'message': '', 'port': tcp_server_port}
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('127.0.0.1', tcp_server_port))
+        sock.close()
+        ports['tcp']['connected'] = (result == 0)
+        ports['tcp']['message'] = '연결 가능' if result == 0 else '연결 불가'
+    except:
+        pass
+
+    return jsonify({
+        "service_running": service_running,
+        "ports": ports
+    })
+
+
+@app.route('/api/router/test/<port_id>')
+def api_router_test(port_id):
+    """개별 포트 연결 테스트 API"""
+    import socket
+
+    # 설정 파일에서 포트 정보 가져오기
+    general, endpoints = parse_mavlink_router_config()
+    tcp_server_port = int(general.get('TcpServerPort', 5790))
+
+    # TCP 서버 테스트
+    if port_id == 'tcp':
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('127.0.0.1', tcp_server_port))
+            sock.close()
+            if result == 0:
+                return jsonify({'connected': True, 'message': 'TCP 연결 성공'})
+            else:
+                return jsonify({'connected': False, 'message': 'TCP 연결 실패'})
+        except Exception as e:
+            return jsonify({'connected': False, 'message': str(e)})
+
+    # UDP 엔드포인트 찾기
+    for ep in endpoints:
+        section = ep.get('section', '')
+        if section.startswith('UdpEndpoint '):
+            name = section.replace('UdpEndpoint ', '')
+            ep_id = name.lower().replace(' ', '_')
+
+            if ep_id == port_id:
+                port_num = int(ep.get('Port', 0))
+                mode = ep.get('Mode', 'Normal')
+
+                if mode == 'Server':
+                    # Server 모드: 포트 리슨 상태 확인
+                    try:
+                        result = subprocess.run(
+                            ['ss', '-uln'],
+                            capture_output=True, text=True, timeout=2
+                        )
+                        if f':{port_num}' in result.stdout:
+                            return jsonify({'connected': True, 'message': 'UDP 포트 활성'})
+                        else:
+                            return jsonify({'connected': False, 'message': 'UDP 포트 비활성'})
+                    except Exception as e:
+                        return jsonify({'connected': False, 'message': str(e)})
+                else:
+                    # Normal 모드: 서비스 실행 여부로 판단
+                    if system_checker.is_service_running("mavlink-router"):
+                        return jsonify({'connected': True, 'message': '브로드캐스트/유니캐스트 송신 중'})
+                    else:
+                        return jsonify({'connected': False, 'message': '서비스 중지됨'})
+
+    return jsonify({'connected': False, 'message': '알 수 없는 포트'})
+
+
+# ==================== micro-ros-agent API ====================
+
+@app.route('/api/micro-ros/status')
+def api_micro_ros_status():
+    """micro-ros-agent 종합 상태 API"""
+    # 서비스 상태
+    service_running = system_checker.is_service_running("micro-ros-agent")
+
+    # UDP 포트 8888 리슨 상태 확인
+    port_listening = False
+    try:
+        result = subprocess.run(
+            ['ss', '-uln'],
+            capture_output=True, text=True, timeout=2
+        )
+        port_listening = ':8888' in result.stdout
+    except:
+        pass
+
+    # ROS2 토픽 목록
+    topics = system_checker.get_ros2_topics()
+
+    # FC 관련 토픽 필터링
+    fc_topics = [t for t in topics if 'fmu' in t.lower() or 'px4' in t.lower()]
+
+    return jsonify({
+        "service_running": service_running,
+        "port_listening": port_listening,
+        "dds_connected": len(fc_topics) > 0,
+        "topic_count": len(topics),
+        "fc_topic_count": len(fc_topics)
+    })
+
+
+@app.route('/api/micro-ros/topics')
+def api_micro_ros_topics():
+    """ROS2 토픽 목록 API"""
+    topics = system_checker.get_ros2_topics()
+
+    # 토픽 분류
+    categorized = {
+        'fc': [],      # FC(PX4) 관련
+        'sensor': [],  # 센서 관련
+        'control': [], # 제어 관련
+        'other': []    # 기타
+    }
+
+    for topic in topics:
+        topic_lower = topic.lower()
+        if 'fmu' in topic_lower or 'px4' in topic_lower:
+            categorized['fc'].append(topic)
+        elif any(s in topic_lower for s in ['sensor', 'imu', 'gps', 'baro', 'mag', 'flow', 'range', 'lidar']):
+            categorized['sensor'].append(topic)
+        elif any(s in topic_lower for s in ['control', 'cmd', 'setpoint', 'attitude', 'position', 'velocity']):
+            categorized['control'].append(topic)
+        else:
+            categorized['other'].append(topic)
+
+    return jsonify({
+        "total": len(topics),
+        "topics": topics,
+        "categorized": categorized
+    })
+
+
+@app.route('/api/micro-ros/topic/<path:topic_name>')
+def api_micro_ros_topic_info(topic_name):
+    """특정 토픽 정보 API"""
+    topic_name = '/' + topic_name if not topic_name.startswith('/') else topic_name
+
+    # ROS2 환경 소스 명령
+    ros2_source = "source /opt/ros/humble/setup.bash && "
+
+    # 토픽 타입 확인
+    try:
+        result = subprocess.run(
+            ['bash', '-c', f'{ros2_source}ros2 topic info {topic_name}'],
+            capture_output=True, text=True, timeout=5,
+            env={**os.environ, 'ROS_DOMAIN_ID': '0'}
+        )
+        info = result.stdout.strip()
+
+        # Hz 측정은 터미널에서 직접 실행하도록 변경
+        # 웹에서는 토픽 정보만 표시
+
+        return jsonify({
+            "success": True,
+            "topic": topic_name,
+            "info": info
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "topic": topic_name,
+            "message": "토픽 정보 조회 시간 초과"
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "topic": topic_name,
+            "message": str(e)
+        })
+
+
+# 현재 실행 중인 토픽 echo 프로세스
+_topic_echo_process = None
+_topic_echo_lock = threading.Lock()
+
+
+@app.route('/api/micro-ros/topic-stream/<path:topic_name>')
+def api_micro_ros_topic_stream(topic_name):
+    """토픽 데이터 스트리밍 API (SSE)"""
+    global _topic_echo_process
+
+    topic_name = '/' + topic_name if not topic_name.startswith('/') else topic_name
+    # px4_msgs를 사용하려면 px4_ros2_ws도 source 필요
+    ros2_source = "source /opt/ros/humble/setup.bash && source /home/khadas/humiro_fire_suppression/workspaces/px4_ros2_ws/install/setup.bash 2>/dev/null && "
+
+    def generate():
+        global _topic_echo_process
+
+        # 이전 프로세스 종료
+        with _topic_echo_lock:
+            if _topic_echo_process and _topic_echo_process.poll() is None:
+                _topic_echo_process.terminate()
+                try:
+                    _topic_echo_process.wait(timeout=2)
+                except:
+                    _topic_echo_process.kill()
+
+        # 새 프로세스 시작
+        try:
+            proc = subprocess.Popen(
+                ['bash', '-c', f'{ros2_source}ros2 topic echo {topic_name}'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env={**os.environ, 'ROS_DOMAIN_ID': '0', 'PYTHONUNBUFFERED': '1'}
+            )
+            with _topic_echo_lock:
+                _topic_echo_process = proc
+
+            # 시작 메시지
+            yield f"data: === ros2 topic echo {topic_name} ===\n\n"
+
+            # 출력 스트리밍 (1개 메시지만)
+            msg_count = 0
+            max_messages = 1
+            while proc.poll() is None and msg_count < max_messages:
+                line = proc.stdout.readline()
+                if line:
+                    clean_line = line.rstrip('\n\r')
+                    yield f"data: {clean_line}\n\n"
+                    # '---' 구분자로 메시지 카운트
+                    if clean_line == '---':
+                        msg_count += 1
+
+            # 종료 메시지
+            yield f"data: === {msg_count}개 메시지 출력 완료 ===\n\n"
+            proc.terminate()
+
+        except GeneratorExit:
+            # 클라이언트 연결 종료
+            with _topic_echo_lock:
+                if _topic_echo_process and _topic_echo_process.poll() is None:
+                    _topic_echo_process.terminate()
+        except Exception as e:
+            yield f"data: [오류] {str(e)}\n\n"
+        finally:
+            with _topic_echo_lock:
+                if _topic_echo_process and _topic_echo_process.poll() is None:
+                    _topic_echo_process.terminate()
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+
+
+@app.route('/api/micro-ros/topic-stop')
+def api_micro_ros_topic_stop():
+    """토픽 스트리밍 중지 API"""
+    global _topic_echo_process
+
+    with _topic_echo_lock:
+        if _topic_echo_process and _topic_echo_process.poll() is None:
+            _topic_echo_process.terminate()
+            try:
+                _topic_echo_process.wait(timeout=2)
+            except:
+                _topic_echo_process.kill()
+            _topic_echo_process = None
+            return jsonify({"success": True, "message": "스트리밍 중지됨"})
+
+    return jsonify({"success": True, "message": "실행 중인 스트리밍 없음"})
+
+
+@app.route('/api/micro-ros/logs')
+def api_micro_ros_logs():
+    """micro-ros-agent 서비스 로그 API"""
+    lines = request.args.get('lines', '50')
+
+    try:
+        result = subprocess.run(
+            ['journalctl', '-u', 'micro-ros-agent', '-n', lines, '--no-pager'],
+            capture_output=True, text=True, timeout=5
+        )
+        logs = result.stdout.strip()
+
+        return jsonify({
+            "success": True,
+            "logs": logs
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "logs": "",
+            "message": str(e)
+        })
+
+
+@app.route('/api/micro-ros/connection-test')
+def api_micro_ros_connection_test():
+    """FC ↔ Agent ↔ ROS2 연결 진단 API"""
+    results = {
+        "service": {"status": False, "message": ""},
+        "port": {"status": False, "message": ""},
+        "dds": {"status": False, "message": ""},
+        "topics": {"status": False, "message": ""}
+    }
+
+    # 1. 서비스 상태
+    if system_checker.is_service_running("micro-ros-agent"):
+        results["service"] = {"status": True, "message": "micro-ros-agent 실행 중"}
+    else:
+        results["service"] = {"status": False, "message": "micro-ros-agent 중지됨"}
+        return jsonify({"success": False, "results": results, "message": "서비스가 실행되지 않음"})
+
+    # 2. UDP 포트 확인
+    try:
+        ss_result = subprocess.run(['ss', '-uln'], capture_output=True, text=True, timeout=2)
+        if ':8888' in ss_result.stdout:
+            results["port"] = {"status": True, "message": "UDP 8888 포트 수신 대기 중"}
+        else:
+            results["port"] = {"status": False, "message": "UDP 8888 포트가 열리지 않음"}
+    except:
+        results["port"] = {"status": False, "message": "포트 확인 실패"}
+
+    # 3. ROS2 토픽 확인
+    topics = system_checker.get_ros2_topics()
+    if len(topics) > 0:
+        results["topics"] = {"status": True, "message": f"{len(topics)}개 토픽 발견"}
+    else:
+        results["topics"] = {"status": False, "message": "ROS2 토픽 없음"}
+
+    # 4. FC 연결 확인 (fmu 토픽 존재 여부)
+    fc_topics = [t for t in topics if 'fmu' in t.lower()]
+    if len(fc_topics) > 0:
+        results["dds"] = {"status": True, "message": f"FC 연결됨 ({len(fc_topics)}개 fmu 토픽)"}
+    else:
+        results["dds"] = {"status": False, "message": "FC 토픽 없음 (DDS 연결 실패)"}
+
+    # 전체 성공 여부
+    all_success = all(r["status"] for r in results.values())
+
+    return jsonify({
+        "success": all_success,
+        "results": results,
+        "message": "모든 연결 정상" if all_success else "일부 연결 실패"
+    })
 
 
 @app.route('/api/check/service/<service>')

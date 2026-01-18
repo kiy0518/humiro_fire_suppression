@@ -1,0 +1,638 @@
+{% extends "base.html" %}
+{% block title %}MAVLink 라우터{% endblock %}
+
+{% block extra_css %}
+<style>
+    .router-diagram {
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 12px;
+        padding: 30px;
+        min-height: 500px;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .node {
+        position: absolute;
+        background: #fff;
+        border-radius: 10px;
+        padding: 12px 16px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        text-align: center;
+        min-width: 120px;
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+        z-index: 10;
+    }
+
+    .node:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    }
+
+    .node-icon {
+        font-size: 1.8rem;
+        margin-bottom: 5px;
+    }
+
+    .node-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        margin-bottom: 3px;
+    }
+
+    .node-port {
+        font-size: 0.75rem;
+        color: #666;
+    }
+
+    .node-status {
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 2px solid #fff;
+    }
+
+    .status-connected { background: #28a745; }
+    .status-disconnected { background: #dc3545; }
+    .status-unknown { background: #6c757d; }
+
+    /* 중앙 라우터 */
+    .router-node {
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+        color: white;
+        min-width: 140px;
+        padding: 20px;
+    }
+
+    .router-node:hover {
+        transform: translate(-50%, -50%) scale(1.05);
+    }
+
+    .router-node .node-port {
+        color: rgba(255,255,255,0.8);
+    }
+
+    /* 연결선 SVG */
+    .connections-svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    .connection-line {
+        stroke: #4a5568;
+        stroke-width: 2;
+        fill: none;
+        stroke-dasharray: 8, 4;
+    }
+
+    .connection-line.active {
+        stroke: #48bb78;
+        stroke-width: 3;
+        animation: flowAnimation 1s linear infinite;
+    }
+
+    .connection-line.error {
+        stroke: #fc8181;
+    }
+
+    @keyframes flowAnimation {
+        from { stroke-dashoffset: 12; }
+        to { stroke-dashoffset: 0; }
+    }
+
+    /* 데이터 패킷 애니메이션 */
+    .packet {
+        fill: #48bb78;
+        filter: drop-shadow(0 0 3px #48bb78);
+    }
+
+    /* 범례 */
+    .legend {
+        position: absolute;
+        bottom: 15px;
+        right: 15px;
+        background: rgba(255,255,255,0.95);
+        padding: 10px 15px;
+        border-radius: 8px;
+        font-size: 0.8rem;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        margin: 5px 0;
+    }
+
+    .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+
+    /* 통계 카드 */
+    .stat-card {
+        background: white;
+        border-radius: 10px;
+        padding: 15px;
+        text-align: center;
+    }
+
+    .stat-value {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--primary-color);
+    }
+
+    .stat-label {
+        font-size: 0.85rem;
+        color: #666;
+    }
+
+    /* 테스트 버튼 */
+    .test-btn {
+        position: absolute;
+        bottom: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .node:hover .test-btn {
+        opacity: 1;
+    }
+
+    /* 모바일 대응 */
+    @media (max-width: 768px) {
+        .router-diagram {
+            min-height: 400px;
+            padding: 20px;
+        }
+        .node {
+            min-width: 90px;
+            padding: 8px 10px;
+        }
+        .node-icon { font-size: 1.4rem; }
+        .node-name { font-size: 0.8rem; }
+        .node-port { font-size: 0.65rem; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12">
+        <h5 class="section-title">
+            <i class="bi bi-diagram-3"></i> MAVLink 라우터 상태
+        </h5>
+    </div>
+</div>
+
+<!-- 통계 카드 -->
+<div class="row mb-4">
+    <div class="col-6 col-md-3 mb-2">
+        <div class="stat-card">
+            <div class="stat-value" id="statConnected">-</div>
+            <div class="stat-label">연결된 포트</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+        <div class="stat-card">
+            <div class="stat-value" id="statTotal">-</div>
+            <div class="stat-label">전체 포트</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+        <div class="stat-card">
+            <div class="stat-value" id="statConfig">/etc/mavlink-router/main.conf</div>
+            <div class="stat-label">설정 파일</div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3 mb-2">
+        <div class="stat-card">
+            <div class="stat-value" id="statService">-</div>
+            <div class="stat-label">서비스 상태</div>
+        </div>
+    </div>
+</div>
+
+<!-- 다이어그램 -->
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-broadcast"></i> 포트 라우팅 다이어그램</span>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="testAllPorts()">
+                        <i class="bi bi-play-circle"></i> 전체 테스트
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshStatus()">
+                        <i class="bi bi-arrow-clockwise"></i> 새로고침
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="router-diagram" id="routerDiagram">
+                    <!-- SVG 연결선 -->
+                    <svg class="connections-svg" id="connectionsSvg">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                                    refX="9" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#4a5568"/>
+                            </marker>
+                        </defs>
+                    </svg>
+
+                    <!-- 라우터 중앙 -->
+                    <div class="node router-node" id="node-router">
+                        <div class="node-icon"><i class="bi bi-diagram-3-fill"></i></div>
+                        <div class="node-name">MAVLink Router</div>
+                        <div class="node-port" id="router-tcp-port">TCP 5790</div>
+                    </div>
+
+                    <!-- 노드들은 JS로 동적 생성 -->
+                    <div id="dynamicNodes"></div>
+
+                    <!-- 범례 -->
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-dot status-connected"></div>
+                            <span>연결됨</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-dot status-disconnected"></div>
+                            <span>연결 안됨</span>
+                        </div>
+                        <div class="legend-item">
+                            <i class="bi bi-arrow-right text-success"></i>
+                            <span>입력 (Server)</span>
+                        </div>
+                        <div class="legend-item">
+                            <i class="bi bi-arrow-right text-info"></i>
+                            <span>출력 (Normal)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 포트 상세 정보 -->
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-list-ul"></i> 포트 상세 정보
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>포트</th>
+                            <th>이름</th>
+                            <th>모드</th>
+                            <th>상태</th>
+                        </tr>
+                    </thead>
+                    <tbody id="portTable">
+                        <!-- JS로 동적 생성 -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-terminal"></i> 테스트 로그
+            </div>
+            <div class="card-body">
+                <div class="log-output" id="testLog" style="height: 200px; font-size: 0.75rem;">
+                    설정 파일 로딩 중...<br>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let routerConfig = null;
+    let portStatus = {};
+
+    // 아이콘 매핑
+    const iconMap = {
+        'fc': 'bi-cpu',
+        'gcs': 'bi-display',
+        'ros2': 'bi-gear-wide-connected',
+        'external': 'bi-box-arrow-in-right',
+        'tcp': 'bi-ethernet'
+    };
+
+    // 노드 위치 (인덱스 기반)
+    const nodePositions = [
+        { left: '50%', top: '5%', transform: 'translateX(-50%)' },  // 상단 중앙
+        { right: '5%', top: '30%' },                                // 우상
+        { right: '5%', top: '60%' },                                // 우하
+        { left: '5%', top: '30%' },                                 // 좌상
+        { left: '5%', top: '60%' },                                 // 좌하
+        { left: '50%', top: '90%', transform: 'translateX(-50%)' }  // 하단 중앙
+    ];
+
+    // 로그 출력
+    function log(message, type = 'info') {
+        const logDiv = document.getElementById('testLog');
+        const time = new Date().toLocaleTimeString('ko-KR');
+        const color = type === 'success' ? '#48bb78' : type === 'error' ? '#fc8181' : '#a0aec0';
+        logDiv.innerHTML += `<span style="color:${color}">[${time}] ${message}</span><br>`;
+        logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    // 설정 파일 로드
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/router/config');
+            routerConfig = await response.json();
+
+            // TCP 서버 포트 업데이트
+            document.getElementById('router-tcp-port').textContent = `TCP ${routerConfig.tcp_server_port}`;
+
+            // 전체 포트 수 업데이트 (UDP + TCP)
+            document.getElementById('statTotal').textContent = routerConfig.nodes.length + 1;
+
+            // 동적으로 노드 생성
+            createNodes();
+
+            // 포트 테이블 생성
+            createPortTable();
+
+            log(`설정 파일 로드 완료: ${routerConfig.nodes.length}개 UDP 엔드포인트`, 'success');
+        } catch (e) {
+            log(`설정 파일 로드 실패: ${e.message}`, 'error');
+        }
+    }
+
+    // 동적 노드 생성
+    function createNodes() {
+        const container = document.getElementById('dynamicNodes');
+        container.innerHTML = '';
+
+        routerConfig.nodes.forEach((node, index) => {
+            const pos = nodePositions[index] || nodePositions[nodePositions.length - 1];
+            const icon = iconMap[node.id] || 'bi-hdd-network';
+            const directionIcon = node.direction === 'in'
+                ? '<i class="bi bi-arrow-right text-success"></i>'
+                : '<i class="bi bi-arrow-right text-info"></i>';
+
+            const portText = node.direction === 'in'
+                ? `UDP ${node.port} ${directionIcon}`
+                : `${directionIcon} UDP ${node.port}`;
+
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'node';
+            nodeEl.id = `node-${node.id}`;
+            nodeEl.setAttribute('data-port', node.port);
+            nodeEl.setAttribute('data-direction', node.direction);
+
+            // 위치 설정
+            Object.keys(pos).forEach(key => {
+                nodeEl.style[key] = pos[key];
+            });
+
+            nodeEl.innerHTML = `
+                <div class="node-status status-unknown"></div>
+                <div class="node-icon"><i class="bi ${icon}"></i></div>
+                <div class="node-name">${node.name}</div>
+                <div class="node-port">${portText}</div>
+                <button class="btn btn-primary btn-sm test-btn" onclick="testPort('${node.id}', event)">테스트</button>
+            `;
+
+            container.appendChild(nodeEl);
+        });
+
+        // TCP 노드 추가
+        const tcpPos = nodePositions[routerConfig.nodes.length] || { left: '5%', bottom: '10%' };
+        const tcpNode = document.createElement('div');
+        tcpNode.className = 'node';
+        tcpNode.id = 'node-tcp';
+        tcpNode.setAttribute('data-port', routerConfig.tcp_server_port);
+        tcpNode.setAttribute('data-direction', 'both');
+
+        Object.keys(tcpPos).forEach(key => {
+            tcpNode.style[key] = tcpPos[key];
+        });
+
+        tcpNode.innerHTML = `
+            <div class="node-status status-unknown"></div>
+            <div class="node-icon"><i class="bi bi-ethernet"></i></div>
+            <div class="node-name">TCP Client</div>
+            <div class="node-port"><i class="bi bi-arrow-left-right text-warning"></i> TCP ${routerConfig.tcp_server_port}</div>
+            <button class="btn btn-primary btn-sm test-btn" onclick="testPort('tcp', event)">테스트</button>
+        `;
+
+        container.appendChild(tcpNode);
+
+        // 연결선 그리기
+        setTimeout(drawConnections, 100);
+    }
+
+    // 포트 테이블 생성
+    function createPortTable() {
+        const tbody = document.getElementById('portTable');
+        tbody.innerHTML = '';
+
+        routerConfig.nodes.forEach(node => {
+            const modeBadge = node.mode === 'Server'
+                ? '<span class="badge bg-info">Server</span>'
+                : '<span class="badge bg-success">Normal</span>';
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${node.port}</td>
+                    <td>${node.name}</td>
+                    <td>${modeBadge}</td>
+                    <td id="port-status-${node.id}"><span class="badge bg-secondary">확인 중</span></td>
+                </tr>
+            `;
+        });
+
+        // TCP 서버
+        tbody.innerHTML += `
+            <tr>
+                <td>${routerConfig.tcp_server_port}</td>
+                <td>TCP Server</td>
+                <td><span class="badge bg-warning text-dark">TCP</span></td>
+                <td id="port-status-tcp"><span class="badge bg-secondary">확인 중</span></td>
+            </tr>
+        `;
+    }
+
+    // 연결선 그리기
+    function drawConnections() {
+        const svg = document.getElementById('connectionsSvg');
+        const diagram = document.getElementById('routerDiagram');
+        const router = document.getElementById('node-router');
+
+        // 기존 선 제거 (defs 제외)
+        svg.querySelectorAll('path, circle').forEach(el => el.remove());
+
+        const routerRect = router.getBoundingClientRect();
+        const diagramRect = diagram.getBoundingClientRect();
+
+        const routerX = routerRect.left - diagramRect.left + routerRect.width / 2;
+        const routerY = routerRect.top - diagramRect.top + routerRect.height / 2;
+
+        // 모든 노드에 대해 연결선 그리기
+        const allIds = routerConfig ? [...routerConfig.nodes.map(n => n.id), 'tcp'] : [];
+
+        allIds.forEach(id => {
+            const node = document.getElementById(`node-${id}`);
+            if (!node) return;
+
+            const nodeRect = node.getBoundingClientRect();
+            const nodeX = nodeRect.left - diagramRect.left + nodeRect.width / 2;
+            const nodeY = nodeRect.top - diagramRect.top + nodeRect.height / 2;
+
+            // 곡선 경로 생성
+            const midX = (nodeX + routerX) / 2;
+            const midY = (nodeY + routerY) / 2;
+            const ctrlOffset = 30;
+
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${nodeX} ${nodeY} Q ${midX} ${midY - ctrlOffset} ${routerX} ${routerY}`);
+            path.setAttribute('class', `connection-line ${portStatus[id] ? 'active' : ''}`);
+            path.setAttribute('id', `line-${id}`);
+            svg.appendChild(path);
+
+            // 연결된 포트는 패킷 애니메이션 추가
+            if (portStatus[id]) {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('r', '4');
+                circle.setAttribute('class', 'packet');
+                circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite">
+                    <mpath href="#line-${id}"/>
+                </animateMotion>`;
+                svg.appendChild(circle);
+            }
+        });
+    }
+
+    // 노드 상태 업데이트
+    function updateNodeStatus(id, connected) {
+        const node = document.getElementById(`node-${id}`);
+        if (!node) return;
+
+        const statusDot = node.querySelector('.node-status');
+        const tableStatus = document.getElementById(`port-status-${id}`);
+
+        portStatus[id] = connected;
+
+        if (connected) {
+            statusDot.className = 'node-status status-connected';
+            if (tableStatus) tableStatus.innerHTML = '<span class="badge bg-success">연결됨</span>';
+        } else {
+            statusDot.className = 'node-status status-disconnected';
+            if (tableStatus) tableStatus.innerHTML = '<span class="badge bg-danger">연결 안됨</span>';
+        }
+
+        drawConnections();
+        updateStats();
+    }
+
+    // 통계 업데이트
+    function updateStats() {
+        const connected = Object.values(portStatus).filter(v => v).length;
+        document.getElementById('statConnected').textContent = connected;
+    }
+
+    // 포트 테스트
+    async function testPort(id, event) {
+        if (event) event.stopPropagation();
+
+        const node = routerConfig?.nodes.find(n => n.id === id);
+        const name = node ? node.name : (id === 'tcp' ? 'TCP Server' : id);
+        const port = node ? node.port : routerConfig?.tcp_server_port;
+
+        log(`${name} (${port}) 테스트 중...`);
+
+        try {
+            const response = await fetch(`/api/router/test/${id}`);
+            const data = await response.json();
+
+            updateNodeStatus(id, data.connected);
+
+            if (data.connected) {
+                log(`${name}: ${data.message || '연결 성공'}`, 'success');
+            } else {
+                log(`${name}: ${data.message || '연결 실패'}`, 'error');
+            }
+        } catch (e) {
+            updateNodeStatus(id, false);
+            log(`${name}: 테스트 오류 - ${e.message}`, 'error');
+        }
+    }
+
+    // 전체 포트 테스트
+    async function testAllPorts() {
+        log('전체 포트 테스트 시작...', 'info');
+
+        const allIds = routerConfig ? [...routerConfig.nodes.map(n => n.id), 'tcp'] : [];
+
+        for (const id of allIds) {
+            await testPort(id);
+            await new Promise(r => setTimeout(r, 300));
+        }
+
+        log('전체 테스트 완료', 'success');
+    }
+
+    // 상태 새로고침
+    async function refreshStatus() {
+        log('상태 새로고침 중...', 'info');
+
+        try {
+            const response = await fetch('/api/router/status');
+            const data = await response.json();
+
+            document.getElementById('statService').textContent = data.service_running ? '실행 중' : '중지됨';
+            document.getElementById('statService').style.color = data.service_running ? '#28a745' : '#dc3545';
+
+            // 각 포트 상태 업데이트
+            if (data.ports) {
+                for (const [id, status] of Object.entries(data.ports)) {
+                    updateNodeStatus(id, status.connected);
+                }
+            }
+
+            log('상태 업데이트 완료', 'success');
+        } catch (e) {
+            log(`상태 확인 오류: ${e.message}`, 'error');
+        }
+    }
+
+    // 창 크기 변경 시 연결선 다시 그리기
+    window.addEventListener('resize', drawConnections);
+
+    // 초기화
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadConfig();
+        await refreshStatus();
+    });
+</script>
+{% endblock %}

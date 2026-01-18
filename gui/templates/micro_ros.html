@@ -1,0 +1,642 @@
+{% extends "base.html" %}
+{% block title %}micro-ros-agent{% endblock %}
+
+{% block extra_css %}
+<style>
+    .status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
+    .status-indicator.success { background-color: #28a745; }
+    .status-indicator.danger { background-color: #dc3545; }
+    .status-indicator.warning { background-color: #ffc107; }
+
+    .connection-diagram {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 30px;
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        border-radius: 10px;
+    }
+
+    .diagram-node {
+        text-align: center;
+        padding: 20px;
+        border-radius: 10px;
+        min-width: 120px;
+        transition: all 0.3s;
+    }
+
+    .diagram-node.fc {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+
+    .diagram-node.agent {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        color: white;
+    }
+
+    .diagram-node.ros2 {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        color: white;
+    }
+
+    .diagram-node i {
+        font-size: 2rem;
+        margin-bottom: 10px;
+    }
+
+    .diagram-arrow {
+        font-size: 2rem;
+        color: #6c757d;
+    }
+
+    .diagram-arrow.connected {
+        color: #28a745;
+        animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+
+    .topic-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .topic-item {
+        padding: 8px 12px;
+        border-bottom: 1px solid #eee;
+        font-family: 'Consolas', monospace;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .topic-item:hover {
+        background-color: #f8f9fa;
+    }
+
+    .topic-item.fc { border-left: 3px solid #667eea; }
+    .topic-item.sensor { border-left: 3px solid #11998e; }
+    .topic-item.control { border-left: 3px solid #f5576c; }
+    .topic-item.other { border-left: 3px solid #6c757d; }
+
+    .log-viewer {
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 0.8rem;
+        padding: 15px;
+        border-radius: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    .test-result {
+        padding: 10px 15px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+    }
+
+    .test-result.success {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+    }
+
+    .test-result.fail {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+    }
+
+    .badge-category {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+    }
+
+    /* 탭 스타일 수정 - 흰색 배경에서 보이도록 */
+    .card-header-tabs .nav-link {
+        color: #495057 !important;
+        border: 1px solid transparent;
+    }
+    .card-header-tabs .nav-link:hover {
+        color: #007bff !important;
+        border-color: #dee2e6 #dee2e6 #fff;
+    }
+    .card-header-tabs .nav-link.active {
+        color: #007bff !important;
+        background-color: #fff;
+        border-color: #dee2e6 #dee2e6 #fff;
+    }
+
+    /* 터미널 스타일 */
+    .terminal-output {
+        background-color: #0d1117;
+        color: #c9d1d9;
+        font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+        font-size: 0.75rem;
+        padding: 10px;
+        height: 350px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.4;
+    }
+
+    .terminal-output .terminal-line {
+        margin: 0;
+        padding: 1px 0;
+    }
+
+    .terminal-output .terminal-header {
+        color: #58a6ff;
+        font-weight: bold;
+        border-bottom: 1px solid #30363d;
+        padding-bottom: 5px;
+        margin-bottom: 5px;
+    }
+
+    .terminal-output .terminal-separator {
+        color: #8b949e;
+    }
+
+    .terminal-output .terminal-key {
+        color: #7ee787;
+    }
+
+    .terminal-output .terminal-value {
+        color: #ffa657;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <!-- 연결 다이어그램 -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-diagram-3"></i> DDS 연결 상태</span>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="runConnectionTest()">
+                        <i class="bi bi-activity"></i> 연결 테스트
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" onclick="restartService()">
+                        <i class="bi bi-arrow-clockwise"></i> 서비스 재시작
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="connection-diagram">
+                    <div class="diagram-node fc">
+                        <i class="bi bi-cpu"></i>
+                        <div><strong>FC (PX4)</strong></div>
+                        <small>uXRCE-DDS Client</small>
+                        <div class="mt-2" id="fcStatus">
+                            <span class="status-indicator warning"></span>확인 중
+                        </div>
+                    </div>
+
+                    <div class="diagram-arrow" id="arrow1">
+                        <i class="bi bi-arrow-left-right"></i>
+                    </div>
+
+                    <div class="diagram-node agent">
+                        <i class="bi bi-hdd-network"></i>
+                        <div><strong>micro-ros-agent</strong></div>
+                        <small>UDP 8888</small>
+                        <div class="mt-2" id="agentStatus">
+                            <span class="status-indicator warning"></span>확인 중
+                        </div>
+                    </div>
+
+                    <div class="diagram-arrow" id="arrow2">
+                        <i class="bi bi-arrow-left-right"></i>
+                    </div>
+
+                    <div class="diagram-node ros2">
+                        <i class="bi bi-share"></i>
+                        <div><strong>ROS2</strong></div>
+                        <small>DDS Topics</small>
+                        <div class="mt-2" id="ros2Status">
+                            <span class="status-indicator warning"></span>확인 중
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 연결 테스트 결과 -->
+                <div id="testResults" class="mt-3" style="display: none;">
+                    <h6><i class="bi bi-list-check"></i> 연결 테스트 결과</h6>
+                    <div id="testResultContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토픽 목록 -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul"></i> ROS2 토픽 목록</span>
+                <div>
+                    <span class="badge bg-primary" id="topicCount">0개</span>
+                    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="loadTopics()">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="p-2 border-bottom">
+                    <div class="btn-group btn-group-sm w-100" role="group">
+                        <button type="button" class="btn btn-outline-secondary active" onclick="filterTopics('all')">전체</button>
+                        <button type="button" class="btn btn-outline-primary" onclick="filterTopics('fc')">FC</button>
+                        <button type="button" class="btn btn-outline-success" onclick="filterTopics('sensor')">센서</button>
+                        <button type="button" class="btn btn-outline-danger" onclick="filterTopics('control')">제어</button>
+                        <button type="button" class="btn btn-outline-secondary" onclick="filterTopics('other')">기타</button>
+                    </div>
+                </div>
+                <div class="topic-list" id="topicList">
+                    <div class="text-center py-4 text-muted">
+                        <i class="bi bi-hourglass-split"></i> 로딩 중...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토픽 터미널 / 로그 -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#topicTerminal">
+                            <i class="bi bi-terminal-fill"></i> 토픽 터미널
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#serviceLogs">
+                            <i class="bi bi-journal-text"></i> 서비스 로그
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body p-0">
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="topicTerminal">
+                        <!-- 터미널 헤더 -->
+                        <div class="d-flex justify-content-between align-items-center p-2 border-bottom bg-light">
+                            <div>
+                                <small class="text-muted" id="terminalStatus">
+                                    <i class="bi bi-circle text-secondary"></i> 대기 중
+                                </small>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-outline-danger" onclick="stopTopicStream()" id="btnStopStream" disabled>
+                                    <i class="bi bi-stop-fill"></i> 중지
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="clearTerminal()">
+                                    <i class="bi bi-trash"></i> 지우기
+                                </button>
+                            </div>
+                        </div>
+                        <!-- 터미널 출력 -->
+                        <div class="terminal-output" id="terminalOutput">
+                            <div class="text-center text-muted py-5">
+                                <i class="bi bi-hand-index" style="font-size: 2rem;"></i>
+                                <p class="mt-2">좌측 토픽을 클릭하면 데이터가 여기에 표시됩니다</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="serviceLogs">
+                        <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
+                            <small class="text-muted">최근 로그</small>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">
+                                <i class="bi bi-arrow-clockwise"></i> 새로고침
+                            </button>
+                        </div>
+                        <div class="log-viewer" id="logViewer">
+                            로그를 불러오는 중...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let allTopics = [];
+    let categorizedTopics = {};
+    let currentFilter = 'all';
+
+    // 상태 업데이트
+    function updateStatus() {
+        fetch('/api/micro-ros/status')
+            .then(r => r.json())
+            .then(data => {
+                // Agent 상태
+                const agentEl = document.getElementById('agentStatus');
+                if (data.service_running && data.port_listening) {
+                    agentEl.innerHTML = '<span class="status-indicator success"></span>실행 중';
+                    document.getElementById('arrow1').classList.add('connected');
+                } else if (data.service_running) {
+                    agentEl.innerHTML = '<span class="status-indicator warning"></span>포트 대기 중';
+                } else {
+                    agentEl.innerHTML = '<span class="status-indicator danger"></span>중지됨';
+                    document.getElementById('arrow1').classList.remove('connected');
+                }
+
+                // FC 상태
+                const fcEl = document.getElementById('fcStatus');
+                if (data.dds_connected) {
+                    fcEl.innerHTML = '<span class="status-indicator success"></span>연결됨';
+                } else {
+                    fcEl.innerHTML = '<span class="status-indicator danger"></span>연결 안됨';
+                }
+
+                // ROS2 상태
+                const ros2El = document.getElementById('ros2Status');
+                if (data.topic_count > 0) {
+                    ros2El.innerHTML = `<span class="status-indicator success"></span>${data.topic_count}개 토픽`;
+                    document.getElementById('arrow2').classList.add('connected');
+                } else {
+                    ros2El.innerHTML = '<span class="status-indicator danger"></span>토픽 없음';
+                    document.getElementById('arrow2').classList.remove('connected');
+                }
+
+                document.getElementById('topicCount').textContent = `${data.topic_count}개`;
+            })
+            .catch(err => console.error('Status error:', err));
+    }
+
+    // 토픽 목록 로드
+    function loadTopics() {
+        fetch('/api/micro-ros/topics')
+            .then(r => r.json())
+            .then(data => {
+                allTopics = data.topics;
+                categorizedTopics = data.categorized;
+                renderTopics();
+            })
+            .catch(err => {
+                document.getElementById('topicList').innerHTML =
+                    '<div class="text-center py-4 text-danger"><i class="bi bi-exclamation-triangle"></i> 로드 실패</div>';
+            });
+    }
+
+    // 토픽 렌더링
+    function renderTopics() {
+        const container = document.getElementById('topicList');
+        let topics = [];
+
+        if (currentFilter === 'all') {
+            topics = allTopics;
+        } else {
+            topics = categorizedTopics[currentFilter] || [];
+        }
+
+        if (topics.length === 0) {
+            container.innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-inbox"></i> 토픽 없음</div>';
+            return;
+        }
+
+        let html = '';
+        topics.forEach(topic => {
+            let category = 'other';
+            const topicLower = topic.toLowerCase();
+            if (categorizedTopics.fc.includes(topic)) category = 'fc';
+            else if (categorizedTopics.sensor.includes(topic)) category = 'sensor';
+            else if (categorizedTopics.control.includes(topic)) category = 'control';
+
+            html += `<div class="topic-item ${category}" onclick="showTopicInfo('${topic}')">${topic}</div>`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    // 토픽 필터
+    function filterTopics(filter) {
+        currentFilter = filter;
+
+        // 버튼 상태 업데이트
+        document.querySelectorAll('.btn-group .btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+
+        renderTopics();
+    }
+
+    // 토픽 스트리밍 관련 변수
+    let eventSource = null;
+    let currentTopic = null;
+    let lineCount = 0;
+    const MAX_LINES = 500;  // 최대 라인 수
+
+    // 토픽 클릭 시 스트리밍 시작
+    function showTopicInfo(topic) {
+        // 이전 스트리밍 중지
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+
+        currentTopic = topic;
+        lineCount = 0;
+
+        const terminal = document.getElementById('terminalOutput');
+        const statusEl = document.getElementById('terminalStatus');
+        const stopBtn = document.getElementById('btnStopStream');
+
+        // 터미널 초기화
+        terminal.innerHTML = '';
+
+        // 상태 업데이트
+        statusEl.innerHTML = `<i class="bi bi-circle-fill text-success"></i> <strong>${topic}</strong> 스트리밍 중...`;
+        stopBtn.disabled = false;
+
+        // SSE 연결
+        const topicPath = topic.startsWith('/') ? topic.substring(1) : topic;
+        eventSource = new EventSource(`/api/micro-ros/topic-stream/${topicPath}`);
+
+        eventSource.onmessage = function(event) {
+            const line = event.data;
+
+            // 라인 추가
+            const lineEl = document.createElement('div');
+            lineEl.className = 'terminal-line';
+
+            // 특수 형식 처리
+            if (line.startsWith('===')) {
+                lineEl.className = 'terminal-header';
+                lineEl.textContent = line;
+            } else if (line === '---') {
+                lineEl.className = 'terminal-separator';
+                lineEl.textContent = line;
+            } else if (line.includes(':')) {
+                // key: value 형식 하이라이트
+                const [key, ...rest] = line.split(':');
+                const value = rest.join(':');
+                lineEl.innerHTML = `<span class="terminal-key">${key}</span>:<span class="terminal-value">${value}</span>`;
+            } else {
+                lineEl.textContent = line;
+            }
+
+            terminal.appendChild(lineEl);
+            lineCount++;
+
+            // 최대 라인 수 초과 시 오래된 라인 제거
+            while (terminal.children.length > MAX_LINES) {
+                terminal.removeChild(terminal.firstChild);
+            }
+
+            // 자동 스크롤
+            terminal.scrollTop = terminal.scrollHeight;
+        };
+
+        eventSource.onerror = function() {
+            statusEl.innerHTML = `<i class="bi bi-circle text-secondary"></i> 연결 끊김`;
+            stopBtn.disabled = true;
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        };
+    }
+
+    // 스트리밍 중지
+    function stopTopicStream() {
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+
+        // 서버에도 중지 요청
+        fetch('/api/micro-ros/topic-stop');
+
+        const statusEl = document.getElementById('terminalStatus');
+        const stopBtn = document.getElementById('btnStopStream');
+
+        statusEl.innerHTML = `<i class="bi bi-circle text-secondary"></i> 중지됨`;
+        stopBtn.disabled = true;
+    }
+
+    // 터미널 지우기
+    function clearTerminal() {
+        const terminal = document.getElementById('terminalOutput');
+        terminal.innerHTML = `
+            <div class="text-center text-muted py-5">
+                <i class="bi bi-hand-index" style="font-size: 2rem;"></i>
+                <p class="mt-2">좌측 토픽을 클릭하면 데이터가 여기에 표시됩니다</p>
+            </div>
+        `;
+        lineCount = 0;
+
+        const statusEl = document.getElementById('terminalStatus');
+        statusEl.innerHTML = `<i class="bi bi-circle text-secondary"></i> 대기 중`;
+    }
+
+    // 로그 로드
+    function loadLogs() {
+        const viewer = document.getElementById('logViewer');
+        viewer.textContent = '로그를 불러오는 중...';
+
+        fetch('/api/micro-ros/logs?lines=100')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    viewer.textContent = data.logs || '로그 없음';
+                    viewer.scrollTop = viewer.scrollHeight;
+                } else {
+                    viewer.textContent = '로그 로드 실패: ' + (data.message || '알 수 없는 오류');
+                }
+            })
+            .catch(err => {
+                viewer.textContent = '로그 로드 오류: ' + err.message;
+            });
+    }
+
+    // 연결 테스트
+    function runConnectionTest() {
+        const resultsDiv = document.getElementById('testResults');
+        const contentDiv = document.getElementById('testResultContent');
+
+        resultsDiv.style.display = 'block';
+        contentDiv.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm"></div> 테스트 중...</div>';
+
+        fetch('/api/micro-ros/connection-test')
+            .then(r => r.json())
+            .then(data => {
+                let html = '';
+
+                const tests = [
+                    { key: 'service', label: '서비스 상태', icon: 'bi-gear' },
+                    { key: 'port', label: 'UDP 포트', icon: 'bi-ethernet' },
+                    { key: 'topics', label: 'ROS2 토픽', icon: 'bi-list-ul' },
+                    { key: 'dds', label: 'FC DDS 연결', icon: 'bi-link-45deg' }
+                ];
+
+                tests.forEach(test => {
+                    const result = data.results[test.key];
+                    const statusClass = result.status ? 'success' : 'fail';
+                    const icon = result.status ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger';
+
+                    html += `
+                        <div class="test-result ${statusClass}">
+                            <i class="${icon}"></i>
+                            <strong>${test.label}:</strong> ${result.message}
+                        </div>
+                    `;
+                });
+
+                contentDiv.innerHTML = html;
+            })
+            .catch(err => {
+                contentDiv.innerHTML = `<div class="alert alert-danger">테스트 실패: ${err.message}</div>`;
+            });
+    }
+
+    // 서비스 재시작
+    function restartService() {
+        if (!confirm('micro-ros-agent 서비스를 재시작하시겠습니까?')) return;
+
+        fetch('/api/service/restart/micro-ros-agent', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                showToast(data.message, data.success ? 'success' : 'danger');
+                if (data.success) {
+                    setTimeout(() => {
+                        updateStatus();
+                        loadTopics();
+                    }, 2000);
+                }
+            })
+            .catch(err => {
+                showToast('서비스 재시작 실패', 'danger');
+            });
+    }
+
+    // 초기화
+    document.addEventListener('DOMContentLoaded', () => {
+        updateStatus();
+        loadTopics();
+        loadLogs();
+
+        // 5초마다 상태 업데이트
+        setInterval(updateStatus, 5000);
+    });
+</script>
+{% endblock %}
