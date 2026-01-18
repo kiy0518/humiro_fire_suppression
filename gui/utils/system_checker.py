@@ -68,8 +68,9 @@ class SystemChecker:
     def get_ros2_topics(self) -> List[str]:
         """ROS2 토픽 목록 가져오기"""
         try:
+            # ROS2 환경 설정 후 실행 (systemd 서비스에서 환경변수가 없을 수 있음)
             result = subprocess.run(
-                ["ros2", "topic", "list"],
+                ["bash", "-c", "source /opt/ros/humble/setup.bash && ros2 topic list"],
                 capture_output=True,
                 text=True,
                 timeout=5

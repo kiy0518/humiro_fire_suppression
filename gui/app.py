@@ -7,8 +7,10 @@ Flask 기반 웹 관리 도구
 import os
 import sys
 import json
+import struct
 import subprocess
 import threading
+import time
 from datetime import datetime
 from flask import Flask, render_template, jsonify, request
 
@@ -36,6 +38,110 @@ build_status = {
     "success": None
 }
 
+# MAVLink 연결 관리자 (스레드 안전)
+class MavlinkManager:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._mav = None
+        self._target_sys = None
+        self._target_comp = None
+        self._last_connect = 0
+
+    def _connect(self):
+        """MAVLink 연결 (내부용)"""
+        try:
+            from pymavlink import mavutil
+            if self._mav:
+                try:
+                    self._mav.close()
+                except:
+                    pass
+            self._mav = mavutil.mavlink_connection(
+                'tcp:127.0.0.1:5790',
+                source_system=255,
+                source_component=190
+            )
+            # FC의 heartbeat만 대기 (자기 자신 제외)
+            start = time.time()
+            while time.time() - start < 5:
+                msg = self._mav.recv_match(type='HEARTBEAT', blocking=True, timeout=1)
+                if msg:
+                    src_sys = msg.get_srcSystem()
+                    # FC heartbeat 찾기 (sys_id != 0 and != 255)
+                    if src_sys not in [0, 255]:
+                        self._target_sys = src_sys
+                        self._target_comp = msg.get_srcComponent()
+                        self._last_connect = time.time()
+                        # 잔여 메시지 비우기
+                        while self._mav.recv_match(blocking=False):
+                            pass
+                        return True
+        except Exception as e:
+            print(f"MAVLink 연결 실패: {e}")
+        return False
+
+    def read_param(self, param_name):
+        """파라미터 읽기 (스레드 안전)"""
+        with self._lock:
+            # 연결 확인 및 재연결 (30초마다 또는 연결 없을 때)
+            if not self._mav or (time.time() - self._last_connect) > 30:
+                if not self._connect():
+                    return None, "FC 연결 실패"
+
+            try:
+                # 잔여 메시지 비우기
+                while self._mav.recv_match(blocking=False):
+                    pass
+
+                # 파라미터 요청
+                self._mav.mav.param_request_read_send(
+                    self._target_sys,
+                    self._target_comp,
+                    param_name.encode('utf-8'),
+                    -1
+                )
+
+                # 응답 대기 (최대 2초)
+                resp = self._mav.recv_match(type='PARAM_VALUE', blocking=True, timeout=2)
+                if resp:
+                    raw_value = resp.param_value
+                    param_type = resp.param_type
+
+                    # param_type: 1-6=정수, 9=FLOAT
+                    # PX4는 정수 파라미터도 float로 전송하므로 비트 재해석 필요
+                    # 단, 일부 파라미터(COM_DL_LOSS_T 등)는 type=6이지만 실제 float 값
+                    if param_type in [1, 2, 3, 4, 5, 6]:
+                        # 정수 타입: float 비트를 정수로 재해석
+                        int_value = struct.unpack('I', struct.pack('f', raw_value))[0]
+
+                        # raw_value가 합리적인 float 범위(0.001~100000)이고
+                        # int_value가 매우 크면(>10M) → 실제 float 값으로 판단
+                        # 예: raw_value=10.0, int_value=1092616192
+                        if 0.001 <= abs(raw_value) <= 100000 and int_value > 10000000:
+                            value = raw_value
+                        else:
+                            value = int_value
+                            # 부호 처리
+                            if param_type == 2 and value > 127:
+                                value -= 256
+                            elif param_type == 4 and value > 32767:
+                                value -= 65536
+                            elif param_type == 6 and value > 2147483647:
+                                value -= 4294967296
+                    else:
+                        # FLOAT 타입 (type=9)
+                        value = raw_value
+
+                    return value, None
+                else:
+                    return None, "파라미터 없음"
+            except Exception as e:
+                # 연결 문제 시 다음 호출에 재연결
+                self._mav = None
+                return None, str(e)
+
+mavlink_mgr = MavlinkManager()
+
 
 # ==================== 페이지 라우트 ====================
 
@@ -61,6 +167,12 @@ def flight_mode_page():
 def vehicle_setup_page():
     """기체 설정 페이지"""
     return render_template('vehicle_setup.html', active_tab='vehicle-setup')
+
+
+@app.route('/params')
+def params_page():
+    """FC 파라미터 관리 페이지"""
+    return render_template('params.html', active_tab='params')
 
 
 @app.route('/checklist')
@@ -506,14 +618,99 @@ def api_build_status():
 @app.route('/api/checklist/<mode>')
 def api_checklist(mode):
     """체크리스트 항목 API"""
+    no_rc = request.args.get('no_rc', 'false').lower() == 'true'
+
     if mode == "indoor":
-        items = get_indoor_checklist()
-    elif mode == "outdoor":
-        items = get_outdoor_checklist()
+        items = get_indoor_checklist(no_rc)
+    elif mode == "outdoor_gps":
+        items = get_outdoor_gps_checklist(no_rc)
+    elif mode == "outdoor_rtk":
+        items = get_outdoor_rtk_checklist(no_rc)
+    elif mode == "postflight":
+        items = get_postflight_checklist()
     else:
         items = get_postflight_checklist()
 
     return jsonify(items)
+
+
+# ==================== 커스텀 파라미터 관리 API ====================
+
+@app.route('/api/custom-params')
+def api_get_custom_params():
+    """커스텀 파라미터 전체 목록"""
+    data = config_manager.load_custom_params()
+    return jsonify(data)
+
+
+@app.route('/api/custom-params/categories')
+def api_get_categories():
+    """카테고리 목록"""
+    categories = config_manager.get_all_categories()
+    return jsonify(categories)
+
+
+@app.route('/api/custom-params/<category>')
+def api_get_custom_params_by_category(category):
+    """카테고리별 커스텀 파라미터 목록"""
+    params = config_manager.get_custom_params_by_category(category)
+    return jsonify(params)
+
+
+@app.route('/api/custom-params/<category>', methods=['POST'])
+def api_add_custom_param(category):
+    """커스텀 파라미터 추가/수정
+
+    Request Body:
+    {
+        "name": "PARAM_NAME",
+        "expected": 123,
+        "description": "설명",
+        "auto_check": true
+    }
+    """
+    param = request.get_json()
+    if not param:
+        return jsonify({"success": False, "message": "요청 데이터 없음"}), 400
+
+    success = config_manager.add_custom_param(category, param)
+    return jsonify({
+        "success": success,
+        "message": "파라미터 추가됨" if success else "추가 실패"
+    })
+
+
+@app.route('/api/custom-params/<category>/<param_name>', methods=['PUT'])
+def api_update_custom_param(category, param_name):
+    """커스텀 파라미터 업데이트"""
+    param = request.get_json()
+    if not param:
+        return jsonify({"success": False, "message": "요청 데이터 없음"}), 400
+
+    success = config_manager.update_custom_param(category, param_name, param)
+    return jsonify({
+        "success": success,
+        "message": "파라미터 업데이트됨" if success else "업데이트 실패"
+    })
+
+
+@app.route('/api/custom-params/<category>/<param_name>', methods=['DELETE'])
+def api_delete_custom_param(category, param_name):
+    """커스텀 파라미터 삭제"""
+    success = config_manager.delete_custom_param(category, param_name)
+    return jsonify({
+        "success": success,
+        "message": "파라미터 삭제됨" if success else "삭제 실패"
+    })
+
+
+@app.route('/api/custom-params/read/<param_name>')
+def api_read_custom_param(param_name):
+    """FC에서 파라미터 값 읽기 (커스텀 파라미터용)"""
+    value, error = mavlink_mgr.read_param(param_name)
+    if error:
+        return jsonify({"success": False, "message": error, "value": None})
+    return jsonify({"success": True, "value": value, "message": str(value)})
 
 
 @app.route('/api/check/fc-ping')
@@ -546,6 +743,71 @@ def api_check_ros2_topics():
         "message": f"{len(topics)}개",
         "count": len(topics)
     })
+
+
+@app.route('/api/check/fc-param/<param_name>')
+def api_check_fc_param(param_name):
+    """FC 파라미터 자동 확인 API (MAVLink)
+
+    쿼리 파라미터:
+    - expected: 예상 값 (optional, 지정 시 값 비교)
+    """
+    expected = request.args.get('expected', None)
+
+    # 전역 MAVLink 매니저 사용
+    value, error = mavlink_mgr.read_param(param_name)
+
+    if error:
+        return jsonify({
+            "success": False,
+            "message": error
+        })
+
+    result = {
+        "success": True,
+        "param_name": param_name,
+        "value": value
+    }
+
+    # 예상값과 비교
+    if expected is not None:
+        try:
+            expected_val = float(expected)
+
+            # 정수 비교
+            if isinstance(value, int):
+                expected_val = int(expected_val)
+                match = (value == expected_val)
+                display_val = value
+                display_expected = expected_val
+            else:
+                # float 비교 - 부동소수점 오차 허용 (상대 오차 0.1% 또는 절대 오차 0.001)
+                if expected_val == 0:
+                    match = abs(value) < 0.001
+                else:
+                    match = abs(value - expected_val) / abs(expected_val) < 0.001 or abs(value - expected_val) < 0.001
+                # 표시용 값 (소수점 3자리로 반올림)
+                display_val = round(value, 3)
+                display_expected = round(expected_val, 3)
+
+            if match:
+                result["match"] = True
+                result["message"] = f"✓ {display_val}"
+            else:
+                result["match"] = False
+                result["message"] = f"✗ {display_val} (예상: {display_expected})"
+                result["success"] = False
+        except ValueError:
+            result["match"] = str(value) == expected
+            result["message"] = f"값: {value}"
+    else:
+        # 표시만 할 때도 float는 반올림
+        if isinstance(value, float):
+            result["message"] = f"{round(value, 3)}"
+        else:
+            result["message"] = f"{value}"
+
+    return jsonify(result)
 
 
 # ==================== WiFi 네트워크 관리 API ====================
@@ -769,13 +1031,133 @@ def run_build(targets: list, clean_build: bool):
         build_status["current_target"] = ""
 
 
-def get_indoor_checklist():
-    """실내 테스트 체크리스트"""
+def get_vehicle_params_checklist(drone_id: int):
+    """기체별 FC 파라미터 체크리스트 (uXRCE-DDS, MAVLink 설정)"""
+    # 기체별 설정값
+    presets = {
+        1: {  # Leader
+            "UXRCE_DDS_AG_IP": 167772171,  # 10.0.0.11 → decimal
+            "ETH0_IP": "10.0.0.11",
+            "MAV_SYS_ID": 1,
+        },
+        2: {  # Follower Left
+            "UXRCE_DDS_AG_IP": 167772181,  # 10.0.0.21 → decimal
+            "ETH0_IP": "10.0.0.21",
+            "MAV_SYS_ID": 2,
+        },
+        3: {  # Follower Right
+            "UXRCE_DDS_AG_IP": 167772191,  # 10.0.0.31 → decimal
+            "ETH0_IP": "10.0.0.31",
+            "MAV_SYS_ID": 3,
+        },
+    }
+
+    preset = presets.get(drone_id, presets[1])
+    role = "Leader" if drone_id == 1 else "Follower"
+
     return [
+        {"id": "vp0", "text": f"[기체 {drone_id}번 - {role}]", "auto": False},
+        {"id": "vp1", "text": f"UXRCE_DDS_AG_IP = {preset['UXRCE_DDS_AG_IP']} (Agent IP: {preset['ETH0_IP']})", "auto": True, "check": f"fc-param/UXRCE_DDS_AG_IP?expected={preset['UXRCE_DDS_AG_IP']}"},
+        {"id": "vp2", "text": "UXRCE_DDS_CFG = 1000 (Ethernet)", "auto": True, "check": "fc-param/UXRCE_DDS_CFG?expected=1000"},
+        {"id": "vp3", "text": "UXRCE_DDS_DOM_ID = 0 (Domain ID)", "auto": True, "check": "fc-param/UXRCE_DDS_DOM_ID?expected=0"},
+        {"id": "vp4", "text": "UXRCE_DDS_KEY = 1 (Session Key)", "auto": True, "check": "fc-param/UXRCE_DDS_KEY?expected=1"},
+        {"id": "vp5", "text": "UXRCE_DDS_PRT = 8888 (UDP Port)", "auto": True, "check": "fc-param/UXRCE_DDS_PRT?expected=8888"},
+        {"id": "vp6", "text": f"MAV_SYS_ID = {preset['MAV_SYS_ID']} (MAVLink System ID)", "auto": True, "check": f"fc-param/MAV_SYS_ID?expected={preset['MAV_SYS_ID']}"},
+        {"id": "vp7", "text": "MAV_2_BROADCAST = 1 (Always broadcast)", "auto": True, "check": "fc-param/MAV_2_BROADCAST?expected=1"},
+        {"id": "vp8", "text": "MAV_2_CONFIG = 1000 (Ethernet)", "auto": True, "check": "fc-param/MAV_2_CONFIG?expected=1000"},
+        {"id": "vp9", "text": "MAV_2_MODE = 0 (Normal)", "auto": True, "check": "fc-param/MAV_2_MODE?expected=0"},
+        {"id": "vp10", "text": "MAV_2_RADIO_CTL = 0 (Disabled)", "auto": True, "check": "fc-param/MAV_2_RADIO_CTL?expected=0"},
+        {"id": "vp11", "text": "MAV_2_RATE = 100000 B/s (MAVLink sending rate)", "auto": True, "check": "fc-param/MAV_2_RATE?expected=100000"},
+        {"id": "vp12", "text": "MAV_2_REMOTE_PRT = 14540 (Remote Port)", "auto": True, "check": "fc-param/MAV_2_REMOTE_PRT?expected=14540"},
+        {"id": "vp13", "text": "MAV_2_UDP_PRT = 14550 (UDP Port)", "auto": True, "check": "fc-param/MAV_2_UDP_PRT?expected=14550"},
+    ]
+
+
+def get_failsafe_params_checklist(indoor=True):
+    """페일세이프 파라미터 체크리스트 (공통)
+
+    Args:
+        indoor: True=실내 모드 (Land 권장), False=야외 모드 (RTL 권장)
+    """
+    # 실내/야외별 권장 값 (PX4 v1.15.0)
+    # NAV_RCL_ACT: 2=RTL, 3=Land
+    # COM_OBL_RC_ACT: 3=RTL, 4=Land
+    # NAV_DLL_ACT: 2=RTL, 3=Land
+    # COM_LOW_BAT_ACT: 2=Land, 3=Return then Land
+    nav_rcl_act = 3 if indoor else 2  # 실내:Land, 야외:RTL
+    com_obl_rc_act = 4 if indoor else 3  # 실내:Land, 야외:RTL
+    nav_dll_act = 3 if indoor else 2  # 실내:Land, 야외:RTL
+    com_low_bat_act = 2 if indoor else 3  # 실내:Land, 야외:Return then Land
+
+    return [
+        {"id": "fs1", "text": f"NAV_RCL_ACT = {nav_rcl_act} (RC 두절: {'Land' if indoor else 'RTL'})", "auto": True, "check": f"fc-param/NAV_RCL_ACT?expected={nav_rcl_act}"},
+        {"id": "fs2", "text": "COM_RC_LOSS_T = 0.5 (RC 두절 판정 시간)", "auto": True, "check": "fc-param/COM_RC_LOSS_T?expected=0.5"},
+        {"id": "fs3", "text": f"COM_OBL_RC_ACT = {com_obl_rc_act} (OFFBOARD 두절: {'Land' if indoor else 'RTL'})", "auto": True, "check": f"fc-param/COM_OBL_RC_ACT?expected={com_obl_rc_act}"},
+        {"id": "fs4", "text": "COM_OF_LOSS_T = 1.0 (OFFBOARD 두절 판정 시간)", "auto": True, "check": "fc-param/COM_OF_LOSS_T?expected=1.0"},
+        {"id": "fs5", "text": f"NAV_DLL_ACT = {nav_dll_act} (Data Link 두절: {'Land' if indoor else 'RTL'})", "auto": True, "check": f"fc-param/NAV_DLL_ACT?expected={nav_dll_act}"},
+        {"id": "fs6", "text": "COM_DL_LOSS_T = 10 (Data Link 두절 판정 시간)", "auto": True, "check": "fc-param/COM_DL_LOSS_T?expected=10"},
+        {"id": "fs7", "text": f"COM_LOW_BAT_ACT = {com_low_bat_act} (배터리 저전압: {'Land' if indoor else 'Return then Land'})", "auto": True, "check": f"fc-param/COM_LOW_BAT_ACT?expected={com_low_bat_act}"},
+        {"id": "fs8", "text": "BAT_LOW_THR = 0.15 (저전압 임계값 15%)", "auto": True, "check": "fc-param/BAT_LOW_THR?expected=0.15"},
+        {"id": "fs9", "text": "BAT_CRIT_THR = 0.1 (위험 전압 임계값 10%)", "auto": True, "check": "fc-param/BAT_CRIT_THR?expected=0.1"},
+        {"id": "fs10", "text": "BAT_EMERGEN_THR = 0.05 (비상 전압 임계값 5%)", "auto": True, "check": "fc-param/BAT_EMERGEN_THR?expected=0.05"},
+    ]
+
+
+def get_custom_params_checklist(category: str):
+    """커스텀 파라미터를 체크리스트 형식으로 변환"""
+    # 해당 카테고리 + common 파라미터 가져오기
+    params = config_manager.get_custom_params_by_category(category)
+    common_params = config_manager.get_custom_params_by_category('common') if category != 'common' else []
+
+    all_params = params + common_params
+    if not all_params:
+        return []
+
+    items = []
+    for i, param in enumerate(all_params):
+        item_id = f"custom_{category}_{i+1}"
+
+        # 텍스트 생성
+        text = param['name']
+        if param.get('expected') is not None:
+            text += f" = {param['expected']}"
+        if param.get('description'):
+            text += f" ({param['description']})"
+
+        item = {
+            "id": item_id,
+            "text": text,
+            "auto": param.get('auto_check', True) and param.get('expected') is not None,
+        }
+
+        # 자동 확인이 가능하면 check 추가
+        if item["auto"]:
+            item["check"] = f"fc-param/{param['name']}?expected={param['expected']}"
+
+        items.append(item)
+
+    return items
+
+
+def get_norc_params_checklist():
+    """RC 없이 OFFBOARD 모드 파라미터 체크리스트"""
+    return [
+        {"id": "norc1", "text": "COM_RCL_EXCEPT = 4 (RC 두절 예외: OFFBOARD)", "auto": True, "check": "fc-param/COM_RCL_EXCEPT?expected=4"},
+        {"id": "norc2", "text": "COM_RC_IN_MODE = 4 (RC 입력: 불필요)", "auto": True, "check": "fc-param/COM_RC_IN_MODE?expected=4"},
+        {"id": "norc3", "text": "COM_OBL_RC_ACT = 4 (OFFBOARD 두절: Land)", "auto": True, "check": "fc-param/COM_OBL_RC_ACT?expected=4"},
+        {"id": "norc4", "text": "COM_OF_LOSS_T = 1.0 (OFFBOARD 두절 판정 시간)", "auto": True, "check": "fc-param/COM_OF_LOSS_T?expected=1.0"},
+    ]
+
+
+def get_indoor_checklist(no_rc=False):
+    """실내 테스트 체크리스트 (Optical Flow + LiDAR)"""
+    drone_id = config_manager.get_drone_id()
+
+    checklist = [
         {"section": "하드웨어 확인", "items": [
             {"id": "hw1", "text": "배터리 충전 상태 확인 (70% 이상)", "auto": False},
             {"id": "hw2", "text": "프로펠러 장착 및 상태 확인", "auto": False},
-            {"id": "hw3", "text": "Optical Flow 센서 연결 확인", "auto": False},
+            {"id": "hw3", "text": "Optical Flow 센서 연결 확인 (MTF-01)", "auto": False},
             {"id": "hw4", "text": "LiDAR 센서 연결 확인", "auto": False},
             {"id": "hw5", "text": "FC 전원 LED 확인", "auto": False},
         ]},
@@ -785,6 +1167,20 @@ def get_indoor_checklist():
             {"id": "sw3", "text": "mavlink-router 서비스 실행", "auto": True, "check": "service/mavlink-router"},
             {"id": "sw4", "text": "ROS2 토픽 수신 확인", "auto": True, "check": "ros2-topics"},
         ]},
+        {"section": "기체별 FC 파라미터 (uXRCE-DDS, MAVLink)", "items": get_vehicle_params_checklist(drone_id)},
+        {"section": "FC 파라미터 확인 (실내 모드)", "items": [
+            {"id": "param1", "text": "EKF2_GPS_CTRL = 0 (GPS 비활성화)", "auto": True, "check": "fc-param/EKF2_GPS_CTRL?expected=0"},
+            {"id": "param2", "text": "EKF2_HGT_REF = 2 (Range sensor)", "auto": True, "check": "fc-param/EKF2_HGT_REF?expected=2"},
+            {"id": "param3", "text": "EKF2_OF_CTRL = 1 (Optical Flow 활성화)", "auto": True, "check": "fc-param/EKF2_OF_CTRL?expected=1"},
+            {"id": "param4", "text": "EKF2_RNG_CTRL = 2 (Range Finder 활성화)", "auto": True, "check": "fc-param/EKF2_RNG_CTRL?expected=2"},
+            {"id": "param5", "text": "EKF2_RNG_A_HMAX = 8m (Range aid 최대 고도)", "auto": True, "check": "fc-param/EKF2_RNG_A_HMAX?expected=8"},
+            {"id": "param6", "text": "GPS_1_CONFIG = 0 (GPS 포트 비활성화)", "auto": True, "check": "fc-param/GPS_1_CONFIG?expected=0"},
+            {"id": "param7", "text": "SENS_FLOW_ROT = 0 (No rotation)", "auto": True, "check": "fc-param/SENS_FLOW_ROT?expected=0"},
+            {"id": "param8", "text": "MAV_1_CONFIG = 103 (TELEM3)", "auto": True, "check": "fc-param/MAV_1_CONFIG?expected=103"},
+            {"id": "param9", "text": "MAV_1_MODE = 0 (Normal)", "auto": True, "check": "fc-param/MAV_1_MODE?expected=0"},
+            {"id": "param10", "text": "SER_TEL3_BAUD = 115200", "auto": True, "check": "fc-param/SER_TEL3_BAUD?expected=115200"},
+        ]},
+        {"section": "페일세이프 파라미터 확인 (실내)", "items": get_failsafe_params_checklist(indoor=True)},
         {"section": "비행 환경 확인", "items": [
             {"id": "env1", "text": "비행 공간 확보 (3m x 3m 이상)", "auto": False},
             {"id": "env2", "text": "바닥 텍스처 충분 (Optical Flow용)", "auto": False},
@@ -794,10 +1190,22 @@ def get_indoor_checklist():
         ]},
     ]
 
+    # 커스텀 파라미터 섹션 추가
+    custom_items = get_custom_params_checklist('indoor')
+    if custom_items:
+        checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
 
-def get_outdoor_checklist():
-    """야외 비행 체크리스트"""
-    return [
+    if no_rc:
+        checklist.append({"section": "RC 없이 OFFBOARD 파라미터", "items": get_norc_params_checklist()})
+
+    return checklist
+
+
+def get_outdoor_gps_checklist(no_rc=False):
+    """야외 GPS 비행 체크리스트"""
+    drone_id = config_manager.get_drone_id()
+
+    checklist = [
         {"section": "하드웨어 확인", "items": [
             {"id": "hw1", "text": "배터리 충전 상태 확인 (80% 이상)", "auto": False},
             {"id": "hw2", "text": "프로펠러 장착 및 상태 확인", "auto": False},
@@ -814,14 +1222,87 @@ def get_outdoor_checklist():
             {"id": "sw2", "text": "micro-ros-agent 서비스 실행", "auto": True, "check": "service/micro-ros-agent"},
             {"id": "sw3", "text": "mavlink-router 서비스 실행", "auto": True, "check": "service/mavlink-router"},
         ]},
+        {"section": "기체별 FC 파라미터 (uXRCE-DDS, MAVLink)", "items": get_vehicle_params_checklist(drone_id)},
+        {"section": "FC 파라미터 확인 (야외 GPS 모드)", "items": [
+            {"id": "param1", "text": "EKF2_BARO_CTRL = 1 (Barometer 활성화)", "auto": True, "check": "fc-param/EKF2_BARO_CTRL?expected=1"},
+            {"id": "param2", "text": "EKF2_GPS_CTRL = 7 (GPS 위치/고도/속도 융합)", "auto": True, "check": "fc-param/EKF2_GPS_CTRL?expected=7"},
+            {"id": "param3", "text": "EKF2_HGT_REF = 1 (GPS)", "auto": True, "check": "fc-param/EKF2_HGT_REF?expected=1"},
+            {"id": "param4", "text": "EKF2_OF_CTRL = 0 (Optical Flow 비활성화)", "auto": True, "check": "fc-param/EKF2_OF_CTRL?expected=0"},
+            {"id": "param5", "text": "EKF2_RNG_CTRL (0=Disable, 1=Conditional 권장, 2=Enabled)", "auto": False},  # 야외: 선택 가능
+            {"id": "param6", "text": "GPS_1_CONFIG = 201 (GPS1)", "auto": True, "check": "fc-param/GPS_1_CONFIG?expected=201"},
+        ]},
+        {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
             {"id": "safe3", "text": "복귀 지점(Home) 설정 확인", "auto": False},
-            {"id": "safe4", "text": "페일세이프 설정 확인", "auto": False},
-            {"id": "safe5", "text": "기상 조건 확인 (풍속 8m/s 이하)", "auto": False},
+            {"id": "safe4", "text": "기상 조건 확인 (풍속 8m/s 이하)", "auto": False},
         ]},
     ]
+
+    # 커스텀 파라미터 섹션 추가
+    custom_items = get_custom_params_checklist('outdoor_gps')
+    if custom_items:
+        checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
+
+    if no_rc:
+        checklist.append({"section": "RC 없이 OFFBOARD 파라미터", "items": get_norc_params_checklist()})
+
+    return checklist
+
+
+def get_outdoor_rtk_checklist(no_rc=False):
+    """야외 RTK GPS 비행 체크리스트"""
+    drone_id = config_manager.get_drone_id()
+
+    checklist = [
+        {"section": "하드웨어 확인", "items": [
+            {"id": "hw1", "text": "배터리 충전 상태 확인 (80% 이상)", "auto": False},
+            {"id": "hw2", "text": "프로펠러 장착 및 상태 확인", "auto": False},
+            {"id": "hw3", "text": "RTK GPS 안테나 연결 확인", "auto": False},
+            {"id": "hw4", "text": "조종기 연결 확인", "auto": False},
+            {"id": "hw5", "text": "RTK 베이스스테이션/NTRIP 연결 확인", "auto": False},
+        ]},
+        {"section": "RTK GPS 확인", "items": [
+            {"id": "rtk1", "text": "RTK Fix 상태 확인 (Fixed)", "auto": False},
+            {"id": "rtk2", "text": "GPS 위성 수 확인 (8개 이상 권장)", "auto": False},
+            {"id": "rtk3", "text": "HDOP 확인 (1.0 이하 권장)", "auto": False},
+            {"id": "rtk4", "text": "베이스스테이션 거리 확인 (10km 이내)", "auto": False},
+        ]},
+        {"section": "소프트웨어 확인", "items": [
+            {"id": "sw1", "text": "FC 연결 확인 (ping)", "auto": True, "check": "fc-ping"},
+            {"id": "sw2", "text": "micro-ros-agent 서비스 실행", "auto": True, "check": "service/micro-ros-agent"},
+            {"id": "sw3", "text": "mavlink-router 서비스 실행", "auto": True, "check": "service/mavlink-router"},
+        ]},
+        {"section": "기체별 FC 파라미터 (uXRCE-DDS, MAVLink)", "items": get_vehicle_params_checklist(drone_id)},
+        {"section": "FC 파라미터 확인 (야외 RTK 모드)", "items": [
+            {"id": "param1", "text": "EKF2_BARO_CTRL = 1 (Barometer 활성화)", "auto": True, "check": "fc-param/EKF2_BARO_CTRL?expected=1"},
+            {"id": "param2", "text": "EKF2_GPS_CTRL = 7 (GPS 위치/고도/속도 융합)", "auto": True, "check": "fc-param/EKF2_GPS_CTRL?expected=7"},
+            {"id": "param3", "text": "EKF2_HGT_REF = 1 (GPS)", "auto": True, "check": "fc-param/EKF2_HGT_REF?expected=1"},
+            {"id": "param4", "text": "EKF2_OF_CTRL = 0 (Optical Flow 비활성화)", "auto": True, "check": "fc-param/EKF2_OF_CTRL?expected=0"},
+            {"id": "param5", "text": "EKF2_RNG_CTRL (0=Disable, 1=Conditional 권장, 2=Enabled)", "auto": False},  # 야외: 선택 가능
+            {"id": "param6", "text": "GPS_1_CONFIG = 201 (GPS1)", "auto": True, "check": "fc-param/GPS_1_CONFIG?expected=201"},
+            {"id": "param7", "text": "GPS_1_PROTOCOL = 1 (u-blox)", "auto": True, "check": "fc-param/GPS_1_PROTOCOL?expected=1"},
+            {"id": "param8", "text": "GPS_UBX_MODE = 0 (Default, RTK 포함)", "auto": True, "check": "fc-param/GPS_UBX_MODE?expected=0"},
+        ]},
+        {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
+        {"section": "안전 확인", "items": [
+            {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
+            {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
+            {"id": "safe3", "text": "복귀 지점(Home) 설정 확인", "auto": False},
+            {"id": "safe4", "text": "기상 조건 확인 (풍속 8m/s 이하)", "auto": False},
+        ]},
+    ]
+
+    # 커스텀 파라미터 섹션 추가
+    custom_items = get_custom_params_checklist('outdoor_rtk')
+    if custom_items:
+        checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
+
+    if no_rc:
+        checklist.append({"section": "RC 없이 OFFBOARD 파라미터", "items": get_norc_params_checklist()})
+
+    return checklist
 
 
 def get_postflight_checklist():

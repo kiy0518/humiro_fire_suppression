@@ -5,9 +5,10 @@ device_config.env 및 기타 설정 파일 관리
 
 import os
 import re
+import json
 import shutil
 from datetime import datetime
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 
 class ConfigManager:
@@ -19,6 +20,7 @@ class ConfigManager:
         self.device_config_path = os.path.join(self.config_dir, "device_config.env")
         self.fc_params_dir = os.path.join(self.config_dir, "fc_params")
         self.backup_dir = os.path.join(self.config_dir, "backup")
+        self.custom_params_file = os.path.join(self.config_dir, "custom_params.json")
 
         # 설정 캐시
         self._device_config: Dict[str, str] = {}
@@ -27,6 +29,10 @@ class ConfigManager:
         # FC 파라미터 디렉토리 생성
         os.makedirs(self.fc_params_dir, exist_ok=True)
         os.makedirs(self.backup_dir, exist_ok=True)
+
+        # 커스텀 파라미터 파일 초기화
+        if not os.path.exists(self.custom_params_file):
+            self._init_custom_params_file()
 
     def _load_device_config(self):
         """device_config.env 로드"""
@@ -293,6 +299,139 @@ class ConfigManager:
                 if filename.endswith(".params"):
                     presets.append(filename[:-7])  # Remove .params extension
         return sorted(presets)
+
+    # === 커스텀 FC 파라미터 관리 ===
+
+    def _init_custom_params_file(self):
+        """커스텀 파라미터 파일 초기화"""
+        default_data = {
+            "categories": {
+                "indoor": {
+                    "name": "실내 모드",
+                    "params": []
+                },
+                "outdoor_gps": {
+                    "name": "야외 GPS 모드",
+                    "params": []
+                },
+                "outdoor_rtk": {
+                    "name": "야외 RTK 모드",
+                    "params": []
+                },
+                "common": {
+                    "name": "공통",
+                    "params": []
+                }
+            },
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        with open(self.custom_params_file, "w") as f:
+            json.dump(default_data, f, indent=2, ensure_ascii=False)
+
+    def load_custom_params(self) -> Dict:
+        """커스텀 파라미터 전체 로드"""
+        try:
+            with open(self.custom_params_file, "r") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"커스텀 파라미터 로드 실패: {e}")
+            self._init_custom_params_file()
+            return self.load_custom_params()
+
+    def save_custom_params(self, data: Dict) -> bool:
+        """커스텀 파라미터 저장"""
+        try:
+            data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            with open(self.custom_params_file, "w") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            return True
+        except Exception as e:
+            print(f"커스텀 파라미터 저장 실패: {e}")
+            return False
+
+    def get_custom_params_by_category(self, category: str) -> List[Dict]:
+        """카테고리별 커스텀 파라미터 목록 반환
+
+        Args:
+            category: indoor, outdoor_gps, outdoor_rtk, common
+
+        Returns:
+            [{"name": "PARAM_NAME", "expected": 123, "description": "설명", "auto_check": True}, ...]
+        """
+        data = self.load_custom_params()
+        categories = data.get("categories", {})
+        if category in categories:
+            return categories[category].get("params", [])
+        return []
+
+    def add_custom_param(self, category: str, param: Dict) -> bool:
+        """커스텀 파라미터 추가
+
+        Args:
+            category: indoor, outdoor_gps, outdoor_rtk, common
+            param: {"name": "PARAM_NAME", "expected": 123, "description": "설명", "auto_check": True}
+        """
+        data = self.load_custom_params()
+        categories = data.get("categories", {})
+
+        if category not in categories:
+            return False
+
+        # 필수 필드 검증
+        if "name" not in param:
+            return False
+
+        # 중복 체크
+        existing = categories[category].get("params", [])
+        for p in existing:
+            if p.get("name") == param["name"]:
+                # 이미 존재하면 업데이트
+                p.update(param)
+                return self.save_custom_params(data)
+
+        # 기본값 설정
+        param.setdefault("expected", None)
+        param.setdefault("description", "")
+        param.setdefault("auto_check", True)
+
+        categories[category]["params"].append(param)
+        return self.save_custom_params(data)
+
+    def update_custom_param(self, category: str, param_name: str, param: Dict) -> bool:
+        """커스텀 파라미터 업데이트"""
+        data = self.load_custom_params()
+        categories = data.get("categories", {})
+
+        if category not in categories:
+            return False
+
+        params = categories[category].get("params", [])
+        for i, p in enumerate(params):
+            if p.get("name") == param_name:
+                params[i].update(param)
+                return self.save_custom_params(data)
+        return False
+
+    def delete_custom_param(self, category: str, param_name: str) -> bool:
+        """커스텀 파라미터 삭제"""
+        data = self.load_custom_params()
+        categories = data.get("categories", {})
+
+        if category not in categories:
+            return False
+
+        params = categories[category].get("params", [])
+        for i, p in enumerate(params):
+            if p.get("name") == param_name:
+                params.pop(i)
+                return self.save_custom_params(data)
+        return False
+
+    def get_all_categories(self) -> Dict[str, str]:
+        """모든 카테고리 목록 반환"""
+        data = self.load_custom_params()
+        categories = data.get("categories", {})
+        return {k: v.get("name", k) for k, v in categories.items()}
 
     # === 페일세이프 설정 ===
 

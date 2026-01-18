@@ -1,0 +1,21 @@
+{
+  "categories": {
+    "indoor": {
+      "name": "실내 모드",
+      "params": []
+    },
+    "outdoor_gps": {
+      "name": "야외 GPS 모드",
+      "params": []
+    },
+    "outdoor_rtk": {
+      "name": "야외 RTK 모드",
+      "params": []
+    },
+    "common": {
+      "name": "공통",
+      "params": []
+    }
+  },
+  "updated_at": "2026-01-18 13:40:37"
+}

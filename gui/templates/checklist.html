@@ -9,10 +9,17 @@
                 <div>
                     <i class="bi bi-check2-square"></i> 체크리스트
                     <select class="form-select form-select-sm d-inline-block ms-2" style="width: auto;" id="checklistMode" onchange="loadChecklist()">
-                        <option value="indoor">실내 테스트 비행 전</option>
-                        <option value="outdoor">야외 비행 전</option>
+                        <option value="indoor">실내 (Optical Flow)</option>
+                        <option value="outdoor_gps">야외 GPS</option>
+                        <option value="outdoor_rtk">야외 RTK</option>
                         <option value="postflight">비행 후</option>
                     </select>
+                    <div class="form-check form-check-inline ms-3">
+                        <input class="form-check-input" type="checkbox" id="noRcOption" onchange="loadChecklist()">
+                        <label class="form-check-label" for="noRcOption">
+                            <i class="bi bi-controller text-danger"></i> RC 없이 OFFBOARD
+                        </label>
+                    </div>
                 </div>
                 <div>
                     <button class="btn btn-sm btn-outline-primary" onclick="autoCheckAll()">
@@ -55,9 +62,12 @@
                 <p><strong>자동 확인:</strong> <i class="bi bi-lightning text-warning"></i> 아이콘이 있는 항목은 자동으로 확인 가능합니다.</p>
                 <hr>
                 <h6>모드 설명</h6>
-                <p><strong>실내 테스트:</strong> Optical Flow 기반 비행 전 점검</p>
-                <p><strong>야외 비행:</strong> GPS 기반 비행 전 점검</p>
+                <p><strong>실내:</strong> Optical Flow + LiDAR 기반</p>
+                <p><strong>야외 GPS:</strong> GPS 기반 위치 제어</p>
+                <p><strong>야외 RTK:</strong> RTK GPS 정밀 제어</p>
                 <p class="mb-0"><strong>비행 후:</strong> 비행 완료 후 점검</p>
+                <hr>
+                <p class="mb-0 text-danger"><i class="bi bi-controller"></i> <strong>RC 없음:</strong> OFFBOARD 전용 파라미터 추가</p>
             </div>
         </div>
 
@@ -129,8 +139,9 @@
 
     function loadChecklist() {
         const mode = document.getElementById('checklistMode').value;
+        const noRc = document.getElementById('noRcOption').checked;
 
-        fetch(`/api/checklist/${mode}`)
+        fetch(`/api/checklist/${mode}?no_rc=${noRc}`)
             .then(r => r.json())
             .then(data => {
                 checklistData = data;
@@ -152,7 +163,10 @@
                         <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
                         <label for="${item.id}">${item.text}</label>
                         ${item.auto ? `
-                            <button class="btn btn-sm btn-outline-warning auto-check" onclick="runAutoCheck('${item.id}', '${item.check}')">
+                            <button class="btn btn-sm btn-outline-warning auto-check"
+                                    data-item-id="${item.id}"
+                                    data-check-type="${item.check}"
+                                    onclick="runAutoCheck('${item.id}', '${item.check}')">
                                 <i class="bi bi-lightning"></i> 확인
                             </button>
                             <span class="check-result ms-2" id="${item.id}_result"></span>
@@ -208,30 +222,57 @@
     }
 
     function runAutoCheck(itemId, checkType) {
-        const resultEl = document.getElementById(`${itemId}_result`);
-        resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 확인 중...';
-        resultEl.className = 'check-result';
+        return new Promise((resolve) => {
+            const resultEl = document.getElementById(`${itemId}_result`);
+            resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 확인 중...';
+            resultEl.className = 'check-result';
 
-        fetch(`/api/check/${checkType}`)
-            .then(r => r.json())
-            .then(data => {
-                const checkbox = document.getElementById(itemId);
-                checkbox.checked = data.success;
+            fetch(`/api/check/${checkType}`)
+                .then(r => r.json())
+                .then(data => {
+                    const checkbox = document.getElementById(itemId);
+                    checkbox.checked = data.success;
 
-                resultEl.textContent = data.message;
-                resultEl.className = `check-result ${data.success ? 'success' : 'fail'}`;
+                    resultEl.textContent = data.message;
+                    resultEl.className = `check-result ${data.success ? 'success' : 'fail'}`;
 
-                updateProgress();
-            })
-            .catch(() => {
-                resultEl.textContent = '오류';
-                resultEl.className = 'check-result fail';
-            });
+                    updateProgress();
+                    resolve(data.success);
+                })
+                .catch(() => {
+                    resultEl.textContent = '오류';
+                    resultEl.className = 'check-result fail';
+                    resolve(false);
+                });
+        });
     }
 
-    function autoCheckAll() {
-        const autoItems = document.querySelectorAll('.auto-check');
-        autoItems.forEach(btn => btn.click());
+    async function autoCheckAll() {
+        const autoButtons = document.querySelectorAll('.auto-check');
+        const total = autoButtons.length;
+        let completed = 0;
+
+        // 진행 상태 표시
+        const statusEl = document.getElementById('readyText');
+        const originalText = statusEl.textContent;
+
+        for (const btn of autoButtons) {
+            const itemId = btn.getAttribute('data-item-id');
+            const checkType = btn.getAttribute('data-check-type');
+
+            completed++;
+            statusEl.textContent = `자동 확인 중... (${completed}/${total})`;
+
+            await runAutoCheck(itemId, checkType);
+
+            // FC 파라미터 확인은 간격을 두어 MAVLink 연결 안정화
+            if (checkType.startsWith('fc-param/')) {
+                await new Promise(r => setTimeout(r, 100));
+            }
+        }
+
+        statusEl.textContent = originalText;
+        updateProgress();
     }
 
     document.addEventListener('DOMContentLoaded', loadChecklist);

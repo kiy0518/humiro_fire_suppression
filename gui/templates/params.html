@@ -1,0 +1,400 @@
+{% extends "base.html" %}
+{% block title %}FC 파라미터 관리{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-sliders"></i> FC 파라미터 관리
+                    <select class="form-select form-select-sm d-inline-block ms-2" style="width: auto;" id="categorySelect" onchange="loadParams()">
+                        <option value="indoor">실내 모드</option>
+                        <option value="outdoor_gps">야외 GPS 모드</option>
+                        <option value="outdoor_rtk">야외 RTK 모드</option>
+                        <option value="common">공통</option>
+                    </select>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="showAddModal()">
+                    <i class="bi bi-plus-lg"></i> 파라미터 추가
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="paramsTable">
+                    <div class="text-center text-muted py-4">로딩 중...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 안내
+            </div>
+            <div class="card-body small">
+                <p><strong>파라미터 관리:</strong> 체크리스트에서 확인할 커스텀 FC 파라미터를 추가합니다.</p>
+                <hr>
+                <h6>카테고리 설명</h6>
+                <p><strong>실내 모드:</strong> 실내 체크리스트에 추가</p>
+                <p><strong>야외 GPS:</strong> GPS 체크리스트에 추가</p>
+                <p><strong>야외 RTK:</strong> RTK 체크리스트에 추가</p>
+                <p class="mb-0"><strong>공통:</strong> 모든 체크리스트에 추가</p>
+                <hr>
+                <p class="text-muted mb-0"><i class="bi bi-lightbulb"></i> 기대값을 입력하면 자동 확인이 가능합니다.</p>
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header">
+                <i class="bi bi-search"></i> 파라미터 값 읽기
+            </div>
+            <div class="card-body">
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="readParamName" placeholder="파라미터 이름">
+                    <button class="btn btn-outline-primary" onclick="readParamValue()">
+                        <i class="bi bi-download"></i> 읽기
+                    </button>
+                </div>
+                <div id="readResult" class="text-muted small"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 파라미터 추가/수정 모달 -->
+<div class="modal fade" id="paramModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">파라미터 추가</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="paramForm">
+                    <input type="hidden" id="editMode" value="add">
+                    <input type="hidden" id="originalName" value="">
+
+                    <div class="mb-3">
+                        <label class="form-label">파라미터 이름 <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="paramName" placeholder="예: EKF2_GPS_CTRL" required>
+                            <button type="button" class="btn btn-outline-secondary" onclick="readAndFill()">
+                                <i class="bi bi-download"></i> FC에서 읽기
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">기대값</label>
+                        <input type="text" class="form-control" id="paramExpected" placeholder="예: 7 또는 0.15">
+                        <small class="text-muted">비워두면 값 표시만, 입력하면 자동 확인 시 비교</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">설명</label>
+                        <input type="text" class="form-control" id="paramDescription" placeholder="예: GPS 위치/고도/속도 융합">
+                    </div>
+
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="paramAutoCheck" checked>
+                        <label class="form-check-label" for="paramAutoCheck">
+                            자동 확인 활성화
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="saveParam()">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 삭제 확인 모달 -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">삭제 확인</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong id="deleteParamName"></strong> 파라미터를 삭제하시겠습니까?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-danger" onclick="confirmDelete()">삭제</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .param-row {
+        display: flex;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .param-row:last-child {
+        border-bottom: none;
+    }
+    .param-info {
+        flex: 1;
+    }
+    .param-name {
+        font-weight: 600;
+        font-family: monospace;
+    }
+    .param-desc {
+        font-size: 0.85rem;
+        color: #666;
+    }
+    .param-expected {
+        margin-right: 15px;
+        font-size: 0.9rem;
+    }
+    .param-actions {
+        white-space: nowrap;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #999;
+    }
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentParams = [];
+    let deleteTarget = null;
+    const paramModal = new bootstrap.Modal(document.getElementById('paramModal'));
+    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+
+    function loadParams() {
+        const category = document.getElementById('categorySelect').value;
+
+        fetch(`/api/custom-params/${category}`)
+            .then(r => r.json())
+            .then(params => {
+                currentParams = params;
+                renderParams();
+            });
+    }
+
+    function renderParams() {
+        const container = document.getElementById('paramsTable');
+
+        if (currentParams.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="bi bi-inbox"></i>
+                    <p>등록된 파라미터가 없습니다</p>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showAddModal()">
+                        <i class="bi bi-plus-lg"></i> 파라미터 추가
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        currentParams.forEach(param => {
+            const expectedText = param.expected !== null && param.expected !== ''
+                ? `<span class="badge bg-info">기대값: ${param.expected}</span>`
+                : '<span class="badge bg-secondary">값 표시만</span>';
+
+            const autoCheckIcon = param.auto_check
+                ? '<i class="bi bi-lightning-fill text-warning" title="자동 확인 활성화"></i>'
+                : '<i class="bi bi-lightning text-muted" title="자동 확인 비활성화"></i>';
+
+            html += `
+                <div class="param-row">
+                    <div class="param-info">
+                        <div class="param-name">${param.name} ${autoCheckIcon}</div>
+                        <div class="param-desc">${param.description || '-'}</div>
+                    </div>
+                    <div class="param-expected">
+                        ${expectedText}
+                    </div>
+                    <div class="param-actions">
+                        <button class="btn btn-sm btn-outline-primary" onclick="readParamFromFC('${param.name}')" title="FC에서 읽기">
+                            <i class="bi bi-download"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="showEditModal('${param.name}')" title="수정">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="showDeleteModal('${param.name}')" title="삭제">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    function showAddModal() {
+        document.getElementById('modalTitle').textContent = '파라미터 추가';
+        document.getElementById('editMode').value = 'add';
+        document.getElementById('originalName').value = '';
+        document.getElementById('paramForm').reset();
+        document.getElementById('paramAutoCheck').checked = true;
+        paramModal.show();
+    }
+
+    function showEditModal(paramName) {
+        const param = currentParams.find(p => p.name === paramName);
+        if (!param) return;
+
+        document.getElementById('modalTitle').textContent = '파라미터 수정';
+        document.getElementById('editMode').value = 'edit';
+        document.getElementById('originalName').value = paramName;
+        document.getElementById('paramName').value = param.name;
+        document.getElementById('paramExpected').value = param.expected !== null ? param.expected : '';
+        document.getElementById('paramDescription').value = param.description || '';
+        document.getElementById('paramAutoCheck').checked = param.auto_check !== false;
+        paramModal.show();
+    }
+
+    function saveParam() {
+        const category = document.getElementById('categorySelect').value;
+        const editMode = document.getElementById('editMode').value;
+        const originalName = document.getElementById('originalName').value;
+
+        const name = document.getElementById('paramName').value.trim().toUpperCase();
+        if (!name) {
+            alert('파라미터 이름을 입력하세요.');
+            return;
+        }
+
+        let expected = document.getElementById('paramExpected').value.trim();
+        if (expected !== '') {
+            // 숫자 변환 시도
+            const num = parseFloat(expected);
+            if (!isNaN(num)) {
+                expected = num;
+            }
+        } else {
+            expected = null;
+        }
+
+        const param = {
+            name: name,
+            expected: expected,
+            description: document.getElementById('paramDescription').value.trim(),
+            auto_check: document.getElementById('paramAutoCheck').checked
+        };
+
+        const url = editMode === 'edit'
+            ? `/api/custom-params/${category}/${originalName}`
+            : `/api/custom-params/${category}`;
+        const method = editMode === 'edit' ? 'PUT' : 'POST';
+
+        fetch(url, {
+            method: method,
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(param)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                paramModal.hide();
+                loadParams();
+                showToast(data.message, 'success');
+            } else {
+                alert(data.message);
+            }
+        });
+    }
+
+    function showDeleteModal(paramName) {
+        deleteTarget = paramName;
+        document.getElementById('deleteParamName').textContent = paramName;
+        deleteModal.show();
+    }
+
+    function confirmDelete() {
+        if (!deleteTarget) return;
+
+        const category = document.getElementById('categorySelect').value;
+
+        fetch(`/api/custom-params/${category}/${deleteTarget}`, {
+            method: 'DELETE'
+        })
+        .then(r => r.json())
+        .then(data => {
+            deleteModal.hide();
+            if (data.success) {
+                loadParams();
+                showToast(data.message, 'success');
+            } else {
+                alert(data.message);
+            }
+        });
+    }
+
+    function readParamFromFC(paramName) {
+        fetch(`/api/custom-params/read/${paramName}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`${paramName} = ${data.value}`, 'info');
+                } else {
+                    showToast(`읽기 실패: ${data.message}`, 'danger');
+                }
+            });
+    }
+
+    function readParamValue() {
+        const name = document.getElementById('readParamName').value.trim().toUpperCase();
+        if (!name) {
+            alert('파라미터 이름을 입력하세요.');
+            return;
+        }
+
+        document.getElementById('readResult').innerHTML = '<i class="bi bi-hourglass-split"></i> 읽는 중...';
+
+        fetch(`/api/custom-params/read/${name}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('readResult').innerHTML =
+                        `<span class="text-success"><strong>${name}</strong> = ${data.value}</span>`;
+                } else {
+                    document.getElementById('readResult').innerHTML =
+                        `<span class="text-danger">${data.message}</span>`;
+                }
+            });
+    }
+
+    function readAndFill() {
+        const name = document.getElementById('paramName').value.trim().toUpperCase();
+        if (!name) {
+            alert('파라미터 이름을 먼저 입력하세요.');
+            return;
+        }
+
+        fetch(`/api/custom-params/read/${name}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('paramExpected').value = data.value;
+                    showToast(`${name} = ${data.value}`, 'info');
+                } else {
+                    showToast(`읽기 실패: ${data.message}`, 'danger');
+                }
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', loadParams);
+</script>
+{% endblock %}
