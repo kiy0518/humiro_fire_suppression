@@ -30,6 +30,23 @@ config_manager = ConfigManager(PROJECT_ROOT)
 system_checker = SystemChecker()
 wifi_manager = WiFiManager()
 
+# MAVLink CRC 계산 함수
+def mavlink_crc16(data, crc=0xFFFF):
+    """MAVLink CRC-16-CCITT-FALSE 계산"""
+    for byte in data:
+        byte = byte ^ (crc & 0xFF)
+        byte = byte ^ ((byte << 4) & 0xFF)
+        crc = ((crc >> 8) ^ (byte << 8) ^ (byte << 3) ^ (byte >> 4)) & 0xFFFF
+    return crc
+
+def calculate_mavlink_crc(message, crc_extra):
+    """MAVLink 메시지 CRC 계산 (헤더[1:] + 페이로드 + CRC_EXTRA)"""
+    # STX 바이트(첫 바이트)를 제외한 나머지로 CRC 계산
+    crc = mavlink_crc16(message[1:], 0xFFFF)
+    # CRC_EXTRA 추가
+    crc = mavlink_crc16([crc_extra], crc)
+    return crc
+
 # 빌드 상태
 build_status = {
     "running": False,
@@ -237,6 +254,15 @@ def api_status():
     mem_used, mem_total, mem_percent = system_checker.get_memory_usage()
     disk_used, disk_total, disk_percent = system_checker.get_disk_usage("/")
 
+    # MAVLink 설정
+    wifi_ip = config_manager.get_wifi_ip()
+    mav_sys_id = int(config_manager.get("MAV_SYS_ID", str(drone_id)))
+    mav_comp_id = int(config_manager.get("MAV_COMP_ID", "191"))
+    # 외부 테스트 포트 (GUI, Python 테스트 코드용)
+    # 주석 제거 후 파싱
+    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "14553").split('#')[0].strip()
+    external_port = int(external_port_str)
+
     return jsonify({
         "drone_id": drone_id,
         "role": "Leader" if drone_id == 1 else "Follower",
@@ -246,7 +272,14 @@ def api_status():
         },
         "network": {
             "eth0": eth0_ip,
-            "wlan0": wlan0_ip
+            "wlan0": wlan0_ip,
+            "wifi_ip": wifi_ip
+        },
+        "mavlink": {
+            "system_id": mav_sys_id,
+            "component_id": mav_comp_id,
+            "target_ip": wifi_ip,  # MAVLink router에 메시지를 보내기 위해 WiFi IP 사용
+            "target_port": external_port
         },
         "ros2": {
             "running": ros2_running
@@ -1933,6 +1966,367 @@ def get_postflight_checklist():
             {"id": "clean3", "text": "장비 정리", "auto": False},
         ]},
     ]
+
+
+# ==================== MAVLink 송신 API ====================
+
+@app.route('/mavlink-sender')
+def mavlink_sender_page():
+    """MAVLink 송신 페이지"""
+    return render_template('mavlink_sender.html', active_tab='mavlink-sender')
+
+
+@app.route('/api/mavlink/test-connection', methods=['POST'])
+def api_mavlink_test_connection():
+    """MAVLink 연결 테스트"""
+    try:
+        data = request.json
+        target_ip = data.get('target_ip', '10.0.0.12')
+        target_port = int(data.get('target_port', 14553))
+
+        # UDP 소켓으로 간단한 연결 테스트
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(1)
+
+        # HEARTBEAT 메시지 전송 시도
+        test_data = b'\xfd\x09\x00\x00\x00\x01\xbf\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x04'
+        sock.sendto(test_data, (target_ip, target_port))
+        sock.close()
+
+        return jsonify({"success": True, "message": "연결 테스트 완료"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/mavlink/send-standard', methods=['POST'])
+def api_mavlink_send_standard():
+    """표준 MAVLink 메시지 전송"""
+    try:
+        import socket
+        from pymavlink import mavutil
+
+        data = request.json
+        target_ip = data.get('target_ip')
+        target_port = int(data.get('target_port'))
+        system_id = int(data.get('system_id', 1))
+        component_id = int(data.get('component_id', 191))
+        message_type = data.get('message_type')
+        params = data.get('params', {})
+
+        # MAVLink 연결 (UDP)
+        connection_string = f'udpout:{target_ip}:{target_port}'
+        mav = mavutil.mavlink_connection(
+            connection_string,
+            source_system=system_id,
+            source_component=component_id
+        )
+
+        # 메시지 타입별 전송
+        # 간편 비행 제어 명령어 (COMMAND_LONG로 변환)
+        import time
+
+        print(f"[DEBUG] Sending {message_type} to {target_ip}:{target_port}, sys={system_id}, comp={component_id}")
+
+        # Target은 항상 FC (system_id=1, component_id=1)
+        target_system = 1
+        target_component = 1
+
+        if message_type == 'ARM':
+            # MAV_CMD_COMPONENT_ARM_DISARM = 400
+            force = float(params.get('force', 0))
+            # 여러 번 전송 (안정성 확보)
+            for i in range(3):
+                mav.mav.command_long_send(
+                    target_system,     # FC system ID
+                    target_component,  # FC component ID
+                    400,  # MAV_CMD_COMPONENT_ARM_DISARM
+                    0,    # confirmation
+                    1,    # param1: 1=arm
+                    force,  # param2: force (21196 to override safety checks)
+                    0, 0, 0, 0, 0
+                )
+                print(f"[DEBUG] Sent ARM command to target {target_system}/{target_component} (attempt {i+1}/3)")
+                time.sleep(0.1)  # 100ms 간격
+        elif message_type == 'DISARM':
+            # MAV_CMD_COMPONENT_ARM_DISARM = 400
+            force = float(params.get('force', 0))
+            # 여러 번 전송 (안정성 확보)
+            for i in range(3):
+                mav.mav.command_long_send(
+                    target_system,     # FC system ID
+                    target_component,  # FC component ID
+                    400,  # MAV_CMD_COMPONENT_ARM_DISARM
+                    0,    # confirmation
+                    0,    # param1: 0=disarm
+                    force,  # param2: force (21196 to override safety checks)
+                    0, 0, 0, 0, 0
+                )
+                print(f"[DEBUG] Sent DISARM command to target {target_system}/{target_component} (attempt {i+1}/3)")
+                time.sleep(0.1)  # 100ms 간격
+        elif message_type == 'TAKEOFF':
+            # MAV_CMD_NAV_TAKEOFF = 22
+            altitude = float(params.get('altitude', 2.5))
+            # 여러 번 전송 (안정성 확보)
+            for i in range(3):
+                mav.mav.command_long_send(
+                    target_system,     # FC system ID
+                    target_component,  # FC component ID
+                    22,   # MAV_CMD_NAV_TAKEOFF
+                    0,    # confirmation
+                    0, 0, 0, 0,  # param1-4: unused
+                    0, 0,        # param5-6: unused
+                    altitude     # param7: altitude
+                )
+                print(f"[DEBUG] Sent TAKEOFF command (attempt {i+1}/3)")
+                time.sleep(0.1)  # 100ms 간격
+        elif message_type == 'LAND':
+            # MAV_CMD_NAV_LAND = 21
+            # 여러 번 전송 (안정성 확보)
+            for i in range(3):
+                mav.mav.command_long_send(
+                    target_system,     # FC system ID
+                    target_component,  # FC component ID
+                    21,   # MAV_CMD_NAV_LAND
+                    0,    # confirmation
+                    0, 0, 0, 0, 0, 0, 0  # all params unused
+                )
+                print(f"[DEBUG] Sent LAND command (attempt {i+1}/3)")
+                time.sleep(0.1)  # 100ms 간격
+        elif message_type == 'HEARTBEAT':
+            mav.mav.heartbeat_send(
+                int(params.get('type', 2)),
+                int(params.get('autopilot', 3)),
+                int(params.get('base_mode', 0)),
+                int(params.get('custom_mode', 0)),
+                int(params.get('system_status', 4)),
+                3  # mavlink_version
+            )
+        elif message_type == 'COMMAND_LONG':
+            mav.mav.command_long_send(
+                target_system,     # FC system ID
+                target_component,  # FC component ID
+                int(params.get('command', 400)),
+                int(params.get('confirmation', 0)),
+                float(params.get('param1', 0)),
+                float(params.get('param2', 0)),
+                float(params.get('param3', 0)),
+                float(params.get('param4', 0)),
+                float(params.get('param5', 0)),
+                float(params.get('param6', 0)),
+                float(params.get('param7', 0))
+            )
+        elif message_type == 'SET_MODE':
+            mav.mav.set_mode_send(
+                target_system,     # FC system ID
+                int(params.get('base_mode', 1)),
+                int(params.get('custom_mode', 0))
+            )
+        elif message_type == 'PARAM_SET':
+            param_id = params.get('param_id', 'PARAM_NAME')
+            # 16자로 제한
+            param_id_bytes = param_id[:16].ljust(16, '\x00').encode('utf-8')
+            mav.mav.param_set_send(
+                system_id,
+                component_id,
+                param_id_bytes,
+                float(params.get('param_value', 0)),
+                int(params.get('param_type', 1))
+            )
+        elif message_type == 'MISSION_ITEM':
+            mav.mav.mission_item_send(
+                system_id,
+                component_id,
+                int(params.get('seq', 0)),
+                int(params.get('frame', 0)),
+                int(params.get('command', 16)),
+                int(params.get('current', 0)),
+                int(params.get('autocontinue', 1)),
+                float(params.get('param1', 0)),
+                float(params.get('param2', 0)),
+                float(params.get('param3', 0)),
+                float(params.get('param4', 0)),
+                float(params.get('x', 0)),
+                float(params.get('y', 0)),
+                float(params.get('z', 0))
+            )
+
+        mav.close()
+        return jsonify({"success": True, "message": f"{message_type} 전송 완료"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/mavlink/send-custom', methods=['POST'])
+def api_mavlink_send_custom():
+    """커스텀 MAVLink 메시지 전송"""
+    try:
+        import socket
+
+        data = request.json
+        target_ip = data.get('target_ip')
+        target_port = int(data.get('target_port'))
+        system_id = int(data.get('system_id', 1))
+        component_id = int(data.get('component_id', 191))
+        message_id = int(data.get('message_id'))
+        payload_hex = data.get('payload_hex', '').strip()
+
+        # Hex 문자열을 바이트로 변환
+        payload_bytes = bytes.fromhex(payload_hex.replace(' ', ''))
+
+        # MAVLink v2 헤더 생성
+        # STX(0xFD) | LEN | INCOMPAT | COMPAT | SEQ | SYSID | COMPID | MSGID(3 bytes) | PAYLOAD | CHECKSUM(2 bytes)
+        stx = 0xFD
+        payload_len = len(payload_bytes)
+        incompat_flags = 0
+        compat_flags = 0
+        seq = 0
+
+        # 메시지 ID (24bit, little endian)
+        msgid_bytes = message_id.to_bytes(3, 'little')
+
+        # 헤더 + Payload
+        header = struct.pack('<BBBBBBB', stx, payload_len, incompat_flags, compat_flags, seq, system_id, component_id)
+        message = header + msgid_bytes + payload_bytes
+
+        # CRC_EXTRA 값 (메시지 ID별 고유값)
+        crc_extra_map = {
+            50000: 100,  # FIRE_MISSION_START
+            50002: 102,  # FIRE_LAUNCH_CONTROL
+            50004: 104,  # FIRE_SET_MODE
+        }
+        crc_extra = crc_extra_map.get(message_id, 0)
+
+        # MAVLink CRC 계산
+        crc_value = calculate_mavlink_crc(message, crc_extra)
+        crc = struct.pack('<H', crc_value)  # little endian 16-bit
+        message += crc
+
+        # UDP로 전송
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.sendto(message, (target_ip, target_port))
+        sock.close()
+
+        return jsonify({"success": True, "message": f"커스텀 메시지 전송 완료 ({len(payload_bytes)} bytes)"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/mavlink/send-fire', methods=['POST'])
+def api_mavlink_send_fire():
+    """화재 진압 커스텀 메시지 전송"""
+    try:
+        import socket
+
+        data = request.json
+        target_ip = data.get('target_ip')
+        target_port = int(data.get('target_port'))
+        system_id = int(data.get('system_id', 1))
+        component_id = int(data.get('component_id', 191))
+        message_type = data.get('message_type')
+        params = data.get('params', {})
+
+        # 메시지 ID 매핑
+        message_ids = {
+            'FIRE_MISSION_START': 50000,
+            'FIRE_LAUNCH_CONTROL': 50002,
+            'FIRE_SET_MODE': 50004
+        }
+
+        message_id = message_ids.get(message_type, 0)
+
+        # 메시지별 Payload 생성
+        payload = b''
+        if message_type == 'FIRE_MISSION_START':
+            # struct __attribute__((packed)) FireMissionStart {
+            #     uint8_t target_system;        // System ID
+            #     uint8_t target_component;     // Component ID
+            #     int32_t target_lat;           // Target latitude * 1e7
+            #     int32_t target_lon;           // Target longitude * 1e7
+            #     float target_alt;             // Target altitude MSL (m)
+            #     uint8_t auto_fire;            // 0=manual, 1=auto
+            #     uint8_t max_projectiles;      // Max projectiles to use
+            # };
+            payload = struct.pack('<BBiifBB',
+                int(params.get('target_system', 1)),
+                int(params.get('target_component', 1)),
+                int(params.get('target_lat', 0)),
+                int(params.get('target_lon', 0)),
+                float(params.get('target_alt', 10.0)),
+                int(params.get('auto_fire', 0)),
+                int(params.get('max_projectiles', 1))
+            )
+        elif message_type == 'FIRE_LAUNCH_CONTROL':
+            # struct __attribute__((packed)) FireLaunchControl {
+            #     uint8_t target_system;        // System ID
+            #     uint8_t target_component;     // Component ID
+            #     uint8_t command;              // 0=confirm, 1=abort, 2=request_status
+            # };
+            payload = struct.pack('<BBB',
+                int(params.get('target_system', 1)),
+                int(params.get('target_component', 1)),
+                int(params.get('command', 0))
+            )
+        elif message_type == 'FIRE_SET_MODE':
+            # struct __attribute__((packed)) FireSetMode {
+            #     uint8_t target_system;        // System ID (FC)
+            #     uint8_t target_component;     // Component ID (FC)
+            #     uint8_t px4_mode;             // PX4 mode (1-8)
+            # };
+            payload = struct.pack('<BBB',
+                int(params.get('target_system', 1)),
+                int(params.get('target_component', 1)),
+                int(params.get('px4_mode', 4))
+            )
+
+        # MAVLink v2 헤더 생성
+        stx = 0xFD
+        payload_len = len(payload)
+        incompat_flags = 0
+        compat_flags = 0
+        seq = 0
+
+        # 메시지 ID (24bit, little endian)
+        msgid_bytes = message_id.to_bytes(3, 'little')
+
+        # 헤더 + Payload
+        header = struct.pack('<BBBBBBB', stx, payload_len, incompat_flags, compat_flags, seq, system_id, component_id)
+        message = header + msgid_bytes + payload
+
+        # CRC_EXTRA 값 (메시지 ID별 고유값)
+        crc_extra_map = {
+            50000: 100,  # FIRE_MISSION_START
+            50002: 102,  # FIRE_LAUNCH_CONTROL
+            50004: 104,  # FIRE_SET_MODE
+        }
+        crc_extra = crc_extra_map.get(message_id, 0)
+
+        # MAVLink CRC 계산
+        crc_value = calculate_mavlink_crc(message, crc_extra)
+        crc = struct.pack('<H', crc_value)  # little endian 16-bit
+        message += crc
+
+        # UDP로 전송 (여러 번 반복 - 안정성 확보)
+        import time
+        print(f"[DEBUG] Sending {message_type} to {target_ip}:{target_port}, payload length: {len(payload)}, message length: {len(message)}")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        success_count = 0
+        for i in range(3):  # 3회 전송
+            try:
+                sent_bytes = sock.sendto(message, (target_ip, target_port))
+                print(f"[DEBUG] Sent {sent_bytes} bytes (attempt {i+1}/3)")
+                success_count += 1
+                time.sleep(0.1)  # 100ms 간격
+            except Exception as e:
+                print(f"[DEBUG] Send failed (attempt {i+1}/3): {e}")
+        sock.close()
+
+        if success_count > 0:
+            return jsonify({"success": True, "message": f"{message_type} 전송 완료 ({success_count}/3회, {len(payload)} bytes)"})
+        else:
+            return jsonify({"success": False, "message": f"{message_type} 전송 실패"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
 
 
 if __name__ == '__main__':

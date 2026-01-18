@@ -660,12 +660,12 @@ void ApplicationManager::initializeCustomMessage() {
             std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;
         }
 
-        // ===== 테스트용 메시지 핸들러 추가 (15000 포트) =====
-        std::cout << "\n[테스트 메시지 핸들러 초기화]" << std::endl;
+        // ===== 테스트용 메시지 핸들러 추가 (14553 포트 - EXTERNAL_UDP_PORT) =====
+        std::cout << "\n[테스트 메시지 핸들러 초기화 - 14553 포트]" << std::endl;
         
         test_message_handler_ = new custom_message::CustomMessage(
-            15000,  // 수신 포트 (테스트용)
-            15000,  // 송신 포트 (테스트용)
+            14553,  // 수신 포트 (외부 테스트 포트 - EXTERNAL_UDP_PORT)
+            14553,  // 송신 포트 (외부 테스트 포트)
             "0.0.0.0",  // 바인드 주소
             target_address,  // 대상 주소
             1,  // 시스템 ID

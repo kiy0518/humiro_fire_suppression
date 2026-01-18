@@ -178,6 +178,19 @@
         .loading .loading-spinner {
             display: inline-block;
         }
+
+        /* 드롭다운 메뉴 좌측 정렬 */
+        #droneDropdown {
+            text-align: left !important;
+        }
+        #droneDropdown .dropdown-item {
+            text-align: left !important;
+            display: block !important;
+            justify-content: flex-start !important;
+        }
+        #droneDropdown .dropdown-item i {
+            margin-right: 8px !important;
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -254,21 +267,26 @@
                             <i class="bi bi-camera-video"></i> 카메라
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'mavlink-sender' %}active{% endif %}" href="/mavlink-sender">
+                            <i class="bi bi-send"></i> 송신
+                        </a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
                     <div class="dropdown me-3">
-                        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button"
-                                id="droneSelector" data-bs-toggle="dropdown" aria-expanded="false">
+                        <button class="btn btn-outline-light btn-sm dropdown-toggle text-start" type="button"
+                                id="droneSelector" data-bs-toggle="dropdown" aria-expanded="false" style="min-width: 150px;">
                             <i class="bi bi-robot"></i> <span id="currentDroneText">기체 -</span>
                         </button>
-                        <ul class="dropdown-menu" id="droneDropdown">
-                            <li><a class="dropdown-item drone-option" href="#" data-drone="1" data-ip="192.168.100.11">
+                        <ul class="dropdown-menu text-start" id="droneDropdown">
+                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="1" data-ip="192.168.100.11">
                                 <i class="bi bi-1-circle"></i> 1번 (Leader)
                             </a></li>
-                            <li><a class="dropdown-item drone-option" href="#" data-drone="2" data-ip="192.168.100.21">
+                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="2" data-ip="192.168.100.21">
                                 <i class="bi bi-2-circle"></i> 2번 (Follower L)
                             </a></li>
-                            <li><a class="dropdown-item drone-option" href="#" data-drone="3" data-ip="192.168.100.31">
+                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="3" data-ip="192.168.100.31">
                                 <i class="bi bi-3-circle"></i> 3번 (Follower R)
                             </a></li>
                         </ul>
