@@ -193,6 +193,12 @@ def monitor_page():
     return render_template('monitor.html', active_tab='monitor')
 
 
+@app.route('/terminal')
+def terminal_page():
+    """웹 터미널 페이지"""
+    return render_template('terminal.html', active_tab='terminal')
+
+
 # ==================== API 라우트 ====================
 
 @app.route('/api/status')
@@ -722,6 +728,49 @@ def api_check_fc_ping():
         "success": result,
         "message": "응답" if result else "응답 없음"
     })
+
+
+@app.route('/api/drone/ping/<ip>')
+def api_drone_ping(ip):
+    """드론 미션 컴퓨터 연결 확인 API
+
+    다른 기체의 GUI 서버(5000포트)로 연결 가능한지 확인
+    """
+    import socket
+
+    # IP 주소 유효성 검증 (보안)
+    allowed_ips = ['192.168.100.11', '192.168.100.21', '192.168.100.31']
+    if ip not in allowed_ips:
+        return jsonify({
+            "success": False,
+            "message": "허용되지 않은 IP 주소"
+        })
+
+    # TCP 연결로 GUI 서버 확인 (더 빠르고 정확함)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1.5)  # 1.5초 타임아웃
+        result = sock.connect_ex((ip, 5000))
+        sock.close()
+
+        if result == 0:
+            return jsonify({
+                "success": True,
+                "message": "연결 가능",
+                "ip": ip
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "GUI 서버 응답 없음",
+                "ip": ip
+            })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": str(e),
+            "ip": ip
+        })
 
 
 @app.route('/api/check/service/<service>')

@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}터미널{% endblock %}
+
+{% block extra_css %}
+<style>
+    .terminal-container {
+        height: calc(100vh - 200px);
+        min-height: 500px;
+        background-color: #1e1e1e;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .terminal-container iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+    }
+    .terminal-header {
+        background-color: #2d2d2d;
+        padding: 8px 15px;
+        border-radius: 8px 8px 0 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .terminal-header .title {
+        color: #fff;
+        font-weight: 500;
+    }
+    .terminal-header .actions button {
+        margin-left: 5px;
+    }
+    .terminal-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+    }
+    .dot-red { background-color: #ff5f56; }
+    .dot-yellow { background-color: #ffbd2e; }
+    .dot-green { background-color: #27c93f; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="terminal-header">
+                <div class="d-flex align-items-center">
+                    <span class="terminal-dot dot-red"></span>
+                    <span class="terminal-dot dot-yellow"></span>
+                    <span class="terminal-dot dot-green"></span>
+                    <span class="title ms-3">
+                        <i class="bi bi-terminal"></i> 웹 터미널
+                    </span>
+                </div>
+                <div class="actions">
+                    <span class="badge bg-info me-2" id="terminalStatus">
+                        <i class="bi bi-circle-fill"></i> 연결 중...
+                    </span>
+                    <button class="btn btn-sm btn-outline-light" onclick="openInNewTab()" title="새 탭에서 열기">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" onclick="reloadTerminal()" title="새로고침">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="terminal-container">
+                <iframe id="terminalFrame" src="" onload="onTerminalLoad()"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-3">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-info-circle"></i> 사용 안내
+            </div>
+            <div class="card-body small">
+                <p><strong>로그인:</strong> 시스템 계정으로 로그인하세요 (khadas / 비밀번호)</p>
+                <p><strong>단축키:</strong></p>
+                <ul class="mb-0">
+                    <li><code>Ctrl+Shift+V</code>: 붙여넣기</li>
+                    <li><code>Ctrl+C</code>: 명령 취소</li>
+                    <li><code>Ctrl+D</code>: 로그아웃</li>
+                    <li><code>Tab</code>: 자동완성</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-lightning"></i> 빠른 명령
+            </div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="copyCommand('htop')">
+                        <i class="bi bi-cpu"></i> htop
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="copyCommand('ros2 topic list')">
+                        <i class="bi bi-list"></i> ROS2 토픽
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="copyCommand('journalctl -u humiro-gui -f')">
+                        <i class="bi bi-file-text"></i> GUI 로그
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="copyCommand('systemctl status humiro-*')">
+                        <i class="bi bi-gear"></i> 서비스 상태
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="copyCommand('sudo reboot')">
+                        <i class="bi bi-arrow-repeat"></i> 재부팅
+                    </button>
+                </div>
+                <small class="text-muted mt-2 d-block">클릭하면 클립보드에 복사됩니다</small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const TTYD_PORT = 7681;
+    let terminalUrl = '';
+
+    function getTerminalUrl() {
+        // 현재 호스트의 ttyd 포트로 연결
+        const host = window.location.hostname;
+        return `http://${host}:${TTYD_PORT}`;
+    }
+
+    function loadTerminal() {
+        terminalUrl = getTerminalUrl();
+        document.getElementById('terminalFrame').src = terminalUrl;
+    }
+
+    function onTerminalLoad() {
+        const status = document.getElementById('terminalStatus');
+        status.className = 'badge bg-success me-2';
+        status.innerHTML = '<i class="bi bi-check-circle-fill"></i> 연결됨';
+    }
+
+    function openInNewTab() {
+        window.open(terminalUrl, '_blank');
+    }
+
+    function reloadTerminal() {
+        const frame = document.getElementById('terminalFrame');
+        const status = document.getElementById('terminalStatus');
+        status.className = 'badge bg-info me-2';
+        status.innerHTML = '<i class="bi bi-circle-fill"></i> 연결 중...';
+        frame.src = '';
+        setTimeout(() => {
+            frame.src = terminalUrl;
+        }, 100);
+    }
+
+    function copyCommand(cmd) {
+        navigator.clipboard.writeText(cmd).then(() => {
+            showToast(`복사됨: ${cmd}`, 'success');
+        }).catch(() => {
+            // 클립보드 실패 시 프롬프트로 표시
+            prompt('명령어를 복사하세요:', cmd);
+        });
+    }
+
+    // 터미널 연결 상태 체크
+    function checkTerminalStatus() {
+        fetch(terminalUrl, { mode: 'no-cors' })
+            .then(() => {
+                // 연결 성공 (no-cors라 상세 정보는 못 봄)
+            })
+            .catch(() => {
+                const status = document.getElementById('terminalStatus');
+                status.className = 'badge bg-danger me-2';
+                status.innerHTML = '<i class="bi bi-x-circle-fill"></i> 연결 실패';
+            });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadTerminal();
+        // 30초마다 연결 상태 체크
+        setInterval(checkTerminalStatus, 30000);
+    });
+</script>
+{% endblock %}

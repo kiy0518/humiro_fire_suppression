@@ -2,8 +2,22 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Easy System - {% block title %}Dashboard{% endblock %}</title>
+
+    <!-- PWA 메타 태그 -->
+    <meta name="application-name" content="Easy System">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Easy System">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="msapplication-TileColor" content="#2c3e50">
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/img/icon-192.png">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -115,6 +129,23 @@
             font-weight: 500;
         }
 
+        .drone-option {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .drone-option.active {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .drone-option.disabled {
+            color: #999;
+            pointer-events: none;
+        }
+
+
         .table th {
             background-color: #f8f9fa;
             font-weight: 600;
@@ -208,11 +239,30 @@
                             <i class="bi bi-wifi"></i> WiFi
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'terminal' %}active{% endif %}" href="/terminal">
+                            <i class="bi bi-terminal"></i> 터미널
+                        </a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
-                    <span class="drone-badge me-3" id="droneInfo">
-                        <i class="bi bi-robot"></i> 기체 -
-                    </span>
+                    <div class="dropdown me-3">
+                        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button"
+                                id="droneSelector" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-robot"></i> <span id="currentDroneText">기체 -</span>
+                        </button>
+                        <ul class="dropdown-menu" id="droneDropdown">
+                            <li><a class="dropdown-item drone-option" href="#" data-drone="1" data-ip="192.168.100.11">
+                                <i class="bi bi-1-circle"></i> 1번 (Leader)
+                            </a></li>
+                            <li><a class="dropdown-item drone-option" href="#" data-drone="2" data-ip="192.168.100.21">
+                                <i class="bi bi-2-circle"></i> 2번 (Follower L)
+                            </a></li>
+                            <li><a class="dropdown-item drone-option" href="#" data-drone="3" data-ip="192.168.100.31">
+                                <i class="bi bi-3-circle"></i> 3번 (Follower R)
+                            </a></li>
+                        </ul>
+                    </div>
                     <span id="fcStatus" class="status-badge bg-secondary">
                         <i class="bi bi-circle-fill"></i> FC 확인중
                     </span>
@@ -233,14 +283,36 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // 드론 네트워크 정보
+        const droneNetworks = {
+            1: { ip: '192.168.100.11', name: 'Leader', port: 5000 },
+            2: { ip: '192.168.100.21', name: 'Follower L', port: 5000 },
+            3: { ip: '192.168.100.31', name: 'Follower R', port: 5000 }
+        };
+
+        // 현재 접속한 기체 ID 추적
+        let currentDroneId = null;
+
         // 상태 업데이트
         function updateStatus() {
             fetch('/api/status')
                 .then(response => response.json())
                 .then(data => {
-                    // 드론 정보
-                    document.getElementById('droneInfo').innerHTML =
-                        `<i class="bi bi-robot"></i> ${data.drone_id}번 (${data.role})`;
+                    // 현재 드론 정보 저장 및 표시
+                    currentDroneId = data.drone_id;
+                    const roleText = data.role || droneNetworks[data.drone_id]?.name || '';
+                    document.getElementById('currentDroneText').textContent =
+                        `${data.drone_id}번 (${roleText})`;
+
+                    // 드롭다운에서 현재 기체 표시
+                    document.querySelectorAll('.drone-option').forEach(opt => {
+                        const droneId = parseInt(opt.getAttribute('data-drone'));
+                        if (droneId === data.drone_id) {
+                            opt.classList.add('active');
+                        } else {
+                            opt.classList.remove('active');
+                        }
+                    });
 
                     // FC 상태
                     const fcStatus = document.getElementById('fcStatus');
@@ -260,21 +332,93 @@
                 .catch(err => console.error('Status error:', err));
         }
 
+        // 드론 선택 시 처리 (선택 시에만 연결 테스트)
+        async function selectDrone(droneId) {
+            const info = droneNetworks[droneId];
+            if (!info) return;
+
+            // 현재 접속 중인 기체 선택 시 무시
+            if (droneId === currentDroneId) {
+                showToast('현재 접속 중인 기체입니다.', 'info');
+                return;
+            }
+
+            // 연결 테스트 수행
+            showToast(`${droneId}번 기체 연결 확인 중...`, 'info');
+
+            try {
+                const response = await fetch(`/api/drone/ping/${info.ip}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    // 연결 성공 시 해당 기체의 GUI로 이동
+                    const targetUrl = `http://${info.ip}:${info.port}`;
+                    window.location.href = targetUrl;
+                } else {
+                    // 연결 실패 시 팝업만 표시 (페이지 이동 안함)
+                    showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
+                }
+            } catch (e) {
+                // 오류 발생 시 팝업만 표시 (페이지 이동 안함)
+                showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
+            }
+        }
+
         // 페이지 로드 시 상태 업데이트
         document.addEventListener('DOMContentLoaded', () => {
             updateStatus();
             setInterval(updateStatus, 5000);
+
+            // 드론 선택 이벤트 바인딩
+            document.querySelectorAll('.drone-option').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const droneId = parseInt(opt.getAttribute('data-drone'));
+                    selectDrone(droneId);
+                });
+            });
         });
 
         // 유틸리티 함수
         function showToast(message, type = 'info') {
             const toast = document.createElement('div');
-            toast.className = `alert alert-${type} position-fixed top-0 end-0 m-3`;
+            toast.className = `alert alert-${type} position-fixed`;
             toast.style.zIndex = '9999';
+            toast.style.bottom = '20px';
+            toast.style.left = '50%';
+            toast.style.transform = 'translateX(-50%)';
             toast.innerHTML = message;
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
+
+        // PWA Service Worker 등록
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(reg => console.log('SW registered'))
+                    .catch(err => console.log('SW registration failed'));
+            });
+        }
+
+        // PWA 설치 프롬프트
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // 설치 버튼 표시 (선택사항)
+            const installBtn = document.getElementById('installPwaBtn');
+            if (installBtn) {
+                installBtn.style.display = 'block';
+                installBtn.addEventListener('click', () => {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then((result) => {
+                        deferredPrompt = null;
+                        installBtn.style.display = 'none';
+                    });
+                });
+            }
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>
