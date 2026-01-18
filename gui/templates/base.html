@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Humiro Fire Suppression - {% block title %}Dashboard{% endblock %}</title>
+    <title>Easy System - {% block title %}Dashboard{% endblock %}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
@@ -155,7 +155,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">
-                <i class="bi bi-fire"></i> Humiro Fire Suppression
+                <i class="bi bi-fire"></i> Easy System
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -197,6 +197,11 @@
                             <i class="bi bi-display"></i> 모니터
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'wifi' %}active{% endif %}" href="/wifi">
+                            <i class="bi bi-wifi"></i> WiFi
+                        </a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
                     <span class="drone-badge me-3" id="droneInfo">
@@ -217,7 +222,7 @@
 
     <!-- 푸터 -->
     <footer class="text-center">
-        <small>Humiro Fire Suppression System &copy; 2024</small>
+        <small>Easy System System &copy; 2024</small>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.config_manager import ConfigManager
 from utils.system_checker import SystemChecker
+from utils.wifi_manager import WiFiManager
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'humiro-fire-suppression-2024'
@@ -25,6 +26,7 @@ app.config['SECRET_KEY'] = 'humiro-fire-suppression-2024'
 # 전역 객체
 config_manager = ConfigManager(PROJECT_ROOT)
 system_checker = SystemChecker()
+wifi_manager = WiFiManager()
 
 # 빌드 상태
 build_status = {
@@ -507,6 +509,155 @@ def api_check_ros2_topics():
         "success": len(topics) > 0,
         "message": f"{len(topics)}개",
         "count": len(topics)
+    })
+
+
+# ==================== WiFi 네트워크 관리 API ====================
+
+@app.route('/wifi')
+def wifi_page():
+    """WiFi 네트워크 관리 페이지"""
+    return render_template('wifi.html', active_tab='wifi')
+
+
+@app.route('/api/wifi/saved')
+def api_wifi_saved():
+    """저장된 WiFi 네트워크 목록"""
+    networks = wifi_manager.list_saved_networks()
+    return jsonify({
+        "success": True,
+        "networks": networks
+    })
+
+
+@app.route('/api/wifi/scan')
+def api_wifi_scan():
+    """주변 WiFi 네트워크 스캔"""
+    networks = wifi_manager.scan_available_networks()
+    return jsonify({
+        "success": True,
+        "networks": networks
+    })
+
+
+@app.route('/api/wifi/current')
+def api_wifi_current():
+    """현재 연결된 WiFi"""
+    current = wifi_manager.get_current_connection()
+    return jsonify({
+        "success": current is not None,
+        "connection": current
+    })
+
+
+@app.route('/api/wifi/delete/<uuid>', methods=['POST'])
+def api_wifi_delete(uuid):
+    """WiFi 네트워크 삭제"""
+    success, message = wifi_manager.delete_network(uuid)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/connect/<uuid>', methods=['POST'])
+def api_wifi_connect(uuid):
+    """WiFi 네트워크 연결"""
+    success, message = wifi_manager.connect_to_network(uuid)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/disconnect/<uuid>', methods=['POST'])
+def api_wifi_disconnect(uuid):
+    """WiFi 네트워크 연결 해제"""
+    success, message = wifi_manager.disconnect_network(uuid)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/add', methods=['POST'])
+def api_wifi_add():
+    """새 WiFi 네트워크 추가"""
+    data = request.json
+    ssid = data.get('ssid', '')
+    password = data.get('password', '')
+    autoconnect = data.get('autoconnect', True)
+
+    if not ssid:
+        return jsonify({
+            "success": False,
+            "message": "SSID를 입력하세요"
+        })
+
+    success, message = wifi_manager.add_network(ssid, password, autoconnect)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/modify-password', methods=['POST'])
+def api_wifi_modify_password():
+    """WiFi 비밀번호 변경"""
+    data = request.json
+    uuid = data.get('uuid', '')
+    password = data.get('password', '')
+
+    if not uuid or not password:
+        return jsonify({
+            "success": False,
+            "message": "UUID와 비밀번호를 입력하세요"
+        })
+
+    success, message = wifi_manager.modify_network_password(uuid, password)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/autoconnect', methods=['POST'])
+def api_wifi_autoconnect():
+    """자동 연결 설정 변경"""
+    data = request.json
+    uuid = data.get('uuid', '')
+    autoconnect = data.get('autoconnect', True)
+
+    if not uuid:
+        return jsonify({
+            "success": False,
+            "message": "UUID를 입력하세요"
+        })
+
+    success, message = wifi_manager.set_autoconnect(uuid, autoconnect)
+    return jsonify({
+        "success": success,
+        "message": message
+    })
+
+
+@app.route('/api/wifi/priority', methods=['POST'])
+def api_wifi_priority():
+    """네트워크 우선순위 설정"""
+    data = request.json
+    uuid = data.get('uuid', '')
+    priority = data.get('priority', 0)
+
+    if not uuid:
+        return jsonify({
+            "success": False,
+            "message": "UUID를 입력하세요"
+        })
+
+    success, message = wifi_manager.set_connection_priority(uuid, priority)
+    return jsonify({
+        "success": success,
+        "message": message
     })
 
 

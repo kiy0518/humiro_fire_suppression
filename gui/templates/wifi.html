@@ -1,0 +1,437 @@
+{% extends "base.html" %}
+
+{% block title %}WiFi 네트워크 관리{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2><i class="bi bi-wifi"></i> WiFi 네트워크 관리</h2>
+            <p class="text-muted">저장된 WiFi 네트워크를 관리하고 새 네트워크를 추가합니다</p>
+        </div>
+    </div>
+
+    <!-- 현재 연결 상태 -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-plug"></i> 현재 연결 상태
+                </div>
+                <div class="card-body">
+                    <div id="currentConnection">
+                        <div class="text-center text-muted">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                            로딩 중...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 저장된 네트워크 -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-bookmark"></i> 저장된 네트워크</span>
+                    <button class="btn btn-sm btn-primary" onclick="showAddNetworkModal()">
+                        <i class="bi bi-plus-circle"></i> 네트워크 추가
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="savedNetworks">
+                        <div class="text-center text-muted">
+                            <div class="spinner-border spinner-border-sm" role="status"></div>
+                            로딩 중...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 주변 네트워크 스캔 -->
+    <div class="row mt-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-radar"></i> 주변 네트워크</span>
+                    <button class="btn btn-sm btn-secondary" onclick="scanNetworks()">
+                        <i class="bi bi-arrow-clockwise"></i> 스캔
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div id="availableNetworks">
+                        <div class="text-center text-muted">
+                            스캔 버튼을 눌러 주변 네트워크를 검색하세요
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 네트워크 추가 모달 -->
+<div class="modal fade" id="addNetworkModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-plus-circle"></i> WiFi 네트워크 추가</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="addSsid" class="form-label">SSID</label>
+                    <input type="text" class="form-control" id="addSsid" placeholder="네트워크 이름">
+                </div>
+                <div class="mb-3">
+                    <label for="addPassword" class="form-label">비밀번호</label>
+                    <input type="password" class="form-control" id="addPassword" placeholder="비밀번호">
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="addAutoconnect" checked>
+                    <label class="form-check-label" for="addAutoconnect">
+                        자동 연결
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="addNetwork()">추가</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 비밀번호 변경 모달 -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-key"></i> 비밀번호 변경</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">네트워크</label>
+                    <input type="text" class="form-control" id="changeNetworkName" readonly>
+                    <input type="hidden" id="changeNetworkUuid">
+                </div>
+                <div class="mb-3">
+                    <label for="changePassword" class="form-label">새 비밀번호</label>
+                    <input type="password" class="form-control" id="changePassword" placeholder="새 비밀번호">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" onclick="changePassword()">변경</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let addNetworkModal, changePasswordModal;
+
+document.addEventListener('DOMContentLoaded', function() {
+    addNetworkModal = new bootstrap.Modal(document.getElementById('addNetworkModal'));
+    changePasswordModal = new bootstrap.Modal(document.getElementById('changePasswordModal'));
+
+    loadCurrentConnection();
+    loadSavedNetworks();
+});
+
+// 현재 연결 상태 로드
+function loadCurrentConnection() {
+    fetch('/api/wifi/current')
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('currentConnection');
+            if (data.success && data.connection) {
+                container.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-wifi text-success" style="font-size: 2rem;"></i>
+                        <div class="ms-3">
+                            <h5 class="mb-0">${data.connection.name}</h5>
+                            <small class="text-muted">장치: ${data.connection.device}</small>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="bi bi-wifi-off" style="font-size: 2rem;"></i>
+                        <p class="mt-2 mb-0">연결된 WiFi 없음</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('currentConnection').innerHTML = `
+                <div class="alert alert-danger mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> 연결 상태 확인 실패
+                </div>
+            `;
+        });
+}
+
+// 저장된 네트워크 로드
+function loadSavedNetworks() {
+    fetch('/api/wifi/saved')
+        .then(response => response.json())
+        .then(data => {
+            const container = document.getElementById('savedNetworks');
+            if (data.success && data.networks.length > 0) {
+                container.innerHTML = '<div class="list-group">' +
+                    data.networks.map(network => `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">
+                                        <i class="bi bi-wifi"></i> ${network.name}
+                                        ${network.active ? '<span class="badge bg-success ms-2">연결됨</span>' : ''}
+                                    </h6>
+                                    <small class="text-muted">UUID: ${network.uuid.substring(0, 8)}...</small>
+                                </div>
+                                <div class="btn-group">
+                                    ${!network.active ? `
+                                        <button class="btn btn-sm btn-success" onclick="connectNetwork('${network.uuid}')">
+                                            <i class="bi bi-plug"></i> 연결
+                                        </button>
+                                    ` : `
+                                        <button class="btn btn-sm btn-warning" onclick="disconnectNetwork('${network.uuid}')">
+                                            <i class="bi bi-plug-fill"></i> 해제
+                                        </button>
+                                    `}
+                                    <button class="btn btn-sm btn-info" onclick="showChangePasswordModal('${network.uuid}', '${network.name}')">
+                                        <i class="bi bi-key"></i> 비밀번호
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteNetwork('${network.uuid}', '${network.name}')">
+                                        <i class="bi bi-trash"></i> 삭제
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('') +
+                    '</div>';
+            } else {
+                container.innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                        <p class="mt-2 mb-0">저장된 네트워크가 없습니다</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('savedNetworks').innerHTML = `
+                <div class="alert alert-danger mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> 네트워크 목록 로드 실패
+                </div>
+            `;
+        });
+}
+
+// 주변 네트워크 스캔
+function scanNetworks() {
+    const container = document.getElementById('availableNetworks');
+    container.innerHTML = `
+        <div class="text-center text-muted">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            스캔 중...
+        </div>
+    `;
+
+    fetch('/api/wifi/scan')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.networks.length > 0) {
+                container.innerHTML = '<div class="list-group">' +
+                    data.networks.map(network => `
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">
+                                        <i class="bi bi-wifi"></i> ${network.ssid}
+                                        ${network.in_use ? '<span class="badge bg-success ms-2">연결됨</span>' : ''}
+                                    </h6>
+                                    <small class="text-muted">
+                                        신호: ${network.signal}% | 보안: ${network.security || '없음'}
+                                    </small>
+                                </div>
+                                ${!network.in_use ? `
+                                    <button class="btn btn-sm btn-primary" onclick="showAddNetworkModalWithSsid('${network.ssid}')">
+                                        <i class="bi bi-plus"></i> 추가
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('') +
+                    '</div>';
+            } else {
+                container.innerHTML = `
+                    <div class="text-center text-muted">
+                        <i class="bi bi-wifi-off" style="font-size: 2rem;"></i>
+                        <p class="mt-2 mb-0">주변 네트워크를 찾을 수 없습니다</p>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            container.innerHTML = `
+                <div class="alert alert-danger mb-0">
+                    <i class="bi bi-exclamation-triangle"></i> 스캔 실패
+                </div>
+            `;
+        });
+}
+
+// 네트워크 추가 모달 표시
+function showAddNetworkModal() {
+    document.getElementById('addSsid').value = '';
+    document.getElementById('addPassword').value = '';
+    document.getElementById('addAutoconnect').checked = true;
+    addNetworkModal.show();
+}
+
+function showAddNetworkModalWithSsid(ssid) {
+    document.getElementById('addSsid').value = ssid;
+    document.getElementById('addPassword').value = '';
+    document.getElementById('addAutoconnect').checked = true;
+    addNetworkModal.show();
+}
+
+// 네트워크 추가
+function addNetwork() {
+    const ssid = document.getElementById('addSsid').value;
+    const password = document.getElementById('addPassword').value;
+    const autoconnect = document.getElementById('addAutoconnect').checked;
+
+    if (!ssid) {
+        alert('SSID를 입력하세요');
+        return;
+    }
+
+    fetch('/api/wifi/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ssid, password, autoconnect})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            addNetworkModal.hide();
+            loadSavedNetworks();
+            loadCurrentConnection();
+        } else {
+            alert('추가 실패: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('네트워크 추가 중 오류 발생');
+    });
+}
+
+// 비밀번호 변경 모달 표시
+function showChangePasswordModal(uuid, name) {
+    document.getElementById('changeNetworkUuid').value = uuid;
+    document.getElementById('changeNetworkName').value = name;
+    document.getElementById('changePassword').value = '';
+    changePasswordModal.show();
+}
+
+// 비밀번호 변경
+function changePassword() {
+    const uuid = document.getElementById('changeNetworkUuid').value;
+    const password = document.getElementById('changePassword').value;
+
+    if (!password) {
+        alert('비밀번호를 입력하세요');
+        return;
+    }
+
+    fetch('/api/wifi/modify-password', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({uuid, password})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            changePasswordModal.hide();
+        } else {
+            alert('변경 실패: ' + data.message);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('비밀번호 변경 중 오류 발생');
+    });
+}
+
+// 네트워크 연결
+function connectNetwork(uuid) {
+    if (!confirm('이 네트워크에 연결하시겠습니까?')) return;
+
+    fetch(`/api/wifi/connect/${uuid}`, {method: 'POST'})
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            if (data.success) {
+                loadSavedNetworks();
+                loadCurrentConnection();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('연결 중 오류 발생');
+        });
+}
+
+// 네트워크 연결 해제
+function disconnectNetwork(uuid) {
+    if (!confirm('연결을 해제하시겠습니까?')) return;
+
+    fetch(`/api/wifi/disconnect/${uuid}`, {method: 'POST'})
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            if (data.success) {
+                loadSavedNetworks();
+                loadCurrentConnection();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('연결 해제 중 오류 발생');
+        });
+}
+
+// 네트워크 삭제
+function deleteNetwork(uuid, name) {
+    if (!confirm(`'${name}' 네트워크를 삭제하시겠습니까?`)) return;
+
+    fetch(`/api/wifi/delete/${uuid}`, {method: 'POST'})
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            if (data.success) {
+                loadSavedNetworks();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('삭제 중 오류 발생');
+        });
+}
+</script>
+{% endblock %}

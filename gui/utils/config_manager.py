@@ -149,54 +149,101 @@ class ConfigManager:
     # === 비행 모드 파라미터 프리셋 ===
 
     def get_indoor_params(self) -> Dict[str, Any]:
-        """실내 테스트 모드 파라미터"""
+        """실내 테스트 모드 파라미터 (PX4 v1.15.0)
+
+        v1.14 이후 변경사항:
+        - EKF2_AID_MASK 삭제됨 → 개별 _CTRL 파라미터로 분리
+        - EKF2_HGT_MODE 삭제됨 → EKF2_HGT_REF로 변경
+        - EKF2_RNG_AID 삭제됨 → EKF2_RNG_CTRL로 통합
+        """
         return {
-            # Position Estimator
-            "EKF2_AID_MASK": 26,  # Optical Flow + Range Finder
-            "EKF2_HGT_MODE": 2,  # Range Sensor (LiDAR)
-            "EKF2_RNG_AID": 1,  # Range Finder 보조 활성화
-
-            # Optical Flow
-            "EKF2_OF_CTRL": 1,  # Optical Flow 활성화
-            "EKF2_OF_DELAY": 20,  # 지연 (ms)
-            "EKF2_OF_QMIN": 1,  # 최소 품질
-            "EKF2_OF_N_MIN": 0.15,  # 최소 노이즈
-            "EKF2_OF_N_MAX": 0.5,  # 최대 노이즈
-
-            # Range Finder
-            "EKF2_RNG_CTRL": 1,  # Range Finder 활성화
-            "EKF2_RNG_A_HMAX": 5.0,  # 최대 고도 (m)
-            "EKF2_RNG_NOISE": 0.1,  # 노이즈 (m)
-            "SENS_EN_RANGEFNDR": 1,  # Range Finder 센서 활성화
-
+            # === EKF2 센서 융합 제어 (v1.15.0) ===
             # GPS 비활성화
-            "EKF2_GPS_CTRL": 0,  # GPS 비활성화
+            "EKF2_GPS_CTRL": 0,  # GPS 융합 비활성화
+
+            # Optical Flow 활성화
+            "EKF2_OF_CTRL": 1,  # Optical Flow 융합 활성화
+
+            # Range Finder 활성화
+            "EKF2_RNG_CTRL": 2,  # 2=Enabled (항상 활성화), 1=Conditional
+
+            # 고도 기준 설정
+            "EKF2_HGT_REF": 2,  # 0=Baro, 1=GPS, 2=Range sensor, 3=Vision
+
+            # === Optical Flow 파라미터 ===
+            "EKF2_OF_DELAY": 20,  # OF 지연 (ms)
+            "EKF2_OF_QMIN": 1,  # 최소 품질 (1-255)
+            "EKF2_OF_N_MIN": 0.15,  # 최소 노이즈 (rad/s)
+            "EKF2_OF_N_MAX": 0.5,  # 최대 노이즈 (rad/s)
+
+            # === Range Finder 파라미터 ===
+            "EKF2_RNG_A_HMAX": 5.0,  # Range aid 최대 고도 (m)
+            "EKF2_RNG_NOISE": 0.1,  # Range 노이즈 (m)
+
+            # === 센서 설정 ===
+            "SENS_FLOW_ROT": 0,  # Optical Flow 센서 회전 (0=No rotation)
             "GPS_1_CONFIG": 0,  # GPS 포트 비활성화
         }
 
     def get_outdoor_gps_params(self) -> Dict[str, Any]:
-        """야외 GPS 모드 파라미터"""
-        return {
-            # Position Estimator
-            "EKF2_AID_MASK": 1,  # GPS 사용
-            "EKF2_HGT_MODE": 1,  # GPS
-            "EKF2_RNG_AID": 0,  # Range Finder 보조 비활성화
+        """야외 GPS 모드 파라미터 (PX4 v1.15.0)
 
-            # GPS
-            "EKF2_GPS_CTRL": 7,  # GPS 활성화 (lon/lat/alt/vel)
-            "GPS_1_CONFIG": 201,  # GPS UART 포트
-            "EKF2_GPS_DELAY": 110,  # GPS 지연 (ms)
+        EKF2_GPS_CTRL 비트마스크:
+        - bit 0 (1): Horizontal position (Lon/Lat)
+        - bit 1 (2): Vertical position (Altitude)
+        - bit 2 (4): 3D Velocity
+        - bit 3 (8): Dual antenna heading (Yaw)
+
+        v1.14 이후 변경사항:
+        - EKF2_AID_MASK 삭제됨 → EKF2_GPS_CTRL 사용
+        - EKF2_HGT_MODE 삭제됨 → EKF2_HGT_REF 사용
+        - EKF2_RNG_AID 삭제됨 → EKF2_RNG_CTRL 사용
+        """
+        return {
+            # === EKF2 센서 융합 제어 (v1.15.0) ===
+            # GPS 활성화: 1(Lon/Lat) + 2(Alt) + 4(Vel) = 7
+            "EKF2_GPS_CTRL": 7,  # GPS 위치/고도/속도 융합
 
             # Optical Flow 비활성화
-            "EKF2_OF_CTRL": 0,  # Optical Flow 비활성화
+            "EKF2_OF_CTRL": 0,  # Optical Flow 융합 비활성화
+
+            # Range Finder 비활성화 (야외에서는 불필요)
+            "EKF2_RNG_CTRL": 0,  # Range Finder 융합 비활성화
+
+            # 고도 기준 설정
+            "EKF2_HGT_REF": 1,  # 0=Baro, 1=GPS, 2=Range, 3=Vision
+
+            # === GPS 파라미터 ===
+            "GPS_1_CONFIG": 201,  # GPS UART 포트 (TELEM2)
+            "EKF2_GPS_DELAY": 110,  # GPS 지연 (ms)
+
+            # === Barometer (백업용) ===
+            "EKF2_BARO_CTRL": 1,  # Barometer 융합 활성화 (백업)
         }
 
     def get_outdoor_rtk_params(self) -> Dict[str, Any]:
-        """야외 RTK 모드 파라미터"""
+        """야외 RTK-GPS 모드 파라미터 (PX4 v1.15.0)
+
+        RTK GPS는 Dual antenna heading 지원 시:
+        - EKF2_GPS_CTRL = 15 (1+2+4+8)로 설정하여 GPS Yaw 사용
+
+        v1.14 이후 변경사항:
+        - EKF2_AID_MASK 삭제됨 → EKF2_GPS_CTRL 사용
+        - GPS Yaw는 bit 3 (8) 추가로 활성화
+        """
         params = self.get_outdoor_gps_params()
         params.update({
-            "GPS_1_PROTOCOL": 1,  # uBlox
-            "GPS_UBX_MODE": 2,  # RTK Float/Fixed
+            # === RTK GPS 설정 ===
+            # GPS 융합: 1(Lon/Lat) + 2(Alt) + 4(Vel) + 8(Yaw) = 15
+            "EKF2_GPS_CTRL": 15,  # Dual antenna heading 포함
+
+            # GPS 프로토콜 설정
+            "GPS_1_PROTOCOL": 1,  # 1=uBlox
+            "GPS_UBX_MODE": 2,  # 2=RTK Float/Fixed
+
+            # RTK 정확도 설정
+            "EKF2_GPS_P_NOISE": 0.5,  # GPS 위치 노이즈 (m) - RTK용 낮은 값
+            "EKF2_GPS_V_NOISE": 0.3,  # GPS 속도 노이즈 (m/s)
         })
         return params
 
