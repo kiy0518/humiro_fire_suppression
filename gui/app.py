@@ -1604,7 +1604,7 @@ def get_vehicle_params_checklist(drone_id: int):
         {"id": "vp1", "text": f"UXRCE_DDS_AG_IP = {preset['UXRCE_DDS_AG_IP']} (Agent IP: {preset['ETH0_IP']})", "auto": True, "check": f"fc-param/UXRCE_DDS_AG_IP?expected={preset['UXRCE_DDS_AG_IP']}"},
         {"id": "vp2", "text": "UXRCE_DDS_CFG = 1000 (Ethernet)", "auto": True, "check": "fc-param/UXRCE_DDS_CFG?expected=1000"},
         {"id": "vp3", "text": "UXRCE_DDS_DOM_ID = 0 (Domain ID)", "auto": True, "check": "fc-param/UXRCE_DDS_DOM_ID?expected=0"},
-        {"id": "vp4", "text": "UXRCE_DDS_KEY = 1 (Session Key)", "auto": True, "check": "fc-param/UXRCE_DDS_KEY?expected=1"},
+        {"id": "vp4", "text": f"UXRCE_DDS_KEY = {drone_id} (Session Key)", "auto": True, "check": f"fc-param/UXRCE_DDS_KEY?expected={drone_id}"},
         {"id": "vp5", "text": "UXRCE_DDS_PRT = 8888 (UDP Port)", "auto": True, "check": "fc-param/UXRCE_DDS_PRT?expected=8888"},
         {"id": "vp6", "text": f"MAV_SYS_ID = {preset['MAV_SYS_ID']} (MAVLink System ID)", "auto": True, "check": f"fc-param/MAV_SYS_ID?expected={preset['MAV_SYS_ID']}"},
         {"id": "vp7", "text": "MAV_2_BROADCAST = 1 (Always broadcast)", "auto": True, "check": "fc-param/MAV_2_BROADCAST?expected=1"},
