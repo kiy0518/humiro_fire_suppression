@@ -25,20 +25,21 @@ RTLHandler::RTLHandler(rclcpp::Node::SharedPtr node)
     } else {
         RCLCPP_WARN(node_->get_logger(), "RTLHandler: DRONE_ID 환경 변수 없음, 기본값 1 사용");
     }
-    // Publishers 초기화
-    vehicle_command_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-        "/fmu/in/vehicle_command", 10);
-
-    // Subscribers 초기화
-    vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-        "/fmu/out/vehicle_status", 10,
-        std::bind(&RTLHandler::vehicleStatusCallback, this, std::placeholders::_1));
-
     // PX4 uXRCE-DDS QoS 설정 (BestEffort + TransientLocal)
+    // 중요: PX4는 BEST_EFFORT를 사용하므로 모든 구독자도 동일하게 설정해야 함
     rclcpp::QoS px4_qos(10);
     px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
     px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);
     px4_qos.history(rclcpp::HistoryPolicy::KeepLast);
+
+    // Publishers 초기화
+    vehicle_command_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+        "/fmu/in/vehicle_command", px4_qos);
+
+    // Subscribers 초기화 - 모두 px4_qos 사용
+    vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
+        "/fmu/out/vehicle_status", px4_qos,
+        std::bind(&RTLHandler::vehicleStatusCallback, this, std::placeholders::_1));
 
     vehicle_global_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
         "/fmu/out/vehicle_global_position", px4_qos,
