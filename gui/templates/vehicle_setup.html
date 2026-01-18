@@ -58,20 +58,13 @@
                 <i class="bi bi-3-circle"></i> Step 3: 적용
             </div>
             <div class="card-body">
-                <div class="form-check mb-3">
-                    <input class="form-check-input" type="checkbox" id="rebootCheck">
-                    <label class="form-check-label" for="rebootCheck">
-                        설정 적용 후 서비스 재시작 (권장)
-                    </label>
-                </div>
-
                 <button class="btn btn-primary btn-lg w-100" id="applyBtn" disabled onclick="applyPreset()">
                     <i class="bi bi-check-circle"></i> 설정 적용
                 </button>
 
                 <div class="alert alert-warning mt-3 mb-0">
                     <i class="bi bi-exclamation-triangle"></i>
-                    설정 변경 후 서비스 재시작이 필요합니다!
+                    <strong>주의:</strong> 설정 적용 후 FC가 먼저 재부팅되고 10초 후 VIM4가 재부팅됩니다.
                 </div>
             </div>
         </div>
@@ -101,21 +94,21 @@
                         </tr>
                         <tr>
                             <td>ETH0 IP</td>
-                            <td>.101</td>
-                            <td>.102</td>
-                            <td>.103</td>
+                            <td>10.0.0.11</td>
+                            <td>10.0.0.21</td>
+                            <td>10.0.0.31</td>
                         </tr>
                         <tr>
                             <td>FC IP</td>
-                            <td>.11</td>
-                            <td>.12</td>
-                            <td>.13</td>
+                            <td>10.0.0.12</td>
+                            <td>10.0.0.22</td>
+                            <td>10.0.0.32</td>
                         </tr>
                         <tr>
                             <td>WIFI IP</td>
-                            <td>.201</td>
-                            <td>.202</td>
-                            <td>.203</td>
+                            <td>192.168.100.11</td>
+                            <td>192.168.100.21</td>
+                            <td>192.168.100.31</td>
                         </tr>
                         <tr>
                             <td>Namespace</td>
@@ -203,23 +196,55 @@
     function applyPreset() {
         if (!selectedVehicle) return;
 
-        if (!confirm(`${selectedVehicle}번 기체 설정을 적용하시겠습니까?`)) return;
+        if (!confirm(`${selectedVehicle}번 기체 설정을 적용하시겠습니까?\n\n⚠️ FC가 먼저 재부팅되고 10초 후 VIM4가 재부팅됩니다!`)) return;
 
+        const applyBtn = document.getElementById('applyBtn');
+        applyBtn.disabled = true;
+        applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 적용 중...';
+
+        // Step 1: device_config.env 업데이트
         fetch(`/api/vehicle-preset/${selectedVehicle}`, { method: 'POST' })
             .then(r => r.json())
             .then(result => {
-                if (result.success) {
-                    showToast(result.message, 'success');
-
-                    if (document.getElementById('rebootCheck').checked) {
-                        showToast('서비스 재시작 중...', 'info');
-                        // 서비스 재시작
-                        fetch('/api/service/restart/micro-ros-agent', { method: 'POST' });
-                        fetch('/api/service/restart/mavlink-router', { method: 'POST' });
-                    }
-                } else {
-                    showToast(result.message, 'danger');
+                if (!result.success) {
+                    throw new Error(result.message);
                 }
+
+                showToast('설정 파일 업데이트 완료', 'success');
+
+                // Step 2: 003 스크립트 실행 (FC 재부팅 + VIM4 재부팅)
+                showToast('전체 설정 적용 중... (003-apply_config.sh)', 'info');
+
+                return fetch('/api/apply-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ auto_reboot: true })
+                }).then(r => r.json());
+            })
+            .then(result => {
+                if (result.success) {
+                    showToast('FC 재부팅 후 VIM4가 재부팅됩니다. 잠시 후 페이지 연결이 끊어집니다.', 'warning');
+                    // 재부팅 대기 안내
+                    setTimeout(() => {
+                        document.body.innerHTML = `
+                            <div class="d-flex justify-content-center align-items-center vh-100">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;"></div>
+                                    <h4>시스템 재부팅 중...</h4>
+                                    <p class="text-muted">FC 재부팅 → VIM4 재부팅</p>
+                                    <p>재부팅 완료 후 페이지를 새로고침하세요.</p>
+                                </div>
+                            </div>
+                        `;
+                    }, 3000);
+                } else {
+                    throw new Error(result.message);
+                }
+            })
+            .catch(err => {
+                showToast('설정 적용 실패: ' + err.message, 'danger');
+                applyBtn.disabled = false;
+                applyBtn.innerHTML = '<i class="bi bi-check-circle"></i> 설정 적용';
             });
     }
 </script>

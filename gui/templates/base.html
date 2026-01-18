@@ -249,6 +249,11 @@
                             <i class="bi bi-hdd-network"></i> DDS
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if active_tab == 'camera' %}active{% endif %}" href="/camera">
+                            <i class="bi bi-camera-video"></i> 카메라
+                        </a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
                     <div class="dropdown me-3">
@@ -301,13 +306,20 @@
         // 상태 업데이트
         function updateStatus() {
             fetch('/api/status')
-                .then(response => response.json())
+                .then(response => {
+                    console.log('Status response:', response.status);
+                    return response.json();
+                })
                 .then(data => {
+                    console.log('Status data:', data);
                     // 현재 드론 정보 저장 및 표시
                     currentDroneId = data.drone_id;
                     const roleText = data.role || droneNetworks[data.drone_id]?.name || '';
-                    document.getElementById('currentDroneText').textContent =
-                        `${data.drone_id}번 (${roleText})`;
+
+                    const droneTextEl = document.getElementById('currentDroneText');
+                    if (droneTextEl) {
+                        droneTextEl.textContent = `${data.drone_id}번 (${roleText})`;
+                    }
 
                     // 드롭다운에서 현재 기체 표시
                     document.querySelectorAll('.drone-option').forEach(opt => {
@@ -321,12 +333,14 @@
 
                     // FC 상태
                     const fcStatus = document.getElementById('fcStatus');
-                    if (data.fc.connected) {
-                        fcStatus.className = 'status-badge bg-success';
-                        fcStatus.innerHTML = '<i class="bi bi-check-circle-fill"></i> FC 연결됨';
-                    } else {
-                        fcStatus.className = 'status-badge bg-danger';
-                        fcStatus.innerHTML = '<i class="bi bi-x-circle-fill"></i> FC 연결안됨';
+                    if (fcStatus) {
+                        if (data.fc && data.fc.connected) {
+                            fcStatus.className = 'status-badge bg-success';
+                            fcStatus.innerHTML = '<i class="bi bi-check-circle-fill"></i> FC 연결됨';
+                        } else {
+                            fcStatus.className = 'status-badge bg-danger';
+                            fcStatus.innerHTML = '<i class="bi bi-x-circle-fill"></i> FC 연결안됨';
+                        }
                     }
 
                     // 페이지별 상태 업데이트
@@ -339,8 +353,12 @@
 
         // 드론 선택 시 처리 (선택 시에만 연결 테스트)
         async function selectDrone(droneId) {
+            console.log('selectDrone called:', droneId);
             const info = droneNetworks[droneId];
-            if (!info) return;
+            if (!info) {
+                console.log('No drone info for:', droneId);
+                return;
+            }
 
             // 현재 접속 중인 기체 선택 시 무시
             if (droneId === currentDroneId) {
@@ -352,18 +370,22 @@
             showToast(`${droneId}번 기체 연결 확인 중...`, 'info');
 
             try {
+                console.log('Pinging:', info.ip);
                 const response = await fetch(`/api/drone/ping/${info.ip}`);
                 const data = await response.json();
+                console.log('Ping response:', data);
 
                 if (data.success) {
                     // 연결 성공 시 해당 기체의 GUI로 이동
                     const targetUrl = `http://${info.ip}:${info.port}`;
+                    console.log('Redirecting to:', targetUrl);
                     window.location.href = targetUrl;
                 } else {
                     // 연결 실패 시 팝업만 표시 (페이지 이동 안함)
                     showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
                 }
             } catch (e) {
+                console.error('Ping error:', e);
                 // 오류 발생 시 팝업만 표시 (페이지 이동 안함)
                 showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
             }

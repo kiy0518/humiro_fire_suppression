@@ -205,6 +205,12 @@ def micro_ros_page():
     return render_template('micro_ros.html', active_tab='micro-ros')
 
 
+@app.route('/camera')
+def camera_page():
+    """카메라 스트림 페이지"""
+    return render_template('camera.html', active_tab='camera')
+
+
 # ==================== API 라우트 ====================
 
 @app.route('/api/status')
@@ -324,6 +330,64 @@ def api_apply_vehicle_preset(drone_id):
         return jsonify({"success": True, "message": f"{drone_id}번 기체 설정이 적용되었습니다."})
     else:
         return jsonify({"success": False, "message": "설정 적용 실패"}), 500
+
+
+@app.route('/api/apply-config', methods=['POST'])
+def api_apply_config():
+    """003-apply_config.sh 스크립트 실행 API (FC 재부팅 + VIM4 재부팅)"""
+    try:
+        auto_reboot = request.json.get('auto_reboot', False) if request.is_json else False
+
+        script_path = os.path.join(PROJECT_ROOT, 'scripts', 'install', '003-apply_config.sh')
+
+        if not os.path.exists(script_path):
+            return jsonify({"success": False, "message": "003-apply_config.sh 스크립트를 찾을 수 없습니다."}), 404
+
+        # 스크립트 실행 (sudo 필요)
+        cmd = ['sudo', script_path]
+        if auto_reboot:
+            cmd.append('--auto-reboot')
+
+        # 백그라운드에서 실행 (재부팅이 포함되므로)
+        if auto_reboot:
+            # nohup으로 백그라운드 실행
+            subprocess.Popen(
+                ['nohup'] + cmd,
+                stdout=open('/tmp/apply_config.log', 'w'),
+                stderr=subprocess.STDOUT,
+                start_new_session=True
+            )
+            return jsonify({
+                "success": True,
+                "message": "설정 적용 시작됨. FC 재부팅 후 VIM4가 재부팅됩니다.",
+                "log_file": "/tmp/apply_config.log"
+            })
+        else:
+            # 동기 실행 (재부팅 없이)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if result.returncode == 0:
+                return jsonify({
+                    "success": True,
+                    "message": "설정이 적용되었습니다.",
+                    "output": result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "message": "스크립트 실행 실패",
+                    "error": result.stderr[-1000:] if len(result.stderr) > 1000 else result.stderr
+                }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({"success": False, "message": "스크립트 실행 시간 초과"}), 500
+    except Exception as e:
+        return jsonify({"success": False, "message": f"오류: {str(e)}"}), 500
 
 
 @app.route('/api/fc-params/<mode>')

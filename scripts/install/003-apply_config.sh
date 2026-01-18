@@ -578,21 +578,110 @@ echo "  │  UXRCE_DDS_CFG = 1000 (Ethernet)"
 echo "  └──────────────────────────────────────────┘"
 
 # -----------------------------------------------------------------------------
+# FC 재부팅 함수 (MAVLink PREFLIGHT_REBOOT_SHUTDOWN 명령)
+# -----------------------------------------------------------------------------
+reboot_fc() {
+    echo "  FC 재부팅 명령 전송 중..."
+
+    # pymavlink를 사용하여 FC 재부팅 명령 전송
+    python3 << 'PYTHON_EOF'
+import sys
+import time
+try:
+    from pymavlink import mavutil
+
+    # mavlink-router의 TCP 포트에 연결
+    master = mavutil.mavlink_connection('tcp:127.0.0.1:5790', source_system=255, source_component=0)
+
+    # 하트비트 대기 (최대 5초)
+    print("    FC 연결 대기 중...")
+    msg = master.wait_heartbeat(timeout=5)
+    if msg is None:
+        print("    ⚠ FC 연결 실패 (하트비트 없음)")
+        sys.exit(1)
+
+    print(f"    ✓ FC 연결됨 (sysid={master.target_system}, compid={master.target_component})")
+
+    # MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN (246) 명령 전송
+    # param1: 1 = Autopilot 재부팅
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN,
+        0,  # confirmation
+        1,  # param1: 1 = reboot autopilot
+        0,  # param2
+        0,  # param3
+        0,  # param4
+        0,  # param5
+        0,  # param6
+        0   # param7
+    )
+
+    print("    ✓ FC 재부팅 명령 전송 완료")
+    time.sleep(1)
+
+except ImportError:
+    print("    ⚠ pymavlink 미설치, FC 재부팅 건너뜀")
+    sys.exit(1)
+except Exception as e:
+    print(f"    ⚠ FC 재부팅 실패: {e}")
+    sys.exit(1)
+PYTHON_EOF
+
+    return $?
+}
+
+# -----------------------------------------------------------------------------
 # 리부팅 확인
 # -----------------------------------------------------------------------------
 echo ""
 echo "설정을 완전히 적용하려면 재부팅이 필요합니다."
 echo ""
 
+# GUI에서 호출된 경우 (--auto-reboot 옵션)
+if [ "$1" = "--auto-reboot" ]; then
+    echo "자동 재부팅 모드..."
+    echo ""
+
+    # FC 먼저 재부팅
+    echo "[FC 재부팅]"
+    if reboot_fc; then
+        echo "  FC 재부팅 시작됨, 10초 대기..."
+        sleep 10
+    else
+        echo "  FC 재부팅 실패, 수동으로 FC를 재부팅하세요."
+    fi
+
+    echo ""
+    echo "[VIM4 재부팅]"
+    echo "  3초 후 VIM4 재부팅..."
+    sleep 3
+    reboot
+    exit 0
+fi
+
 # 2초 대기
 sleep 2
 
 # 리부팅 의사 확인
-read -t 30 -p "지금 재부팅하시겠습니까? (y/n, 30초 후 자동 취소): " REBOOT_CONFIRM
+read -t 5 -p "지금 재부팅하시겠습니까? (y/n, 5초 후 자동 취소): " REBOOT_CONFIRM
 
 if [ "$REBOOT_CONFIRM" = "y" ] || [ "$REBOOT_CONFIRM" = "Y" ]; then
     echo ""
-    echo "3초 후 재부팅합니다..."
+
+    # FC 먼저 재부팅
+    echo "[FC 재부팅]"
+    if reboot_fc; then
+        echo "  FC 재부팅 시작됨, 10초 대기..."
+        sleep 10
+    else
+        echo "  FC 재부팅 실패, 수동으로 FC를 재부팅하세요."
+    fi
+
+    echo ""
+    echo "[VIM4 재부팅]"
+    echo "  3초 후 VIM4 재부팅..."
     sleep 3
     reboot
 else

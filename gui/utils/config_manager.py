@@ -113,7 +113,13 @@ class ConfigManager:
     # === 기체별 설정 프리셋 ===
 
     def get_vehicle_preset(self, drone_id: int) -> Dict[str, str]:
-        """기체별 설정 프리셋 반환"""
+        """기체별 설정 프리셋 반환
+
+        IP 체계:
+        - ETH0 (VIM4): 10.0.0.X1 (X = 드론번호)
+        - FC: 10.0.0.X2 (X = 드론번호)
+        - WIFI: 192.168.100.X1 (X = 드론번호)
+        """
         presets = {
             1: {  # Leader
                 "DRONE_ID": "1",

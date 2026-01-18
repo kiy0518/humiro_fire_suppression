@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+
+{% block title %}카메라{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-camera-video"></i> 열화상 카메라 - <span id="currentCameraLabel">현재 기체</span></span>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-primary" onclick="refreshStream()">
+                            <i class="bi bi-arrow-clockwise"></i> 새로고침
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleFullscreen()">
+                            <i class="bi bi-fullscreen"></i> 전체화면
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body text-center p-0">
+                    <div id="videoContainer" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center;">
+                        <img id="videoFeed"
+                             src=""
+                             alt="Video Feed"
+                             style="max-width: 100%; max-height: 720px; display: none;"
+                             onload="this.style.display='block'; document.getElementById('loadingIndicator').style.display='none';"
+                             onerror="showError()">
+                        <div id="loadingIndicator" class="text-white">
+                            <div class="spinner-border text-light mb-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p>카메라 연결 중...</p>
+                        </div>
+                        <div id="errorIndicator" class="text-white" style="display: none;">
+                            <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                            <p class="mt-3">카메라 연결 실패</p>
+                            <button class="btn btn-outline-light btn-sm" onclick="refreshStream()">
+                                <i class="bi bi-arrow-clockwise"></i> 다시 시도
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 카메라 정보 -->
+    <div class="row mt-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-info-circle"></i> 스트림 정보
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <tr>
+                            <th style="width: 40%;">스트림 URL</th>
+                            <td><code id="streamUrl">-</code></td>
+                        </tr>
+                        <tr>
+                            <th>상태</th>
+                            <td><span id="streamStatus" class="badge bg-secondary">확인 중</span></td>
+                        </tr>
+                        <tr>
+                            <th>RTSP 포트</th>
+                            <td id="rtspPort">-</td>
+                        </tr>
+                        <tr>
+                            <th>스트림 이름</th>
+                            <td id="streamName">-</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <i class="bi bi-sliders"></i> 드론별 카메라 URL
+                </div>
+                <div class="card-body">
+                    <table class="table table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>드론</th>
+                                <th>HTTP 스트림</th>
+                                <th>상태</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>1번 (Leader)</td>
+                                <td><a href="#" onclick="switchCamera(1); return false;">192.168.100.11:8080</a></td>
+                                <td><span id="cam1Status" class="badge bg-secondary">-</span></td>
+                            </tr>
+                            <tr>
+                                <td>2번 (Follower L)</td>
+                                <td><a href="#" onclick="switchCamera(2); return false;">192.168.100.21:8080</a></td>
+                                <td><span id="cam2Status" class="badge bg-secondary">-</span></td>
+                            </tr>
+                            <tr>
+                                <td>3번 (Follower R)</td>
+                                <td><a href="#" onclick="switchCamera(3); return false;">192.168.100.31:8080</a></td>
+                                <td><span id="cam3Status" class="badge bg-secondary">-</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const droneIPs = {
+        1: '192.168.100.11',
+        2: '192.168.100.21',
+        3: '192.168.100.31'
+    };
+
+    const droneLabels = {
+        1: '1번 (Leader)',
+        2: '2번 (Follower L)',
+        3: '3번 (Follower R)'
+    };
+
+    // currentDroneId는 base.html에서 선언됨
+
+    function getVideoUrl(droneId) {
+        const ip = droneIPs[droneId];
+        return `http://${ip}:8080/video_feed`;
+    }
+
+    function refreshStream() {
+        if (!currentDroneId) return;
+
+        const video = document.getElementById('videoFeed');
+        const loading = document.getElementById('loadingIndicator');
+        const error = document.getElementById('errorIndicator');
+
+        video.style.display = 'none';
+        loading.style.display = 'block';
+        error.style.display = 'none';
+
+        // 캐시 방지를 위해 타임스탬프 추가
+        const url = getVideoUrl(currentDroneId);
+        video.src = url + '?t=' + Date.now();
+
+        document.getElementById('streamUrl').textContent = url;
+        document.getElementById('currentCameraLabel').textContent = droneLabels[currentDroneId];
+    }
+
+    function showError() {
+        document.getElementById('videoFeed').style.display = 'none';
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('errorIndicator').style.display = 'block';
+        document.getElementById('streamStatus').className = 'badge bg-danger';
+        document.getElementById('streamStatus').textContent = '연결 실패';
+    }
+
+    function toggleFullscreen() {
+        const container = document.getElementById('videoContainer');
+        if (document.fullscreenElement) {
+            document.exitFullscreen();
+        } else {
+            container.requestFullscreen();
+        }
+    }
+
+    async function checkCameraStatus(droneId) {
+        const statusEl = document.getElementById(`cam${droneId}Status`);
+        if (!statusEl) return;
+
+        const url = getVideoUrl(droneId);
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+            await fetch(url, {
+                method: 'HEAD',
+                signal: controller.signal,
+                mode: 'no-cors'
+            });
+            clearTimeout(timeoutId);
+
+            statusEl.className = 'badge bg-success';
+            statusEl.textContent = '온라인';
+        } catch (e) {
+            statusEl.className = 'badge bg-danger';
+            statusEl.textContent = '오프라인';
+        }
+    }
+
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/config');
+            const data = await response.json();
+
+            if (data.success) {
+                document.getElementById('rtspPort').textContent = data.config.RTSP_PORT || '8554';
+                document.getElementById('streamName').textContent = data.config.STREAM_NAME || 'thermal';
+
+                // 현재 드론 ID 설정
+                currentDroneId = parseInt(data.config.DRONE_ID) || 3;
+                refreshStream();
+
+                // 테이블 현재 선택 표시
+                document.querySelectorAll('tbody tr').forEach((row, idx) => {
+                    row.classList.remove('table-active');
+                    if (idx + 1 === currentDroneId) {
+                        row.classList.add('table-active');
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('설정 로드 실패:', e);
+            currentDroneId = 3;
+            refreshStream();
+        }
+    }
+
+    // 비디오 로드 성공 시
+    document.getElementById('videoFeed').onload = function() {
+        this.style.display = 'block';
+        document.getElementById('loadingIndicator').style.display = 'none';
+        document.getElementById('errorIndicator').style.display = 'none';
+        document.getElementById('streamStatus').className = 'badge bg-success';
+        document.getElementById('streamStatus').textContent = '연결됨';
+    };
+
+    // 초기화
+    document.addEventListener('DOMContentLoaded', function() {
+        loadConfig();
+
+        // 각 드론 카메라 상태 확인
+        [1, 2, 3].forEach(id => checkCameraStatus(id));
+
+        // 30초마다 상태 확인
+        setInterval(() => {
+            [1, 2, 3].forEach(id => checkCameraStatus(id));
+        }, 30000);
+    });
+</script>
+{% endblock %}
