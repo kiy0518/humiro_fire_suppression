@@ -201,17 +201,39 @@ EOF
 echo "  ✓ dnsmasq 설정 완료 (FC IP: $FC_IP 고정)"
 
 # -----------------------------------------------------------------------------
-# 5. mavlink-router 설정
+# 5. mavlink-router 설정 (DRONE_ID 기반 포트 자동 계산)
 # -----------------------------------------------------------------------------
 echo "[5/10] mavlink-router 설정..."
 
 if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; then
     mkdir -p /etc/mavlink-router
+
+    # DRONE_ID 기반 포트 계산 (10씩 증가)
+    # 드론 1: 14550, 14551, 14553, 15001, 5790
+    # 드론 2: 14560, 14561, 14563, 15011, 5800
+    # 드론 3: 14570, 14571, 14573, 15021, 5810
+    PORT_OFFSET=$(( ($DRONE_ID - 1) * 10 ))
+    QGC_PORT=$(( 14550 + $PORT_OFFSET ))
+    ROS2_PORT=$(( 14551 + $PORT_OFFSET ))
+    EXTERNAL_PORT_CALC=$(( 14553 + $PORT_OFFSET ))
+    APP_PORT=$(( 15001 + $PORT_OFFSET ))
+    TCP_PORT=$(( 5790 + $PORT_OFFSET ))
+
+    # device_config.env의 EXTERNAL_UDP_PORT 사용 (있으면 우선, 없으면 계산값)
+    EXTERNAL_PORT_FINAL=${EXTERNAL_UDP_PORT:-$EXTERNAL_PORT_CALC}
+
+    echo "  → DRONE_ID $DRONE_ID 기반 포트 계산:"
+    echo "    - TCP: $TCP_PORT"
+    echo "    - QGC: $QGC_PORT"
+    echo "    - ROS2: $ROS2_PORT"
+    echo "    - External: $EXTERNAL_PORT_FINAL"
+    echo "    - App: $APP_PORT"
+
     tee /etc/mavlink-router/main.conf > /dev/null << EOF
-# Drone #$DRONE_ID mavlink-router 설정
+# Drone #$DRONE_ID mavlink-router 설정 (자동 생성)
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = $TCP_PORT
 ReportStats = false
 MavlinkDialect = common
 
@@ -221,25 +243,31 @@ Mode = Server
 Address = 0.0.0.0
 Port = $FC_MAVLINK_PORT
 
-# GCS (QGroundControl) 브로드캐스트 - 네트워크 내 모든 QGC 수신 가능
+# GCS (QGroundControl) 브로드캐스트 - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint GCS]
 Mode = Normal
 Address = $WIFI_BROADCAST
-Port = $QGC_UDP_PORT
+Port = $QGC_PORT
 
-# 외부 테스트/디버깅 도구 (SENDER GUI 등) - Server 모드로 직접 수신
+# 외부 테스트/디버깅 도구 (SENDER GUI 등) - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint External]
 Mode = Server
 Address = 0.0.0.0
-Port = $EXTERNAL_UDP_PORT
+Port = $EXTERNAL_PORT_FINAL
 
-# ROS2 노드 연결
+# ROS2 노드 연결 - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint ROS2]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = $ROS2_PORT
+
+# Application Manager 연결 - 드론 $DRONE_ID 전용 포트 (라우터와 충돌 방지)
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = $APP_PORT
 EOF
-    echo "  ✓ mavlink-router 설정 완료 (Mode=Server, 브로드캐스트 수신)"
+    echo "  ✓ mavlink-router 설정 완료 (DRONE_ID 기반, 다중 드론 지원)"
 else
     echo "  ⚠ mavlink-router 미설치, 건너뜀"
 fi

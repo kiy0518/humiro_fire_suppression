@@ -210,26 +210,43 @@ void ApplicationManager::initializeComponents() {
 
 void ApplicationManager::initializeCustomMessage() {
     std::cout << "\n[커스텀 메시지 초기화]" << std::endl;
-    
+
     try {
-        // 포트 설정 (환경 변수 또는 기본값)
-        // 우선순위: QGC_UDP_PORT (device_config.env) > MAVLINK_PORT > 기본값 14550
-        uint16_t mavlink_port = 14550;
-        const char* port_env = std::getenv("QGC_UDP_PORT");  // device_config.env에서 로드
-        if (!port_env) {
-            port_env = std::getenv("MAVLINK_PORT");  // 대체 환경 변수
+        // DRONE_ID 읽기 (환경 변수)
+        int drone_id = 1;  // 기본값
+        const char* drone_id_env = std::getenv("DRONE_ID");
+        if (drone_id_env) {
+            try {
+                drone_id = std::stoi(drone_id_env);
+                std::cout << "  → DRONE_ID: " << drone_id << std::endl;
+            } catch (...) {
+                std::cerr << "  ⚠ 잘못된 DRONE_ID 환경 변수, 기본값 1 사용" << std::endl;
+            }
         }
+
+        // 드론 ID 기반 포트 계산 (10씩 증가)
+        // 드론 1: 14550, 15001
+        // 드론 2: 14560, 15011
+        // 드론 3: 14570, 15021
+        int port_offset = (drone_id - 1) * 10;
+        uint16_t mavlink_port = 14550 + port_offset;
+        uint16_t app_port = 15001 + port_offset;
+
+        std::cout << "  → 포트 자동 계산 (DRONE_ID=" << drone_id << "):" << std::endl;
+        std::cout << "    - QGC 송신 포트: " << mavlink_port << std::endl;
+        std::cout << "    - App 수신 포트: " << app_port << std::endl;
+
+        // 환경 변수로 오버라이드 가능
+        const char* port_env = std::getenv("QGC_UDP_PORT");
         if (port_env) {
             try {
                 mavlink_port = static_cast<uint16_t>(std::stoi(port_env));
-                std::cout << "  → 포트 설정: " << mavlink_port 
-                          << (std::getenv("QGC_UDP_PORT") ? " (QGC_UDP_PORT)" : " (MAVLINK_PORT)") 
-                          << std::endl;
+                std::cout << "  → QGC_UDP_PORT 환경 변수로 오버라이드: " << mavlink_port << std::endl;
             } catch (...) {
-                std::cerr << "  ⚠ 잘못된 포트 환경 변수, 기본값 14550 사용" << std::endl;
+                std::cerr << "  ⚠ 잘못된 QGC_UDP_PORT, 계산된 값 사용" << std::endl;
             }
         }
-        
+
         // 대상 주소 설정 (환경 변수 또는 기본값)
         // MAVLINK_TARGET 환경 변수가 있으면 사용, 없으면 브로드캐스트 (255.255.255.255)
         std::string target_address = "255.255.255.255";  // 브로드캐스트 (모든 QGC 수신 가능)
@@ -238,14 +255,13 @@ void ApplicationManager::initializeCustomMessage() {
             target_address = target_env;
             std::cout << "  → 환경 변수 MAVLINK_TARGET 사용: " << target_address << std::endl;
         }
-        
+
         // CustomMessage 생성
-        // MAVLink 라우터의 로컬 엔드포인트(14551)를 통해 메시지 수신
-        // 라우터가 14550 포트를 리스닝하고, 커스텀 메시지를 14551로 전달
+        // DRONE_ID 기반으로 독립 포트 사용 (라우터와 충돌 방지)
         custom_message_handler_ = new custom_message::CustomMessage(
-            14551,  // 수신 포트: 라우터의 로컬 엔드포인트 (고정값)
-            mavlink_port,  // 송신 포트: QGC로 전송 시 브로드캐스트 (14550)
-            "127.0.0.1",  // 바인드 주소: 로컬 인터페이스만 (라우터에서 수신)
+            app_port,  // 수신 포트: DRONE_ID 기반 (드론1=15001, 드론2=15011, 드론3=15021)
+            mavlink_port,  // 송신 포트: DRONE_ID 기반 (드론1=14550, 드론2=14560, 드론3=14570)
+            "0.0.0.0",  // 바인드 주소: 모든 인터페이스 (외부 접근 가능)
             target_address,  // 대상 주소: QGC 또는 브로드캐스트 (변경 없음)
             1,  // 시스템 ID
             1   // 컴포넌트 ID
@@ -653,19 +669,23 @@ void ApplicationManager::initializeCustomMessage() {
         
         // 메시지 송수신 시작
         if (custom_message_handler_->start()) {
-            std::cout << "  ✓ 커스텀 메시지 송수신 시작 (수신 포트: 14551, 송신 포트: " << mavlink_port << ")" << std::endl;
-            std::cout << "  → 라우터의 로컬 엔드포인트(14551)를 통해 메시지 수신" << std::endl;
+            std::cout << "  ✓ 커스텀 메시지 송수신 시작 (수신 포트: " << app_port << ", 송신 포트: " << mavlink_port << ")" << std::endl;
+            std::cout << "  → DRONE_ID 기반 독립 포트 사용 (라우터와 충돌 방지)" << std::endl;
             std::cout << "  → 대상 주소: " << target_address << std::endl;
         } else {
             std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;
         }
 
-        // ===== 테스트용 메시지 핸들러 추가 (14553 포트 - EXTERNAL_UDP_PORT) =====
-        std::cout << "\n[테스트 메시지 핸들러 초기화 - 14553 포트]" << std::endl;
-        
+        // ===== 테스트용 메시지 핸들러 추가 (EXTERNAL_UDP_PORT) =====
+        // DRONE_ID 기반으로 포트 계산 (드론1=14553, 드론2=14563, 드론3=14573)
+        uint16_t external_port = 14553 + port_offset;
+
+        std::cout << "\n[테스트 메시지 핸들러 초기화 - " << external_port << " 포트]" << std::endl;
+        std::cout << "  → DRONE_ID " << drone_id << " 기반 External 포트: " << external_port << std::endl;
+
         test_message_handler_ = new custom_message::CustomMessage(
-            14553,  // 수신 포트 (외부 테스트 포트 - EXTERNAL_UDP_PORT)
-            14553,  // 송신 포트 (외부 테스트 포트)
+            external_port,  // 수신 포트 (DRONE_ID 기반: 14553/14563/14573)
+            external_port,  // 송신 포트 (DRONE_ID 기반)
             "0.0.0.0",  // 바인드 주소
             target_address,  // 대상 주소
             1,  // 시스템 ID

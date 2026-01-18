@@ -20,14 +20,21 @@
         box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         text-align: center;
         min-width: 120px;
-        transition: transform 0.2s, box-shadow 0.2s;
-        cursor: pointer;
+        transition: box-shadow 0.2s;
+        cursor: move;
         z-index: 10;
+        user-select: none;
     }
 
     .node:hover {
-        transform: scale(1.05);
-        box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+    }
+
+    .node.dragging {
+        cursor: grabbing;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        z-index: 100;
+        opacity: 0.9;
     }
 
     .node-icon {
@@ -62,9 +69,6 @@
 
     /* 중앙 라우터 */
     .router-node {
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
         background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
         color: white;
         min-width: 140px;
@@ -72,7 +76,11 @@
     }
 
     .router-node:hover {
-        transform: translate(-50%, -50%) scale(1.05);
+        box-shadow: 0 8px 25px rgba(52, 152, 219, 0.6);
+    }
+
+    .router-node.dragging {
+        box-shadow: 0 10px 30px rgba(52, 152, 219, 0.8);
     }
 
     .router-node .node-port {
@@ -235,13 +243,16 @@
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-broadcast"></i> 포트 라우팅 다이어그램</span>
+                <span><i class="bi bi-broadcast"></i> 포트 라우팅 다이어그램 <small class="text-muted">(드래그 가능)</small></span>
                 <div>
                     <button class="btn btn-sm btn-outline-primary" onclick="testAllPorts()">
                         <i class="bi bi-play-circle"></i> 전체 테스트
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="refreshStatus()">
                         <i class="bi bi-arrow-clockwise"></i> 새로고침
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="resetNodePositions()">
+                        <i class="bi bi-arrow-counterclockwise"></i> 위치 초기화
                     </button>
                 </div>
             </div>
@@ -286,6 +297,93 @@
                             <span>출력 (Normal)</span>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 실시간 메시지 모니터 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-activity"></i> 실시간 MAVLink 메시지 모니터</span>
+                <div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="toggleMonitor()" id="monitorToggleBtn">
+                        <i class="bi bi-play-circle"></i> 시작
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="clearMonitor()">
+                        <i class="bi bi-trash"></i> 지우기
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <!-- 포트 필터 및 통계 -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label small mb-2">포트 필터:</label>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <input type="checkbox" class="btn-check" id="filter-14540" autocomplete="off" checked onchange="updateMonitorFilter()">
+                            <label class="btn btn-outline-primary" for="filter-14540">14540</label>
+
+                            <input type="checkbox" class="btn-check" id="filter-14550" autocomplete="off" checked onchange="updateMonitorFilter()">
+                            <label class="btn btn-outline-success" for="filter-14550">14550</label>
+
+                            <input type="checkbox" class="btn-check" id="filter-14551" autocomplete="off" checked onchange="updateMonitorFilter()">
+                            <label class="btn btn-outline-info" for="filter-14551">14551</label>
+
+                            <input type="checkbox" class="btn-check" id="filter-14553" autocomplete="off" checked onchange="updateMonitorFilter()">
+                            <label class="btn btn-outline-warning" for="filter-14553">14553</label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label small mb-2">메시지 카운트:</label>
+                        <div class="d-flex justify-content-between">
+                            <small><strong id="stat-14540">0</strong> <span class="text-muted">FC</span></small>
+                            <small><strong id="stat-14550">0</strong> <span class="text-muted">QGC</span></small>
+                            <small><strong id="stat-14551">0</strong> <span class="text-muted">ROS2</span></small>
+                            <small><strong id="stat-14553">0</strong> <span class="text-muted">Ext</span></small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 메시지 로그 -->
+                <div id="messageMonitor" style="max-height: 300px; overflow-y: auto; font-size: 0.75rem; background: #1a1a2e; color: #00ff00; padding: 10px; border-radius: 5px; font-family: monospace;">
+                    <span class="text-muted">모니터링을 시작하려면 '시작' 버튼을 클릭하세요...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 포트 충돌 감지 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-shield-check"></i> 포트 충돌 감지 및 복구</span>
+                <div>
+                    <button class="btn btn-sm btn-outline-danger" onclick="resetPorts()">
+                        <i class="bi bi-arrow-clockwise"></i> 포트 리셋
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="scanPorts()">
+                        <i class="bi bi-search"></i> 스캔 시작
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info mb-3">
+                    <strong><i class="bi bi-info-circle"></i> 포트 리셋 기능</strong><br>
+                    QGC 통신이 끊어진 경우, FC 전원을 재인가하지 않고도 소프트웨어적으로 포트 충돌을 해결할 수 있습니다.<br>
+                    <small class="text-muted">
+                        • MAVLink 라우터 및 application 서비스를 올바른 순서로 재시작<br>
+                        • 포트 14551(ROS2) 및 15001(Application) 상태 자동 확인<br>
+                        • FC 전원 재인가 없이 포트 충돌 해결 시도
+                    </small>
+                </div>
+                <div id="portScanResult">
+                    <p class="text-muted mb-0">포트 스캔을 시작하려면 '스캔 시작' 버튼을 클릭하세요.</p>
                 </div>
             </div>
         </div>
@@ -394,7 +492,6 @@
         container.innerHTML = '';
 
         routerConfig.nodes.forEach((node, index) => {
-            const pos = nodePositions[index] || nodePositions[nodePositions.length - 1];
             const icon = iconMap[node.id] || 'bi-hdd-network';
             const directionIcon = node.direction === 'in'
                 ? '<i class="bi bi-arrow-right text-success"></i>'
@@ -410,11 +507,6 @@
             nodeEl.setAttribute('data-port', node.port);
             nodeEl.setAttribute('data-direction', node.direction);
 
-            // 위치 설정
-            Object.keys(pos).forEach(key => {
-                nodeEl.style[key] = pos[key];
-            });
-
             nodeEl.innerHTML = `
                 <div class="node-status status-unknown"></div>
                 <div class="node-icon"><i class="bi ${icon}"></i></div>
@@ -424,19 +516,17 @@
             `;
 
             container.appendChild(nodeEl);
+
+            // 위치 적용 및 드래그 가능하게 설정
+            applyNodePosition(nodeEl, index);
         });
 
         // TCP 노드 추가
-        const tcpPos = nodePositions[routerConfig.nodes.length] || { left: '5%', bottom: '10%' };
         const tcpNode = document.createElement('div');
         tcpNode.className = 'node';
         tcpNode.id = 'node-tcp';
         tcpNode.setAttribute('data-port', routerConfig.tcp_server_port);
         tcpNode.setAttribute('data-direction', 'both');
-
-        Object.keys(tcpPos).forEach(key => {
-            tcpNode.style[key] = tcpPos[key];
-        });
 
         tcpNode.innerHTML = `
             <div class="node-status status-unknown"></div>
@@ -447,6 +537,27 @@
         `;
 
         container.appendChild(tcpNode);
+
+        // 위치 적용 및 드래그 가능하게 설정
+        applyNodePosition(tcpNode, routerConfig.nodes.length);
+
+        // 중앙 라우터 노드도 드래그 가능하게 설정
+        const routerNode = document.getElementById('node-router');
+        if (routerNode) {
+            // 라우터 노드 기본 위치는 중앙
+            if (!dragState.savedPositions['node-router']) {
+                const diagram = document.getElementById('routerDiagram');
+                const diagramRect = diagram.getBoundingClientRect();
+                const routerRect = routerNode.getBoundingClientRect();
+                routerNode.style.left = (diagramRect.width / 2 - routerRect.width / 2) + 'px';
+                routerNode.style.top = (diagramRect.height / 2 - routerRect.height / 2) + 'px';
+            } else {
+                routerNode.style.left = dragState.savedPositions['node-router'].left;
+                routerNode.style.top = dragState.savedPositions['node-router'].top;
+            }
+            routerNode.style.transform = 'none';
+            makeDraggable(routerNode);
+        }
 
         // 연결선 그리기
         setTimeout(drawConnections, 100);
@@ -629,8 +740,437 @@
     // 창 크기 변경 시 연결선 다시 그리기
     window.addEventListener('resize', drawConnections);
 
+    // ===== 실시간 메시지 모니터 =====
+    let monitorInterval = null;
+    let monitorRunning = false;
+    let messageStats = {
+        '14540': 0,
+        '14550': 0,
+        '14551': 0,
+        '14553': 0
+    };
+    let monitorFilter = {
+        '14540': true,
+        '14550': true,
+        '14551': true,
+        '14553': true
+    };
+
+    function toggleMonitor() {
+        const btn = document.getElementById('monitorToggleBtn');
+        const monitor = document.getElementById('messageMonitor');
+
+        if (monitorRunning) {
+            // 중지
+            clearInterval(monitorInterval);
+            monitorInterval = null;
+            monitorRunning = false;
+            btn.innerHTML = '<i class="bi bi-play-circle"></i> 시작';
+            btn.classList.remove('btn-outline-danger');
+            btn.classList.add('btn-outline-primary');
+        } else {
+            // 시작
+            monitorRunning = true;
+            btn.innerHTML = '<i class="bi bi-stop-circle"></i> 중지';
+            btn.classList.remove('btn-outline-primary');
+            btn.classList.add('btn-outline-danger');
+            monitor.innerHTML = '<span class="text-muted">모니터링 중...</span>\n';
+
+            // 1초마다 로그 확인
+            monitorInterval = setInterval(fetchMAVLinkLogs, 1000);
+        }
+    }
+
+    async function fetchMAVLinkLogs() {
+        try {
+            const response = await fetch('/api/router/messages');
+            const data = await response.json();
+
+            if (data.success && data.messages && data.messages.length > 0) {
+                const monitor = document.getElementById('messageMonitor');
+                const now = new Date().toLocaleTimeString('ko-KR');
+
+                data.messages.forEach(msg => {
+                    // 필터 체크
+                    if (!monitorFilter[msg.port]) return;
+
+                    // 통계 업데이트
+                    messageStats[msg.port]++;
+                    document.getElementById(`stat-${msg.port}`).textContent = messageStats[msg.port];
+
+                    // 포트별 색상
+                    const portColors = {
+                        '14540': '#4a9eff',  // FC - 파란색
+                        '14550': '#28a745',  // QGC - 초록색
+                        '14551': '#17a2b8',  // ROS2 - 청록색
+                        '14553': '#ffc107'   // External - 노란색
+                    };
+
+                    const color = portColors[msg.port] || '#00ff00';
+                    const portName = {
+                        '14540': 'FC',
+                        '14550': 'QGC',
+                        '14551': 'ROS2',
+                        '14553': 'Ext'
+                    }[msg.port] || msg.port;
+
+                    const logLine = `<span style="color: ${color}">[${now}] [${portName}:${msg.port}]</span> ${msg.type || 'MSG'} → ${msg.description || 'N/A'}\n`;
+                    monitor.innerHTML += logLine;
+                });
+
+                // 자동 스크롤
+                monitor.scrollTop = monitor.scrollHeight;
+
+                // 최대 200줄로 제한
+                const lines = monitor.innerHTML.split('\n');
+                if (lines.length > 200) {
+                    monitor.innerHTML = lines.slice(-200).join('\n');
+                }
+            }
+        } catch (e) {
+            console.error('메시지 로그 fetch 오류:', e);
+        }
+    }
+
+    function clearMonitor() {
+        document.getElementById('messageMonitor').innerHTML = '<span class="text-muted">로그가 지워졌습니다...</span>\n';
+        messageStats = {
+            '14540': 0,
+            '14550': 0,
+            '14551': 0,
+            '14553': 0
+        };
+        Object.keys(messageStats).forEach(port => {
+            document.getElementById(`stat-${port}`).textContent = '0';
+        });
+    }
+
+    function updateMonitorFilter() {
+        monitorFilter['14540'] = document.getElementById('filter-14540').checked;
+        monitorFilter['14550'] = document.getElementById('filter-14550').checked;
+        monitorFilter['14551'] = document.getElementById('filter-14551').checked;
+        monitorFilter['14553'] = document.getElementById('filter-14553').checked;
+    }
+
+    // ===== 포트 리셋 =====
+    async function resetPorts() {
+        if (!confirm('MAVLink 라우터 및 관련 서비스를 재시작하시겠습니까?\n\n잠시 동안 통신이 끊어질 수 있습니다.')) {
+            return;
+        }
+
+        const resultDiv = document.getElementById('portScanResult');
+        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm text-danger" role="status"></div> <strong>포트 리셋 중...</strong> (10초 소요)</div>';
+
+        try {
+            const response = await fetch('/api/router/port-reset');
+            const data = await response.json();
+
+            if (data.success) {
+                let html = '<div class="alert alert-success">';
+                html += '<strong><i class="bi bi-check-circle"></i> 포트 리셋 완료</strong><br>';
+                html += '<pre style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px; font-size: 0.85rem;">';
+                data.steps.forEach(step => {
+                    html += step + '\n';
+                });
+                html += '</pre>';
+                html += '<button class="btn btn-sm btn-primary mt-2" onclick="scanPorts()">포트 상태 확인</button>';
+                html += '</div>';
+                resultDiv.innerHTML = html;
+
+                // 상태 자동 새로고침
+                setTimeout(() => {
+                    refreshStatus();
+                }, 2000);
+            } else {
+                resultDiv.innerHTML = `<div class="alert alert-danger"><strong>리셋 실패:</strong> ${data.error}</div>`;
+            }
+        } catch (e) {
+            resultDiv.innerHTML = `<div class="alert alert-danger"><strong>리셋 오류:</strong> ${e.message}</div>`;
+        }
+    }
+
+    // ===== 포트 스캔 =====
+    async function scanPorts() {
+        console.log('scanPorts() 호출됨');
+        const resultDiv = document.getElementById('portScanResult');
+        if (!resultDiv) {
+            console.error('portScanResult 요소를 찾을 수 없습니다');
+            return;
+        }
+        resultDiv.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div> 포트 스캔 중...</div>';
+
+        try {
+            console.log('Fetching /api/router/port-scan...');
+            const response = await fetch('/api/router/port-scan');
+            console.log('Response status:', response.status);
+
+            const data = await response.json();
+            console.log('Response data:', data);
+
+            if (!data.success) {
+                console.error('API returned error:', data.error);
+                resultDiv.innerHTML = `<div class="alert alert-danger mb-0">오류: ${data.error || '알 수 없는 오류'}</div>`;
+                if (data.traceback) {
+                    console.error('Traceback:', data.traceback);
+                }
+                return;
+            }
+
+            let html = '<table class="table table-sm table-bordered mb-0">';
+            html += '<thead><tr>';
+            html += '<th>IP</th><th>Hostname</th>';
+            html += '<th>14540<br>(FC)</th><th>14550<br>(QGC)</th><th>14551<br>(ROS2)</th><th>14553<br>(Ext)</th><th>15001<br>(App)</th><th>5790<br>(TCP)</th>';
+            html += '<th>프로세스</th>';
+            html += '</tr></thead><tbody>';
+
+            data.results.forEach(result => {
+                html += '<tr>';
+                html += `<td><strong>${result.ip}</strong></td>`;
+                html += `<td>${result.hostname}</td>`;
+
+                // 각 포트 상태
+                [14540, 14550, 14551, 14553, 15001, 5790].forEach(port => {
+                    const portInfo = result.ports[port];
+                    if (!portInfo) {
+                        html += '<td class="text-center">-</td>';
+                        return;
+                    }
+
+                    let badge = '';
+                    if (portInfo.udp) badge += '<span class="badge bg-success">UDP</span> ';
+                    if (portInfo.tcp) badge += '<span class="badge bg-info">TCP</span>';
+                    if (!portInfo.udp && !portInfo.tcp) badge = '<span class="text-muted">-</span>';
+
+                    html += `<td class="text-center">${badge}</td>`;
+                });
+
+                // 프로세스 정보
+                const allProcesses = [];
+                [14540, 14550, 14551, 14553, 15001, 5790].forEach(port => {
+                    const portInfo = result.ports[port];
+                    if (portInfo && portInfo.processes && portInfo.processes.length > 0) {
+                        portInfo.processes.forEach(proc => {
+                            if (!allProcesses.includes(proc)) {
+                                allProcesses.push(proc);
+                            }
+                        });
+                    }
+                });
+
+                html += '<td style="font-size: 0.75rem;">';
+                if (allProcesses.length > 0) {
+                    html += allProcesses.join('<br>');
+                } else {
+                    html += '<span class="text-muted">-</span>';
+                }
+                html += '</td>';
+
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            // 충돌 경고
+            const conflicts = detectConflicts(data.results);
+            if (conflicts.length > 0) {
+                html += '<div class="alert alert-warning mt-3 mb-0">';
+                html += '<strong><i class="bi bi-exclamation-triangle"></i> 충돌 감지!</strong><ul class="mb-0 mt-2">';
+                conflicts.forEach(conflict => {
+                    html += `<li>${conflict}</li>`;
+                });
+                html += '</ul></div>';
+            } else {
+                html += '<div class="alert alert-success mt-3 mb-0"><i class="bi bi-check-circle"></i> 포트 충돌이 감지되지 않았습니다.</div>';
+            }
+
+            resultDiv.innerHTML = html;
+        } catch (e) {
+            console.error('스캔 오류:', e);
+            resultDiv.innerHTML = `<div class="alert alert-danger mb-0">스캔 오류: ${e.message}</div>`;
+        }
+    }
+
+    function detectConflicts(results) {
+        const conflicts = [];
+
+        if (results.length === 0) return conflicts;
+
+        const local = results[0];
+        const ports = local.ports;
+
+        // 14551 포트 충돌 감지 (ROS2)
+        if (ports[14551] && ports[14551].processes) {
+            const procs = ports[14551].processes;
+            const hasRouter = procs.some(p => p.includes('mavlink-router'));
+            const hasApp = procs.some(p => p.includes('application') || p.includes('humiro'));
+
+            if (hasRouter && hasApp) {
+                conflicts.push('14551 (ROS2): MAVLink 라우터와 application_manager가 동시에 사용 중 → <strong>QGC 통신 차단 가능</strong>');
+            }
+        }
+
+        // 14540 포트 충돌 감지 (FC)
+        if (ports[14540] && ports[14540].processes && ports[14540].processes.length > 1) {
+            conflicts.push(`14540 (FC): 여러 프로세스가 사용 중 (${ports[14540].processes.join(', ')})`);
+        }
+
+        // 14553 포트 충돌 감지 (External)
+        if (ports[14553] && ports[14553].processes && ports[14553].processes.length > 1) {
+            conflicts.push(`14553 (External): 여러 프로세스가 사용 중 (${ports[14553].processes.join(', ')})`);
+        }
+
+        return conflicts;
+    }
+
+    // ===== 드래그 앤 드롭 기능 =====
+    let dragState = {
+        isDragging: false,
+        currentNode: null,
+        offsetX: 0,
+        offsetY: 0,
+        savedPositions: {}
+    };
+
+    // localStorage에서 저장된 위치 불러오기
+    function loadSavedPositions() {
+        const saved = localStorage.getItem('router-node-positions');
+        if (saved) {
+            try {
+                dragState.savedPositions = JSON.parse(saved);
+            } catch (e) {
+                console.error('위치 로드 오류:', e);
+            }
+        }
+    }
+
+    // localStorage에 위치 저장
+    function savePositions() {
+        localStorage.setItem('router-node-positions', JSON.stringify(dragState.savedPositions));
+    }
+
+    // 노드에 드래그 이벤트 리스너 추가
+    function makeDraggable(node) {
+        node.addEventListener('mousedown', handleDragStart);
+    }
+
+    function handleDragStart(e) {
+        // 테스트 버튼 클릭은 무시
+        if (e.target.classList.contains('test-btn') || e.target.closest('.test-btn')) {
+            return;
+        }
+
+        dragState.isDragging = true;
+        dragState.currentNode = e.currentTarget;
+
+        const rect = dragState.currentNode.getBoundingClientRect();
+        const diagramRect = document.getElementById('routerDiagram').getBoundingClientRect();
+
+        dragState.offsetX = e.clientX - rect.left;
+        dragState.offsetY = e.clientY - rect.top;
+
+        dragState.currentNode.classList.add('dragging');
+
+        document.addEventListener('mousemove', handleDragMove);
+        document.addEventListener('mouseup', handleDragEnd);
+
+        e.preventDefault();
+    }
+
+    function handleDragMove(e) {
+        if (!dragState.isDragging || !dragState.currentNode) return;
+
+        const diagram = document.getElementById('routerDiagram');
+        const diagramRect = diagram.getBoundingClientRect();
+
+        let newLeft = e.clientX - diagramRect.left - dragState.offsetX;
+        let newTop = e.clientY - diagramRect.top - dragState.offsetY;
+
+        // 다이어그램 경계 내로 제한
+        const nodeRect = dragState.currentNode.getBoundingClientRect();
+        const minLeft = 0;
+        const minTop = 0;
+        const maxLeft = diagramRect.width - nodeRect.width;
+        const maxTop = diagramRect.height - nodeRect.height;
+
+        newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+        newTop = Math.max(minTop, Math.min(maxTop, newTop));
+
+        // 노드 위치 업데이트
+        dragState.currentNode.style.left = newLeft + 'px';
+        dragState.currentNode.style.top = newTop + 'px';
+        dragState.currentNode.style.right = 'auto';
+        dragState.currentNode.style.bottom = 'auto';
+        dragState.currentNode.style.transform = 'none';
+
+        // 연결선 실시간 업데이트
+        drawConnections();
+
+        e.preventDefault();
+    }
+
+    function handleDragEnd(e) {
+        if (!dragState.isDragging || !dragState.currentNode) return;
+
+        dragState.currentNode.classList.remove('dragging');
+
+        // 위치 저장
+        const nodeId = dragState.currentNode.id;
+        const diagramRect = document.getElementById('routerDiagram').getBoundingClientRect();
+        const nodeRect = dragState.currentNode.getBoundingClientRect();
+
+        dragState.savedPositions[nodeId] = {
+            left: dragState.currentNode.style.left,
+            top: dragState.currentNode.style.top
+        };
+
+        savePositions();
+
+        document.removeEventListener('mousemove', handleDragMove);
+        document.removeEventListener('mouseup', handleDragEnd);
+
+        dragState.isDragging = false;
+        dragState.currentNode = null;
+
+        e.preventDefault();
+    }
+
+    // 저장된 위치 적용
+    function applyNodePosition(node, index) {
+        const nodeId = node.id;
+
+        if (dragState.savedPositions[nodeId]) {
+            // 저장된 위치가 있으면 적용
+            node.style.left = dragState.savedPositions[nodeId].left;
+            node.style.top = dragState.savedPositions[nodeId].top;
+            node.style.right = 'auto';
+            node.style.bottom = 'auto';
+            node.style.transform = 'none';
+        } else {
+            // 기본 위치 적용
+            const pos = nodePositions[index] || nodePositions[nodePositions.length - 1];
+            Object.keys(pos).forEach(key => {
+                node.style[key] = pos[key];
+            });
+        }
+
+        // 드래그 가능하게 설정
+        makeDraggable(node);
+    }
+
+    // 위치 초기화 함수 추가
+    function resetNodePositions() {
+        if (confirm('모든 노드의 위치를 초기 상태로 되돌리시겠습니까?')) {
+            dragState.savedPositions = {};
+            savePositions();
+
+            // 페이지 새로고침하여 기본 위치 적용
+            location.reload();
+        }
+    }
+
     // 초기화
     document.addEventListener('DOMContentLoaded', async () => {
+        loadSavedPositions();
         await loadConfig();
         await refreshStatus();
     });

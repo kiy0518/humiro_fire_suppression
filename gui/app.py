@@ -1087,6 +1087,264 @@ def api_router_test(port_id):
     return jsonify({'connected': False, 'message': '알 수 없는 포트'})
 
 
+@app.route('/api/router/port-scan')
+def api_router_port_scan():
+    """네트워크 내 MAVLink 포트 스캔 및 충돌 감지"""
+    try:
+        import socket
+
+        # 스캔할 포트 목록
+        ports_to_scan = [14540, 14550, 14551, 14553, 15001, 5790]
+        port_names = {
+            14540: 'FC',
+            14550: 'QGC',
+            14551: 'ROS2',
+            14553: 'External',
+            15001: 'App',
+            5790: 'TCP Server'
+        }
+
+        # WiFi 서브넷 확인
+        wifi_ip = config_manager.get_wifi_ip()
+        if not wifi_ip or wifi_ip == "127.0.0.1":
+            return jsonify({
+                'success': False,
+                'error': 'WiFi IP를 찾을 수 없습니다'
+            })
+
+        # IP 범위 계산
+        ip_parts = wifi_ip.split('.')
+        subnet = '.'.join(ip_parts[:3])
+
+        results = []
+
+        # 로컬 호스트 상세 스캔
+        local_ports = {}
+        for port in ports_to_scan:
+            # UDP 포트 리슨 확인
+            udp_result = subprocess.run(
+                ['ss', '-uln'],
+                capture_output=True, text=True, timeout=2
+            )
+            # TCP 포트 리슨 확인
+            tcp_result = subprocess.run(
+                ['ss', '-tln'],
+                capture_output=True, text=True, timeout=2
+            )
+
+            udp_listening = f':{port}' in udp_result.stdout
+            tcp_listening = f':{port}' in tcp_result.stdout
+
+            # 프로세스 확인 (sudo 사용)
+            lsof_result = subprocess.run(
+                ['sudo', 'lsof', '-i', f':{port}', '-n', '-P'],
+                capture_output=True, text=True, timeout=2
+            )
+            processes = []
+            for line in lsof_result.stdout.split('\n')[1:]:  # 헤더 스킵
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        proc_name = parts[0]
+                        proc_pid = parts[1]
+                        # COMMAND 필드에서 실제 명령어 이름 추출
+                        processes.append(f"{proc_name} (PID:{proc_pid})")
+
+            local_ports[port] = {
+                'name': port_names.get(port, str(port)),
+                'udp': udp_listening,
+                'tcp': tcp_listening,
+                'processes': processes
+            }
+
+        results.append({
+            'ip': wifi_ip,
+            'hostname': socket.gethostname(),
+            'ports': local_ports,
+            'is_local': True
+        })
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'local_ip': wifi_ip
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+
+@app.route('/api/router/messages')
+def api_router_messages():
+    """실시간 MAVLink 메시지 모니터링 API"""
+    try:
+        # humiro-fire-suppression 서비스 로그에서 MAVLink 메시지 추출
+        result = subprocess.run(
+            ['journalctl', '-u', 'humiro-fire-suppression', '-n', '50', '--no-pager', '--since', '5 seconds ago'],
+            capture_output=True, text=True, timeout=3
+        )
+
+        messages = []
+        for line in result.stdout.split('\n'):
+            # CustomMessage 로그 파싱
+            if '[CustomMessage]' in line and 'UDP 수신' in line:
+                # 예: [CustomMessage] [STEP 1] UDP 수신 (epoll): 28 bytes, 첫 바이트: 0xfd, MSG_ID=50000, 포트: 14551
+                parts = line.split('MSG_ID=')
+                if len(parts) > 1:
+                    msg_id_part = parts[1].split(',')[0].strip()
+                    port_part = line.split('포트: ')
+                    port = port_part[1].split(',')[0].strip() if len(port_part) > 1 else 'unknown'
+
+                    # 메시지 타입 매핑
+                    msg_types = {
+                        '50000': 'FIRE_MISSION_START',
+                        '50001': 'FIRE_MISSION_STATUS',
+                        '50002': 'FIRE_LAUNCH_CONTROL',
+                        '50003': 'FIRE_SUPPRESSION_RESULT',
+                        '50004': 'FIRE_SET_MODE',
+                        '76': 'COMMAND_LONG',
+                        '0': 'HEARTBEAT'
+                    }
+
+                    msg_type = msg_types.get(msg_id_part, f'MSG_{msg_id_part}')
+
+                    messages.append({
+                        'port': port,
+                        'type': msg_type,
+                        'description': f'ID={msg_id_part}'
+                    })
+
+            # FIRE_MISSION_START 파싱
+            elif 'FIRE_MISSION_START 수신' in line:
+                messages.append({
+                    'port': '14551',  # ROS2 포트에서 수신됨
+                    'type': 'FIRE_MISSION_START',
+                    'description': '화재 진압 미션 시작 명령'
+                })
+
+            # COMMAND_LONG 파싱
+            elif 'COMMAND_LONG' in line:
+                messages.append({
+                    'port': 'unknown',
+                    'type': 'COMMAND_LONG',
+                    'description': '비행 제어 명령'
+                })
+
+        return jsonify({
+            'success': True,
+            'messages': messages,
+            'count': len(messages)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'messages': []
+        })
+
+@app.route('/api/router/port-reset')
+def api_router_port_reset():
+    """포트 충돌 해결 - MAVLink 라우터 및 관련 서비스 재시작"""
+    try:
+        steps = []
+
+        # 1. humiro-fire-suppression 서비스 중지
+        steps.append('1. humiro-fire-suppression 서비스 중지 중...')
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'stop', 'humiro-fire-suppression'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            steps.append('   ✓ humiro-fire-suppression 중지 완료')
+        else:
+            steps.append(f'   ⚠ humiro-fire-suppression 중지 실패: {result.stderr}')
+
+        # 2. mavlink-router 서비스 재시작
+        steps.append('2. mavlink-router 서비스 재시작 중...')
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'mavlink-router'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            steps.append('   ✓ mavlink-router 재시작 완료')
+        else:
+            steps.append(f'   ⚠ mavlink-router 재시작 실패: {result.stderr}')
+
+        # 3. 2초 대기 (라우터 초기화 대기)
+        time.sleep(2)
+        steps.append('3. 라우터 초기화 대기 (2초)...')
+
+        # 4. humiro-fire-suppression 서비스 시작
+        steps.append('4. humiro-fire-suppression 서비스 시작 중...')
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'start', 'humiro-fire-suppression'],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            steps.append('   ✓ humiro-fire-suppression 시작 완료')
+        else:
+            steps.append(f'   ⚠ humiro-fire-suppression 시작 실패: {result.stderr}')
+
+        # 5. 포트 상태 확인
+        steps.append('5. 포트 상태 확인 중...')
+        time.sleep(1)
+
+        # 14551 포트 확인 (ROS2)
+        lsof_result = subprocess.run(
+            ['sudo', 'lsof', '-i', ':14551', '-n', '-P'],
+            capture_output=True, text=True, timeout=3
+        )
+
+        if '14551' in lsof_result.stdout:
+            processes = []
+            for line in lsof_result.stdout.split('\n')[1:]:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) > 1:
+                        processes.append(parts[0])
+
+            if len(processes) == 1 and 'mavlink' in processes[0].lower():
+                steps.append('   ✓ 14551 포트: MAVLink 라우터만 사용 중 (정상)')
+            else:
+                steps.append(f'   ⚠ 14551 포트: 여러 프로세스 사용 중 ({", ".join(processes)})')
+        else:
+            steps.append('   ⚠ 14551 포트: 아무도 사용하지 않음 (MAVLink 라우터 미연결)')
+
+        # 15001 포트 확인 (Application)
+        lsof_result = subprocess.run(
+            ['sudo', 'lsof', '-i', ':15001', '-n', '-P'],
+            capture_output=True, text=True, timeout=3
+        )
+
+        if '15001' in lsof_result.stdout:
+            steps.append('   ✓ 15001 포트: application_manager 사용 중 (정상)')
+        else:
+            steps.append('   ⚠ 15001 포트: 아무도 사용하지 않음')
+
+        steps.append('')
+        steps.append('✅ 포트 리셋 완료!')
+        steps.append('')
+        steps.append('💡 참고: FC와의 통신이 여전히 끊어진 경우:')
+        steps.append('   1. QGC를 재시작하세요')
+        steps.append('   2. 드론의 FC 재부팅을 시도하세요 (전원 재인가)')
+
+        return jsonify({
+            'success': True,
+            'steps': steps
+        })
+
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
 # ==================== micro-ros-agent API ====================
 
 @app.route('/api/micro-ros/status')

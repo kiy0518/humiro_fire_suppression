@@ -80,7 +80,7 @@ private:
     StreamingManager* streaming_manager_;
     LidarInterface* lidar_interface_;
     FrameCompositor* frame_compositor_;
-    custom_message::CustomMessage* custom_message_handler_;  // QGC 연결용 (14551 via router)
+    custom_message::CustomMessage* custom_message_handler_;  // 외부 메시지용 (15001 - 라우터와 독립)
     custom_message::CustomMessage* test_message_handler_;    // 외부 테스트용 (14553 - EXTERNAL_UDP_PORT)
     
 #ifdef ENABLE_ROS2
