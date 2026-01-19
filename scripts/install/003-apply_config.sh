@@ -237,10 +237,10 @@ TcpServerPort = $TCP_PORT
 ReportStats = false
 MavlinkDialect = common
 
-# FC (PX4) 연결 - 브로드캐스트 수신
+# FC (PX4) 연결 - eth0 인터페이스로 제한 (다른 드론 패킷 차단)
 [UdpEndpoint FC]
 Mode = Server
-Address = 0.0.0.0
+Address = $ETH0_IP
 Port = $FC_MAVLINK_PORT
 
 # GCS (QGroundControl) 브로드캐스트 - 드론 $DRONE_ID 전용 포트

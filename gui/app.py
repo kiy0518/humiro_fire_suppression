@@ -462,6 +462,22 @@ def api_fc_params(mode):
     return jsonify(params)
 
 
+def wait_fc_heartbeat(mav, timeout=5):
+    """FC 하트비트만 대기 (자기 자신 sysid=255 제외)"""
+    import time
+    start = time.time()
+    while time.time() - start < timeout:
+        msg = mav.recv_match(type='HEARTBEAT', blocking=True, timeout=1)
+        if msg:
+            src_sys = msg.get_srcSystem()
+            # FC 하트비트 찾기 (sysid != 0 and != 255)
+            if src_sys not in [0, 255]:
+                mav.target_system = src_sys
+                mav.target_component = msg.get_srcComponent()
+                return msg
+    return None
+
+
 @app.route('/api/fc/version')
 def api_fc_version():
     """FC 펌웨어 버전 조회 API (MAVLink)"""
@@ -473,8 +489,8 @@ def api_fc_version():
         connection_string = f"tcp:127.0.0.1:{tcp_port}"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
-        # 하트비트 대기 (FC 연결 확인)
-        msg = mav.wait_heartbeat(timeout=3)
+        # FC 하트비트 대기 (자기 자신 제외)
+        msg = wait_fc_heartbeat(mav, timeout=5)
         if not msg:
             mav.close()
             return jsonify({
@@ -550,8 +566,8 @@ def api_fc_reboot():
         connection_string = f"tcp:127.0.0.1:{tcp_port}"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
-        # 하트비트 대기
-        msg = mav.wait_heartbeat(timeout=3)
+        # FC 하트비트 대기 (자기 자신 제외)
+        msg = wait_fc_heartbeat(mav, timeout=5)
         if not msg:
             mav.close()
             return jsonify({
