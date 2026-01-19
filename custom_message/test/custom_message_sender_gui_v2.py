@@ -18,12 +18,13 @@ import struct
 from datetime import datetime
 import time
 import sys
+import os
 
 
 class CustomMessageSenderGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Custom Message Sender (MAVLink 2.0 - Port 14553)")
+        self.root.title("Custom Message Sender (MAVLink 2.0 - Port 16000+)")
         self.root.geometry("900x900")  # 창 크기 확대 (새로운 섹션 추가로 인해)
 
         # ttk 스타일 설정
@@ -61,6 +62,14 @@ class CustomMessageSenderGUI:
         else:
             self.log("한글 폰트를 찾을 수 없습니다.")
         self.log("프로그램 시작 (MAVLink 2.0)")
+        # 환경변수 로드 정보 출력
+        wifi_ip = os.getenv("WIFI_IP")
+        drone_id = os.getenv("DRONE_ID")
+        qgc_port = os.getenv("QGC_UDP_PORT")
+        if wifi_ip or drone_id or qgc_port:
+            self.log(f"환경변수 로드: WIFI_IP={wifi_ip or '(미설정)'}, DRONE_ID={drone_id or '(미설정)'}, QGC_UDP_PORT={qgc_port or '(미설정)'}")
+        else:
+            self.log("환경변수 미설정 - 기본값 사용 (device_config.env 로드 필요)")
         # 초기 기체 설정 적용
         self.on_drone_selection_changed()
     
@@ -105,28 +114,35 @@ class CustomMessageSenderGUI:
 
         ttk.Label(conn_frame, text="대상 IP:").grid(row=0, column=2, sticky="w", padx=(20, 0))
         self.ip_entry = ttk.Entry(conn_frame, width=20)
-        self.ip_entry.insert(0, "192.168.100.11")
+        # 환경변수에서 초기값 읽기 (device_config.env)
+        default_ip = os.getenv("WIFI_IP", "192.168.100.11")
+        self.ip_entry.insert(0, default_ip)
         self.ip_entry.grid(row=0, column=3, padx=5)
 
         ttk.Label(conn_frame, text="포트:").grid(row=0, column=4, sticky="w", padx=(20, 0))
         self.port_entry = ttk.Entry(conn_frame, width=10)
-        self.port_entry.insert(0, "14553")
+        # 환경변수에서 포트 읽기 (EXTERNAL_UDP_PORT - 외부 테스트 도구용)
+        default_port = os.getenv("EXTERNAL_UDP_PORT", "16001")
+        self.port_entry.insert(0, default_port)
         self.port_entry.grid(row=0, column=5, padx=5)
 
         # 시스템 ID / 컴포넌트 ID
         ttk.Label(conn_frame, text="System ID (송신자):").grid(row=1, column=0, sticky="w", pady=5)
         self.system_id_entry = ttk.Entry(conn_frame, width=10)
-        self.system_id_entry.insert(0, "1")
+        # 환경변수에서 DRONE_ID 읽기
+        default_drone_id = os.getenv("DRONE_ID", "1")
+        self.system_id_entry.insert(0, default_drone_id)
         self.system_id_entry.grid(row=1, column=1, padx=5, sticky="w")
 
         ttk.Label(conn_frame, text="Component ID (송신자):").grid(row=1, column=2, sticky="w", padx=(20, 0))
         self.component_id_entry = ttk.Entry(conn_frame, width=10)
         self.component_id_entry.insert(0, "1")
         self.component_id_entry.grid(row=1, column=3, padx=5, sticky="w")
-        
+
         ttk.Label(conn_frame, text="Target System (FC):").grid(row=2, column=0, sticky="w", pady=5)
         self.target_system_entry = ttk.Entry(conn_frame, width=10)
-        self.target_system_entry.insert(0, "1")
+        # Target System도 DRONE_ID 사용 (같은 기체의 FC)
+        self.target_system_entry.insert(0, default_drone_id)
         self.target_system_entry.grid(row=2, column=1, padx=5, sticky="w")
 
         ttk.Label(conn_frame, text="Target Component (FC):").grid(row=2, column=2, sticky="w", padx=(20, 0))
@@ -185,18 +201,21 @@ class CustomMessageSenderGUI:
 
         ttk.Label(row_frame, text="위도(°):").pack(side="left")
         self.lat_entry = ttk.Entry(row_frame, width=15)
-        self.lat_entry.insert(0, "37.1234567")
+        self.lat_entry.insert(0, "0")
         self.lat_entry.pack(side="left", padx=5)
 
         ttk.Label(row_frame, text="경도(°):").pack(side="left")
         self.lon_entry = ttk.Entry(row_frame, width=15)
-        self.lon_entry.insert(0, "127.1234567")
+        self.lon_entry.insert(0, "0")
         self.lon_entry.pack(side="left", padx=5)
 
         ttk.Label(row_frame, text="고도(m):").pack(side="left")
         self.alt_entry = ttk.Entry(row_frame, width=10)
-        self.alt_entry.insert(0, "10.0")
+        self.alt_entry.insert(0, "1.0")
         self.alt_entry.pack(side="left", padx=5)
+
+        self.indoor_test_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(row_frame, text="실내 테스트 모드", variable=self.indoor_test_var).pack(side="left", padx=10)
 
         self.auto_fire_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(row_frame, text="자동 발사", variable=self.auto_fire_var).pack(side="left", padx=10)
@@ -523,8 +542,17 @@ class CustomMessageSenderGUI:
 
     def send_mission_start(self):
         try:
-            lat = int(float(self.lat_entry.get()) * 1e7)
-            lon = int(float(self.lon_entry.get()) * 1e7)
+            # 실내 테스트 모드 확인
+            if self.indoor_test_var.get():
+                # 실내 테스트 모드: 좌표를 0, 0으로 설정
+                lat = 0
+                lon = 0
+                self.log("⚠ 실내 테스트 모드 활성화: 좌표를 (0, 0)으로 설정")
+            else:
+                # 일반 모드: 입력된 좌표 사용
+                lat = int(float(self.lat_entry.get()) * 1e7)
+                lon = int(float(self.lon_entry.get()) * 1e7)
+
             alt = float(self.alt_entry.get())
             auto_fire = 1 if self.auto_fire_var.get() else 0
             system_id = int(self.system_id_entry.get())
@@ -546,7 +574,11 @@ class CustomMessageSenderGUI:
             )
 
             self.send_mavlink2_message(msg_id, payload)
-            self.log(f"✓ FIRE_MISSION_START 전송: {lat/1e7}°, {lon/1e7}°, {alt}m, Auto={auto_fire}")
+
+            if self.indoor_test_var.get():
+                self.log(f"✓ FIRE_MISSION_START 전송 (실내 테스트): lat=0, lon=0, {alt}m, Auto={auto_fire}")
+            else:
+                self.log(f"✓ FIRE_MISSION_START 전송: {lat/1e7}°, {lon/1e7}°, {alt}m, Auto={auto_fire}")
 
         except Exception as e:
             self.log(f"✗ 전송 실패: {e}")
@@ -991,30 +1023,39 @@ class CustomMessageSenderGUI:
             self.log(f"✗ 위치 이동 전송 실패: {e}")
 
     def on_drone_selection_changed(self, event=None):
-        """기체 선택이 변경될 때 IP와 Target System 자동 설정"""
+        """기체 선택이 변경될 때 IP, 포트, Target System 자동 설정"""
         selection = self.drone_selection.get()
-        
+
+        # 드론별 External 포트 (16001 + (drone_id - 1) * 10)
+        drone_ports = {1: 16001, 2: 16011, 3: 16021}
+
         if selection == "기체 1":
             self.ip_entry.delete(0, tk.END)
             self.ip_entry.insert(0, "192.168.100.11")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, str(drone_ports[1]))
             self.target_system_entry.delete(0, tk.END)
             self.target_system_entry.insert(0, "1")
-            self.log("기체 1 선택: IP=192.168.100.11, Target System=1")
+            self.log(f"기체 1 선택: IP=192.168.100.11, Port={drone_ports[1]}, Target System=1")
         elif selection == "기체 2":
             self.ip_entry.delete(0, tk.END)
             self.ip_entry.insert(0, "192.168.100.21")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, str(drone_ports[2]))
             self.target_system_entry.delete(0, tk.END)
             self.target_system_entry.insert(0, "2")
-            self.log("기체 2 선택: IP=192.168.100.21, Target System=2")
+            self.log(f"기체 2 선택: IP=192.168.100.21, Port={drone_ports[2]}, Target System=2")
         elif selection == "기체 3":
             self.ip_entry.delete(0, tk.END)
             self.ip_entry.insert(0, "192.168.100.31")
+            self.port_entry.delete(0, tk.END)
+            self.port_entry.insert(0, str(drone_ports[3]))
             self.target_system_entry.delete(0, tk.END)
             self.target_system_entry.insert(0, "3")
-            self.log("기체 3 선택: IP=192.168.100.31, Target System=3")
+            self.log(f"기체 3 선택: IP=192.168.100.31, Port={drone_ports[3]}, Target System=3")
         elif selection == "수동 설정":
             # 수동 설정 선택 시에는 현재 값 유지
-            self.log("수동 설정 모드: IP와 Target System을 직접 입력하세요")
+            self.log("수동 설정 모드: IP, 포트, Target System을 직접 입력하세요")
     
     def log(self, message):
         """로그 메시지 추가"""
@@ -1035,6 +1076,3 @@ if __name__ == "__main__":
     app = CustomMessageSenderGUI(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
-
-
-

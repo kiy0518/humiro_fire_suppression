@@ -55,6 +55,17 @@ build_status = {
     "success": None
 }
 
+def get_mavlink_tcp_port():
+    """mavlink-router 설정에서 TCP 포트 읽기"""
+    try:
+        with open('/etc/mavlink-router/main.conf', 'r') as f:
+            for line in f:
+                if line.strip().startswith('TcpServerPort'):
+                    return int(line.split('=')[1].strip())
+    except:
+        pass
+    return 5790  # 기본값
+
 # MAVLink 연결 관리자 (스레드 안전)
 class MavlinkManager:
     def __init__(self):
@@ -73,8 +84,9 @@ class MavlinkManager:
                     self._mav.close()
                 except:
                     pass
+            tcp_port = get_mavlink_tcp_port()
             self._mav = mavutil.mavlink_connection(
-                'tcp:127.0.0.1:5790',
+                f'tcp:127.0.0.1:{tcp_port}',
                 source_system=255,
                 source_component=190
             )
@@ -260,7 +272,7 @@ def api_status():
     mav_comp_id = int(config_manager.get("MAV_COMP_ID", "191"))
     # 외부 테스트 포트 (GUI, Python 테스트 코드용)
     # 주석 제거 후 파싱
-    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "14553").split('#')[0].strip()
+    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "16001").split('#')[0].strip()
     external_port = int(external_port_str)
 
     return jsonify({
@@ -457,7 +469,8 @@ def api_fc_version():
         from pymavlink import mavutil
 
         # MAVLink 연결 (mavlink-router TCP 포트 사용)
-        connection_string = "tcp:127.0.0.1:5790"
+        tcp_port = get_mavlink_tcp_port()
+        connection_string = f"tcp:127.0.0.1:{tcp_port}"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
         # 하트비트 대기 (FC 연결 확인)
@@ -533,7 +546,8 @@ def api_fc_reboot():
     try:
         from pymavlink import mavutil
 
-        connection_string = "tcp:127.0.0.1:5790"
+        tcp_port = get_mavlink_tcp_port()
+        connection_string = f"tcp:127.0.0.1:{tcp_port}"
         mav = mavutil.mavlink_connection(connection_string, source_system=255, source_component=190)
 
         # 하트비트 대기
@@ -1093,15 +1107,24 @@ def api_router_port_scan():
     try:
         import socket
 
-        # 스캔할 포트 목록
-        ports_to_scan = [14540, 14550, 14551, 14553, 15001, 5790]
+        # 드론 ID 기반 포트 계산
+        drone_id = config_manager.get_drone_id()
+        port_offset = (drone_id - 1) * 10
+
+        # 스캔할 포트 목록 (드론별 동적 계산)
+        qgc_port = 14550 + port_offset
+        ros2_port = 14551 + port_offset
+        app_port = 15001 + port_offset
+        tcp_port = 5790 + port_offset
+
+        ports_to_scan = [14540, qgc_port, ros2_port, 14553, app_port, tcp_port]
         port_names = {
             14540: 'FC',
-            14550: 'QGC',
-            14551: 'ROS2',
+            qgc_port: 'QGC',
+            ros2_port: 'ROS2',
             14553: 'External',
-            15001: 'App',
-            5790: 'TCP Server'
+            app_port: 'App',
+            tcp_port: 'TCP Server'
         }
 
         # WiFi 서브넷 확인
@@ -1293,13 +1316,19 @@ def api_router_port_reset():
         steps.append('5. 포트 상태 확인 중...')
         time.sleep(1)
 
-        # 14551 포트 확인 (ROS2)
+        # 드론 ID 기반 포트 계산
+        drone_id = config_manager.get_drone_id()
+        port_offset = (drone_id - 1) * 10
+        ros2_port = 14551 + port_offset
+        app_port = 15001 + port_offset
+
+        # ROS2 포트 확인 (드론별 동적)
         lsof_result = subprocess.run(
-            ['sudo', 'lsof', '-i', ':14551', '-n', '-P'],
+            ['sudo', 'lsof', '-i', f':{ros2_port}', '-n', '-P'],
             capture_output=True, text=True, timeout=3
         )
 
-        if '14551' in lsof_result.stdout:
+        if str(ros2_port) in lsof_result.stdout:
             processes = []
             for line in lsof_result.stdout.split('\n')[1:]:
                 if line.strip():
@@ -1308,22 +1337,22 @@ def api_router_port_reset():
                         processes.append(parts[0])
 
             if len(processes) == 1 and 'mavlink' in processes[0].lower():
-                steps.append('   ✓ 14551 포트: MAVLink 라우터만 사용 중 (정상)')
+                steps.append(f'   ✓ {ros2_port} 포트: MAVLink 라우터만 사용 중 (정상)')
             else:
-                steps.append(f'   ⚠ 14551 포트: 여러 프로세스 사용 중 ({", ".join(processes)})')
+                steps.append(f'   ⚠ {ros2_port} 포트: 여러 프로세스 사용 중 ({", ".join(processes)})')
         else:
-            steps.append('   ⚠ 14551 포트: 아무도 사용하지 않음 (MAVLink 라우터 미연결)')
+            steps.append(f'   ⚠ {ros2_port} 포트: 아무도 사용하지 않음 (MAVLink 라우터 미연결)')
 
-        # 15001 포트 확인 (Application)
+        # Application 포트 확인 (드론별 동적)
         lsof_result = subprocess.run(
-            ['sudo', 'lsof', '-i', ':15001', '-n', '-P'],
+            ['sudo', 'lsof', '-i', f':{app_port}', '-n', '-P'],
             capture_output=True, text=True, timeout=3
         )
 
-        if '15001' in lsof_result.stdout:
-            steps.append('   ✓ 15001 포트: application_manager 사용 중 (정상)')
+        if str(app_port) in lsof_result.stdout:
+            steps.append(f'   ✓ {app_port} 포트: application_manager 사용 중 (정상)')
         else:
-            steps.append('   ⚠ 15001 포트: 아무도 사용하지 않음')
+            steps.append(f'   ⚠ {app_port} 포트: 아무도 사용하지 않음')
 
         steps.append('')
         steps.append('✅ 포트 리셋 완료!')
@@ -2240,7 +2269,7 @@ def api_mavlink_test_connection():
     try:
         data = request.json
         target_ip = data.get('target_ip', '10.0.0.12')
-        target_port = int(data.get('target_port', 14553))
+        target_port = int(data.get('target_port', 16001))
 
         # UDP 소켓으로 간단한 연결 테스트
         import socket

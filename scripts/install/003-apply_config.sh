@@ -209,13 +209,13 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     mkdir -p /etc/mavlink-router
 
     # DRONE_ID 기반 포트 계산 (10씩 증가)
-    # 드론 1: 14550, 14551, 14553, 15001, 5790
-    # 드론 2: 14560, 14561, 14563, 15011, 5800
-    # 드론 3: 14570, 14571, 14573, 15021, 5810
+    # 드론 1: 14550, 14551, 16001, 15001, 5790
+    # 드론 2: 14560, 14561, 16011, 15011, 5800
+    # 드론 3: 14570, 14571, 16021, 15021, 5810
     PORT_OFFSET=$(( ($DRONE_ID - 1) * 10 ))
     QGC_PORT=$(( 14550 + $PORT_OFFSET ))
     ROS2_PORT=$(( 14551 + $PORT_OFFSET ))
-    EXTERNAL_PORT_CALC=$(( 14553 + $PORT_OFFSET ))
+    EXTERNAL_PORT_CALC=$(( 16001 + $PORT_OFFSET ))
     APP_PORT=$(( 15001 + $PORT_OFFSET ))
     TCP_PORT=$(( 5790 + $PORT_OFFSET ))
 
@@ -612,14 +612,16 @@ reboot_fc() {
     echo "  FC 재부팅 명령 전송 중..."
 
     # pymavlink를 사용하여 FC 재부팅 명령 전송
-    python3 << 'PYTHON_EOF'
+    # TCP_PORT는 DRONE_ID 기반으로 계산됨 (5790 + (DRONE_ID-1)*10)
+    local REBOOT_TCP_PORT=$(( 5790 + (${DRONE_ID:-1} - 1) * 10 ))
+    python3 << PYTHON_EOF
 import sys
 import time
 try:
     from pymavlink import mavutil
 
-    # mavlink-router의 TCP 포트에 연결
-    master = mavutil.mavlink_connection('tcp:127.0.0.1:5790', source_system=255, source_component=0)
+    # mavlink-router의 TCP 포트에 연결 (드론별 동적 포트)
+    master = mavutil.mavlink_connection('tcp:127.0.0.1:${REBOOT_TCP_PORT}', source_system=255, source_component=0)
 
     # 하트비트 대기 (최대 5초)
     print("    FC 연결 대기 중...")
