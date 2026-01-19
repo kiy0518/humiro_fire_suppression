@@ -76,30 +76,70 @@
                 <i class="bi bi-inbox"></i> 표준 MAVLink 메시지
             </div>
             <div class="card-body">
+                <!-- 빠른 명령 버튼 -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">빠른 명령</label>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <button class="btn btn-success w-100" onclick="sendQuickCommand('ARM')">
+                                <i class="bi bi-unlock"></i> ARM
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button class="btn btn-danger w-100" onclick="sendQuickCommand('DISARM')">
+                                <i class="bi bi-lock"></i> DISARM
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button class="btn btn-primary w-100" onclick="sendQuickCommand('TAKEOFF')">
+                                <i class="bi bi-arrow-up-circle"></i> TAKEOFF
+                            </button>
+                        </div>
+                        <div class="col-6">
+                            <button class="btn btn-warning w-100" onclick="sendQuickCommand('LAND')">
+                                <i class="bi bi-arrow-down-circle"></i> LAND
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 비행 모드 선택 -->
+                <div class="mb-4">
+                    <label class="form-label fw-bold">비행 모드</label>
+                    <div class="row g-2">
+                        <div class="col-9">
+                            <select class="form-select" id="flightMode">
+                                <option value="1">Manual (수동)</option>
+                                <option value="2">Altitude (고도)</option>
+                                <option value="3">Position (위치)</option>
+                                <option value="4">Mission (미션)</option>
+                                <option value="5" selected>Hold (대기)</option>
+                                <option value="6">Return (복귀)</option>
+                                <option value="8">Stabilized (안정화)</option>
+                            </select>
+                        </div>
+                        <div class="col-3">
+                            <button class="btn btn-info w-100" onclick="sendFlightMode()">
+                                <i class="bi bi-send"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 고급 메시지 -->
                 <div class="mb-3">
-                    <label class="form-label">메시지 타입</label>
+                    <label class="form-label fw-bold">고급 메시지</label>
                     <select class="form-select" id="stdMessageType" onchange="updateStdParams()">
-                        <optgroup label="기본">
-                            <option value="HEARTBEAT">HEARTBEAT</option>
-                        </optgroup>
-                        <optgroup label="비행 제어">
-                            <option value="ARM">ARM (Arming)</option>
-                            <option value="DISARM">DISARM (Disarming)</option>
-                            <option value="TAKEOFF">TAKEOFF (이륙)</option>
-                            <option value="LAND">LAND (착륙)</option>
-                            <option value="SET_MODE">SET_MODE (모드 변경)</option>
-                        </optgroup>
-                        <optgroup label="고급">
-                            <option value="COMMAND_LONG">COMMAND_LONG (사용자 정의)</option>
-                            <option value="PARAM_SET">PARAM_SET (파라미터 설정)</option>
-                            <option value="MISSION_ITEM">MISSION_ITEM (미션 아이템)</option>
-                        </optgroup>
+                        <option value="HEARTBEAT">HEARTBEAT</option>
+                        <option value="COMMAND_LONG">COMMAND_LONG (사용자 정의)</option>
+                        <option value="PARAM_SET">PARAM_SET (파라미터 설정)</option>
+                        <option value="MISSION_ITEM">MISSION_ITEM (미션 아이템)</option>
                     </select>
                 </div>
                 <div id="stdParamsContainer">
                     <!-- 동적으로 생성됨 -->
                 </div>
-                <button class="btn btn-success w-100" onclick="sendStandardMessage()">
+                <button class="btn btn-secondary w-100" onclick="sendStandardMessage()">
                     <i class="bi bi-send"></i> 전송
                 </button>
             </div>
@@ -266,6 +306,114 @@
     // 로그 지우기
     function clearLog() {
         document.getElementById('logViewer').innerHTML = '<span class="log-info">[시스템] 로그 초기화됨</span>\n';
+    }
+
+    // 빠른 명령 전송
+    async function sendQuickCommand(command) {
+        const messageData = {
+            target_ip: document.getElementById('targetIp').value,
+            target_port: parseInt(document.getElementById('targetPort').value),
+            system_id: parseInt(document.getElementById('systemId').value),
+            component_id: parseInt(document.getElementById('componentId').value),
+            message_type: command,
+            params: {}
+        };
+
+        // 기본 파라미터 설정
+        if (command === 'ARM' || command === 'DISARM') {
+            messageData.params.force = 0;  // 기본값: 안전 체크 수행
+        } else if (command === 'TAKEOFF') {
+            messageData.params.altitude = 2.5;  // 기본 이륙 고도
+        }
+        // LAND는 파라미터 없음
+
+        addLog(`전송: ${command}`, 'info');
+
+        try {
+            const response = await fetch('/api/mavlink/send-standard', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(messageData)
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                addLog(`✓ ${command} 전송 완료`, 'success');
+                showToast(`${command} 전송 완료`, 'success');
+            } else {
+                addLog(`✗ 전송 실패: ${data.message}`, 'error');
+                showToast('전송 실패', 'danger');
+            }
+        } catch (e) {
+            addLog(`✗ 오류: ${e.message}`, 'error');
+            showToast('전송 실패', 'danger');
+        }
+    }
+
+    // 비행 모드 전송 (COMMAND_LONG MAV_CMD_DO_SET_MODE 사용)
+    async function sendFlightMode() {
+        const modeId = parseInt(document.getElementById('flightMode').value);
+
+        // PX4 모드 매핑 (MAV_CMD_DO_SET_MODE 사용)
+        // param1: MAV_MODE_FLAG (1=custom mode enabled, 128=auto enabled, 4=guided, 16=stabilize)
+        // param2: custom_main_mode, param3: custom_sub_mode
+        const modeMapping = {
+            1: { name: 'Manual', main_mode: 1, sub_mode: 0 },           // MANUAL
+            2: { name: 'Altitude', main_mode: 2, sub_mode: 0 },         // ALTCTL
+            3: { name: 'Position', main_mode: 3, sub_mode: 0 },         // POSCTL
+            4: { name: 'Mission', main_mode: 4, sub_mode: 1 },          // AUTO.MISSION
+            5: { name: 'Hold', main_mode: 4, sub_mode: 3 },             // AUTO.LOITER
+            6: { name: 'Return', main_mode: 4, sub_mode: 5 },           // AUTO.RTL
+            8: { name: 'Stabilized', main_mode: 7, sub_mode: 0 }        // STABILIZED
+        };
+
+        const modeInfo = modeMapping[modeId];
+        if (!modeInfo) {
+            addLog(`✗ 잘못된 모드 ID: ${modeId}`, 'error');
+            return;
+        }
+
+        // COMMAND_LONG (MAV_CMD_DO_SET_MODE = 176) 사용
+        const messageData = {
+            target_ip: document.getElementById('targetIp').value,
+            target_port: parseInt(document.getElementById('targetPort').value),
+            system_id: parseInt(document.getElementById('systemId').value),
+            component_id: parseInt(document.getElementById('componentId').value),
+            message_type: 'COMMAND_LONG',
+            params: {
+                command: 176,  // MAV_CMD_DO_SET_MODE
+                confirmation: 0,
+                param1: 1,  // MAV_MODE_FLAG_CUSTOM_MODE_ENABLED
+                param2: modeInfo.main_mode,
+                param3: modeInfo.sub_mode,
+                param4: 0,
+                param5: 0,
+                param6: 0,
+                param7: 0
+            }
+        };
+
+        addLog(`전송: MAV_CMD_DO_SET_MODE → ${modeInfo.name} (main=${modeInfo.main_mode}, sub=${modeInfo.sub_mode})`, 'info');
+
+        try {
+            const response = await fetch('/api/mavlink/send-standard', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(messageData)
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                addLog(`✓ 비행 모드 변경: ${modeInfo.name}`, 'success');
+                showToast(`비행 모드: ${modeInfo.name}`, 'success');
+            } else {
+                addLog(`✗ 전송 실패: ${data.message}`, 'error');
+                showToast('전송 실패', 'danger');
+            }
+        } catch (e) {
+            addLog(`✗ 오류: ${e.message}`, 'error');
+            showToast('전송 실패', 'danger');
+        }
     }
 
     // 연결 테스트
