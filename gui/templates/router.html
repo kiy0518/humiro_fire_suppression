@@ -289,18 +289,27 @@
 <div class="row">
     <div class="col-12">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <span><i class="bi bi-broadcast"></i> 포트 라우팅 다이어그램 <small class="text-muted">(드래그 가능)</small></span>
-                <div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="testAllPorts()">
-                        <i class="bi bi-play-circle"></i> 전체 테스트
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="refreshStatus()">
-                        <i class="bi bi-arrow-clockwise"></i> 새로고침
-                    </button>
-                    <button class="btn btn-sm btn-outline-warning" onclick="resetNodePositions()">
-                        <i class="bi bi-arrow-counterclockwise"></i> 위치 초기화
-                    </button>
+                <div class="d-flex align-items-center gap-3">
+                    <!-- GCS 포트 모드 토글 -->
+                    <div class="form-check form-switch mb-0" title="GCS 포트 모드 설정">
+                        <input class="form-check-input" type="checkbox" id="gcsPortModeToggle" style="cursor: pointer;">
+                        <label class="form-check-label small" for="gcsPortModeToggle" style="cursor: pointer;">
+                            <span id="gcsPortModeLabel">포트 분리</span>
+                        </label>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-primary" onclick="testAllPorts()">
+                            <i class="bi bi-play-circle"></i> 전체 테스트
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="refreshStatus()">
+                            <i class="bi bi-arrow-clockwise"></i> 새로고침
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" onclick="resetNodePositions()">
+                            <i class="bi bi-arrow-counterclockwise"></i> 위치 초기화
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="card-body p-0">
@@ -417,39 +426,6 @@
     </div>
 </div>
 
-<!-- 포트 충돌 감지 -->
-<div class="row mt-4">
-    <div class="col-12">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-shield-check"></i> 포트 충돌 감지 및 복구</span>
-                <div>
-                    <button class="btn btn-sm btn-outline-danger" onclick="resetPorts()">
-                        <i class="bi bi-arrow-clockwise"></i> 포트 리셋
-                    </button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="scanPorts()">
-                        <i class="bi bi-search"></i> 스캔 시작
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="alert alert-info mb-3">
-                    <strong><i class="bi bi-info-circle"></i> 포트 리셋 기능</strong><br>
-                    QGC 통신이 끊어진 경우, FC 전원을 재인가하지 않고도 소프트웨어적으로 포트 충돌을 해결할 수 있습니다.<br>
-                    <small class="text-muted">
-                        • MAVLink 라우터 및 application 서비스를 올바른 순서로 재시작<br>
-                        • 포트 14551(ROS2) 및 15001(Application) 상태 자동 확인<br>
-                        • FC 전원 재인가 없이 포트 충돌 해결 시도
-                    </small>
-                </div>
-                <div id="portScanResult">
-                    <p class="text-muted mb-0">포트 스캔을 시작하려면 '스캔 시작' 버튼을 클릭하세요.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- 포트 상세 정보 -->
 <div class="row mt-4">
     <div class="col-md-6">
@@ -482,6 +458,111 @@
             <div class="card-body">
                 <div class="log-output" id="testLog" style="height: 200px; font-size: 0.75rem;">
                     설정 파일 로딩 중...<br>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 포트 생성 규칙 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-diagram-3"></i> 포트 생성 규칙
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6 class="fw-bold"><i class="bi bi-calculator"></i> 포트 계산 공식</h6>
+                        <div class="alert alert-secondary py-2">
+                            <code>port = base_port + (DRONE_ID - 1) × 10</code>
+                        </div>
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>용도</th>
+                                    <th>Base</th>
+                                    <th>드론 1</th>
+                                    <th>드론 2</th>
+                                    <th>드론 3</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><i class="bi bi-display text-success"></i> QGC</td>
+                                    <td>14550</td>
+                                    <td>14550</td>
+                                    <td>14560</td>
+                                    <td>14570</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-gear text-info"></i> ROS2</td>
+                                    <td>14551</td>
+                                    <td>14551</td>
+                                    <td>14561</td>
+                                    <td>14571</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-app text-primary"></i> Application</td>
+                                    <td>15001</td>
+                                    <td>15001</td>
+                                    <td>15011</td>
+                                    <td>15021</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-box-arrow-in-right text-warning"></i> External</td>
+                                    <td>16001</td>
+                                    <td>16001</td>
+                                    <td>16011</td>
+                                    <td>16021</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-ethernet text-secondary"></i> TCP Server</td>
+                                    <td>5790</td>
+                                    <td>5790</td>
+                                    <td>5800</td>
+                                    <td>5810</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="fw-bold"><i class="bi bi-pin-map"></i> 고정 포트 (모든 드론 동일)</h6>
+                        <table class="table table-sm table-bordered mb-3">
+                            <tbody>
+                                <tr>
+                                    <td><i class="bi bi-cpu text-danger"></i> FC MAVLink</td>
+                                    <td><strong>14540</strong></td>
+                                    <td>FC 브로드캐스트 수신</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-robot text-info"></i> XRCE-DDS</td>
+                                    <td><strong>8888</strong></td>
+                                    <td>micro-ROS Agent</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-camera-video text-success"></i> RTSP</td>
+                                    <td><strong>8554</strong></td>
+                                    <td>카메라 스트리밍</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-globe text-primary"></i> HTTP GUI</td>
+                                    <td><strong>5000</strong></td>
+                                    <td>웹 GUI 서버</td>
+                                </tr>
+                                <tr>
+                                    <td><i class="bi bi-camera text-warning"></i> HTTP Camera</td>
+                                    <td><strong>8080</strong></td>
+                                    <td>카메라 HTTP 스트림</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <h6 class="fw-bold"><i class="bi bi-hdd-network"></i> 현재 기체 포트 (DRONE_ID: <span id="currentDroneIdDisplay">-</span>)</h6>
+                        <div class="d-flex flex-wrap gap-2" id="currentDronePorts">
+                            <!-- JavaScript로 동적 생성 -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -564,10 +645,56 @@
                 // 다른 기체 노드 생성 (모든 기체 14550 사용)
                 createNetworkDroneNodes();
 
+                // 현재 기체 포트 정보 표시
+                updateCurrentDronePorts();
+
                 log(`네트워크 드론 상태 로드: ${networkDrones.filter(d => d.online).length}/${networkDrones.length}대 온라인`, 'success');
             }
         } catch (e) {
             log(`네트워크 드론 상태 로드 실패: ${e.message}`, 'error');
+        }
+    }
+
+    // 현재 기체 포트 정보 업데이트
+    function updateCurrentDronePorts() {
+        const portOffset = (routerCurrentDroneId - 1) * 10;
+        const ports = {
+            'QGC': 14550 + portOffset,
+            'ROS2': 14551 + portOffset,
+            'App': 15001 + portOffset,
+            'External': 16001 + portOffset,
+            'TCP': 5790 + portOffset
+        };
+
+        // DRONE_ID 표시
+        document.getElementById('currentDroneIdDisplay').textContent = routerCurrentDroneId;
+
+        // 포트 배지 생성
+        const container = document.getElementById('currentDronePorts');
+        container.innerHTML = '';
+
+        const colors = {
+            'QGC': 'success',
+            'ROS2': 'info',
+            'App': 'primary',
+            'External': 'warning',
+            'TCP': 'secondary'
+        };
+
+        for (const [name, port] of Object.entries(ports)) {
+            const badge = document.createElement('span');
+            badge.className = `badge bg-${colors[name]} me-1`;
+            badge.innerHTML = `${name}: <strong>${port}</strong>`;
+            container.appendChild(badge);
+        }
+
+        // 고정 포트도 추가
+        const fixedPorts = {'FC': 14540, 'DDS': 8888, 'GUI': 5000, 'CAM': 8080};
+        for (const [name, port] of Object.entries(fixedPorts)) {
+            const badge = document.createElement('span');
+            badge.className = 'badge bg-dark me-1';
+            badge.innerHTML = `${name}: <strong>${port}</strong>`;
+            container.appendChild(badge);
         }
     }
 
@@ -1184,10 +1311,22 @@
                 return;
             }
 
+            // DRONE_ID 기반 포트 계산: base + (DRONE_ID - 1) * 10
+            const portOffset = (routerCurrentDroneId - 1) * 10;
+            const dynamicPorts = {
+                fc: 14540,  // 고정
+                qgc: 14550 + portOffset,
+                ros2: 14551 + portOffset,
+                external: 16001 + portOffset,
+                app: 15001 + portOffset,
+                tcp: 5790 + portOffset
+            };
+            const portList = [dynamicPorts.fc, dynamicPorts.qgc, dynamicPorts.ros2, dynamicPorts.external, dynamicPorts.app, dynamicPorts.tcp];
+
             let html = '<table class="table table-sm table-bordered mb-0">';
             html += '<thead><tr>';
             html += '<th>IP</th><th>Hostname</th>';
-            html += '<th>14540<br>(FC)</th><th>14550<br>(QGC)</th><th>14551<br>(ROS2)</th><th>14553<br>(Ext)</th><th>15001<br>(App)</th><th>5790<br>(TCP)</th>';
+            html += `<th>${dynamicPorts.fc}<br>(FC)</th><th>${dynamicPorts.qgc}<br>(QGC)</th><th>${dynamicPorts.ros2}<br>(ROS2)</th><th>${dynamicPorts.external}<br>(Ext)</th><th>${dynamicPorts.app}<br>(App)</th><th>${dynamicPorts.tcp}<br>(TCP)</th>`;
             html += '<th>프로세스</th>';
             html += '</tr></thead><tbody>';
 
@@ -1197,7 +1336,7 @@
                 html += `<td>${result.hostname}</td>`;
 
                 // 각 포트 상태
-                [14540, 14550, 14551, 14553, 15001, 5790].forEach(port => {
+                portList.forEach(port => {
                     const portInfo = result.ports[port];
                     if (!portInfo) {
                         html += '<td class="text-center">-</td>';
@@ -1214,7 +1353,7 @@
 
                 // 프로세스 정보
                 const allProcesses = [];
-                [14540, 14550, 14551, 14553, 15001, 5790].forEach(port => {
+                portList.forEach(port => {
                     const portInfo = result.ports[port];
                     if (portInfo && portInfo.processes && portInfo.processes.length > 0) {
                         portInfo.processes.forEach(proc => {
@@ -1436,12 +1575,91 @@
         }
     }
 
+    // GCS 포트 모드 변수
+    let currentGcsPortMode = 'separate';
+
+    // GCS 포트 모드 로드 및 토글 초기화
+    async function loadGcsPortMode() {
+        try {
+            const response = await fetch('/api/config');
+            const config = await response.json();
+            currentGcsPortMode = config.GCS_PORT_MODE || 'separate';
+            updateGcsPortModeToggle();
+        } catch (e) {
+            console.error('GCS 포트 모드 로드 실패:', e);
+        }
+    }
+
+    // 토글 UI 업데이트
+    function updateGcsPortModeToggle() {
+        const toggle = document.getElementById('gcsPortModeToggle');
+        const label = document.getElementById('gcsPortModeLabel');
+
+        if (currentGcsPortMode === 'separate') {
+            toggle.checked = true;
+            label.innerHTML = '포트 분리 <small class="text-muted">(14550/60/70)</small>';
+        } else {
+            toggle.checked = false;
+            label.innerHTML = '포트 통합 <small class="text-muted">(모두 14550)</small>';
+        }
+    }
+
+    // GCS 포트 모드 변경
+    async function changeGcsPortMode(mode) {
+        try {
+            log(`GCS 포트 모드 변경 중: ${mode}...`, 'info');
+
+            const response = await fetch('/api/config/regenerate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    drone_id: routerCurrentDroneId,
+                    gcs_port_mode: mode
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                currentGcsPortMode = mode;
+                updateGcsPortModeToggle();
+                log(`GCS 포트 모드 변경 완료: ${mode}`, 'success');
+
+                // 네트워크 드론 상태 다시 로드 (포트 정보 갱신)
+                await loadNetworkDrones();
+
+                // 알림 표시
+                const modeText = mode === 'separate' ? '분리 (14550/14560/14570)' : '통합 (모두 14550)';
+                alert(`GCS 포트 모드가 "${modeText}"로 변경되었습니다.\n\nmavlink-router를 재시작해야 적용됩니다.`);
+            } else {
+                throw new Error(result.error || '변경 실패');
+            }
+        } catch (e) {
+            log(`GCS 포트 모드 변경 실패: ${e.message}`, 'error');
+            alert('GCS 포트 모드 변경 실패: ' + e.message);
+            // 토글 원래대로 복구
+            updateGcsPortModeToggle();
+        }
+    }
+
     // 초기화
     document.addEventListener('DOMContentLoaded', async () => {
         loadSavedPositions();
+        await loadGcsPortMode();  // GCS 포트 모드 먼저 로드
         await loadConfig();
         await refreshStatus();
         await loadNetworkDrones();  // 네트워크 드론 상태 로드
+
+        // GCS 포트 모드 토글 이벤트 핸들러
+        document.getElementById('gcsPortModeToggle').addEventListener('change', (e) => {
+            const newMode = e.target.checked ? 'separate' : 'unified';
+            if (confirm(`GCS 포트 모드를 "${newMode === 'separate' ? '분리 (기체별 포트)' : '통합 (모두 14550)'}"로 변경하시겠습니까?`)) {
+                changeGcsPortMode(newMode);
+            } else {
+                // 취소 시 토글 원래대로
+                updateGcsPortModeToggle();
+            }
+        });
 
         // 주기적으로 네트워크 드론 상태 업데이트 (10초마다)
         setInterval(loadNetworkDrones, 10000);

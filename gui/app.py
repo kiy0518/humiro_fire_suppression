@@ -356,6 +356,106 @@ def api_set_config():
         return jsonify({"success": False, "message": "설정 저장 실패"}), 500
 
 
+def update_mavlink_router_gcs_port(qgc_port: int) -> bool:
+    """mavlink-router 설정 파일에서 GCS 포트 업데이트
+
+    Args:
+        qgc_port: 새로운 QGC UDP 포트 번호
+
+    Returns:
+        성공 여부
+    """
+    config_path = '/etc/mavlink-router/main.conf'
+
+    try:
+        with open(config_path, 'r') as f:
+            lines = f.readlines()
+
+        # GCS 엔드포인트 섹션에서 Port 값 변경
+        new_lines = []
+        in_gcs_section = False
+
+        for line in lines:
+            stripped = line.strip()
+
+            # GCS 섹션 시작 감지
+            if stripped == '[UdpEndpoint GCS]':
+                in_gcs_section = True
+                new_lines.append(line)
+            # 다른 섹션 시작 시 GCS 섹션 종료
+            elif stripped.startswith('[') and stripped.endswith(']'):
+                in_gcs_section = False
+                new_lines.append(line)
+            # GCS 섹션 내 Port 라인 수정
+            elif in_gcs_section and stripped.startswith('Port'):
+                new_lines.append(f'Port = {qgc_port}\n')
+            else:
+                new_lines.append(line)
+
+        # sudo로 파일 쓰기 (권한 필요)
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.conf') as tmp:
+            tmp.writelines(new_lines)
+            tmp_path = tmp.name
+
+        # sudo cp로 복사
+        result = subprocess.run(
+            ['sudo', 'cp', tmp_path, config_path],
+            capture_output=True,
+            text=True
+        )
+        os.unlink(tmp_path)
+
+        return result.returncode == 0
+
+    except Exception as e:
+        print(f"mavlink-router 설정 업데이트 오류: {e}")
+        return False
+
+
+@app.route('/api/config/regenerate', methods=['POST'])
+def api_config_regenerate():
+    """DRONE_ID 기반 설정 재생성 API
+
+    GCS_PORT_MODE 옵션 지원:
+    - 'unified': 모든 기체가 14550 포트 사용
+    - 'separate': 기체별 분리 포트 (1=14550, 2=14560, 3=14570)
+    """
+    data = request.json or {}
+    drone_id = data.get('drone_id', config_manager.get_drone_id())
+    gcs_port_mode = data.get('gcs_port_mode', 'separate')
+
+    try:
+        success = config_manager.regenerate_config_from_drone_id(
+            drone_id=int(drone_id),
+            gcs_port_mode=gcs_port_mode
+        )
+
+        if success:
+            config_manager.reload()
+
+            # mavlink-router 설정도 업데이트
+            qgc_port = int(config_manager.get('QGC_UDP_PORT', 14550))
+            router_updated = update_mavlink_router_gcs_port(qgc_port)
+
+            return jsonify({
+                "success": True,
+                "message": f"설정이 재생성되었습니다. (DRONE_ID={drone_id}, GCS_PORT_MODE={gcs_port_mode})",
+                "config": config_manager.get_all_config(),
+                "router_config_updated": router_updated
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "설정 저장 실패"
+            }), 400
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @app.route('/api/vehicle-preset/<int:drone_id>')
 def api_vehicle_preset(drone_id):
     """기체 프리셋 조회 API"""

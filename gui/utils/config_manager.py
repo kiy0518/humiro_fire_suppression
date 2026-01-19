@@ -131,7 +131,7 @@ class ConfigManager:
         - ROS_NAMESPACE: drone{드론번호}
         - MAV_SYS_ID: 드론번호
         - MAV_COMP_ID: 191 (고정)
-        - EXTERNAL_UDP_PORT: 16000 + 드론번호 → 1번=16001, 2번=16002, 3번=16003
+        - EXTERNAL_UDP_PORT: 16001 + (드론번호-1)*10 → 1번=16001, 2번=16011, 3번=16021
         - QGC_UDP_PORT:
             - unified 모드: 14550 (모든 기체 동일)
             - separate 모드: 14550 + (드론번호-1)*10 → 1번=14550, 2번=14560, 3번=14570
@@ -154,7 +154,7 @@ class ConfigManager:
             "ROS_NAMESPACE": f"drone{drone_id}",
             "MAV_SYS_ID": str(drone_id),
             "MAV_COMP_ID": "191",
-            "EXTERNAL_UDP_PORT": str(16000 + drone_id),
+            "EXTERNAL_UDP_PORT": str(16001 + (drone_id - 1) * 10),
             "ROS_DOMAIN_ID": "0",
             "QGC_UDP_PORT": str(gcs_port),
             "FC_MAVLINK_PORT": "14540",

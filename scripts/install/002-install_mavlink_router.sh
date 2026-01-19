@@ -260,6 +260,12 @@ source "$CONFIG_FILE"
 # 예: 192.168.100.31 → 192.168.100.255
 WIFI_BROADCAST="${WIFI_IP%.*}.255"
 
+# 포트 규칙: base_port + (DRONE_ID - 1) * 10
+PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
+TCP_SERVER_PORT=$(( 5790 + PORT_OFFSET ))
+ROS2_PORT=$(( 14551 + PORT_OFFSET ))
+APP_PORT=$(( 15001 + PORT_OFFSET ))
+
 echo ""
 echo "┌─ 기체별 수정 항목 ─────────────────────────┐"
 echo "  드론 번호: #$DRONE_ID"
@@ -267,9 +273,13 @@ echo "  eth0 IP: $ETH0_IP"
 echo "  WiFi IP: $WIFI_IP"
 echo "└────────────────────────────────────────────┘"
 echo ""
-echo "┌─ 자동 설정 (수정 불필요) ──────────────────┐"
+echo "┌─ 포트 설정 (DRONE_ID 기반 자동 계산) ──────┐"
 echo "  FC IP: $FC_IP (DHCP 고정)"
 echo "  QGC: 브로드캐스트 ($WIFI_BROADCAST:$QGC_UDP_PORT)"
+echo "  TCP Server: $TCP_SERVER_PORT"
+echo "  ROS2: $ROS2_PORT"
+echo "  Application: $APP_PORT"
+echo "  External: $EXTERNAL_UDP_PORT"
 echo "└────────────────────────────────────────────┘"
 echo ""
 
@@ -284,7 +294,7 @@ sudo tee /etc/mavlink-router/main.conf > /dev/null << EOF
 #   - 로그 파일
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = $TCP_SERVER_PORT
 ReportStats = false
 MavlinkDialect = common
 
@@ -319,7 +329,15 @@ Port = $EXTERNAL_UDP_PORT
 [UdpEndpoint ROS2]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = $ROS2_PORT
+
+# ============================================
+# Application Manager 연결 - localhost
+# ============================================
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = $APP_PORT
 
 EOF
 

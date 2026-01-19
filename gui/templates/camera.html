@@ -4,40 +4,151 @@
 
 {% block content %}
 <div class="container-fluid py-4">
-    <div class="row">
+    <!-- 뷰 모드 선택 -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="btn-group" role="group">
+                <input type="radio" class="btn-check" name="viewMode" id="viewSingle" autocomplete="off">
+                <label class="btn btn-outline-primary" for="viewSingle" onclick="setViewMode('single')">
+                    <i class="bi bi-square"></i> 단일 뷰
+                </label>
+                <input type="radio" class="btn-check" name="viewMode" id="viewMulti" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="viewMulti" onclick="setViewMode('multi')">
+                    <i class="bi bi-grid-3x3-gap"></i> 멀티 뷰 (3대)
+                </label>
+            </div>
+            <button class="btn btn-outline-secondary ms-2" onclick="refreshAllStreams()">
+                <i class="bi bi-arrow-clockwise"></i> 전체 새로고침
+            </button>
+        </div>
+    </div>
+
+    <!-- 멀티 뷰 (3대 동시 표시) -->
+    <div id="multiView" class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span><i class="bi bi-1-circle"></i> 1번 기체 (Leader)</span>
+                    <span id="multi1Status" class="badge bg-secondary">-</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="video-container" style="background: #000; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                        <img id="video1" src="" alt="Drone 1" style="width: 100%; display: none;"
+                             onload="onVideoLoad(1)" onerror="onVideoError(1)">
+                        <div id="loading1" class="text-white text-center">
+                            <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+                            <small class="d-block mt-1">연결 중...</small>
+                        </div>
+                        <div id="error1" class="text-white text-center" style="display: none;">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            <small class="d-block">연결 실패</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer py-1 text-center">
+                    <small class="text-muted">192.168.100.11:8080</small>
+                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(1)">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(1)">
+                        <i class="bi bi-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span><i class="bi bi-2-circle"></i> 2번 기체 (Follower L)</span>
+                    <span id="multi2Status" class="badge bg-secondary">-</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="video-container" style="background: #000; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                        <img id="video2" src="" alt="Drone 2" style="width: 100%; display: none;"
+                             onload="onVideoLoad(2)" onerror="onVideoError(2)">
+                        <div id="loading2" class="text-white text-center">
+                            <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+                            <small class="d-block mt-1">연결 중...</small>
+                        </div>
+                        <div id="error2" class="text-white text-center" style="display: none;">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            <small class="d-block">연결 실패</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer py-1 text-center">
+                    <small class="text-muted">192.168.100.21:8080</small>
+                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(2)">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(2)">
+                        <i class="bi bi-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center py-2">
+                    <span><i class="bi bi-3-circle"></i> 3번 기체 (Follower R)</span>
+                    <span id="multi3Status" class="badge bg-secondary">-</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="video-container" style="background: #000; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                        <img id="video3" src="" alt="Drone 3" style="width: 100%; display: none;"
+                             onload="onVideoLoad(3)" onerror="onVideoError(3)">
+                        <div id="loading3" class="text-white text-center">
+                            <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+                            <small class="d-block mt-1">연결 중...</small>
+                        </div>
+                        <div id="error3" class="text-white text-center" style="display: none;">
+                            <i class="bi bi-exclamation-triangle text-warning"></i>
+                            <small class="d-block">연결 실패</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer py-1 text-center">
+                    <small class="text-muted">192.168.100.31:8080</small>
+                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(3)">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(3)">
+                        <i class="bi bi-fullscreen"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 단일 뷰 -->
+    <div id="singleView" class="row" style="display: none;">
         <div class="col-12">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-camera-video"></i> 열화상 카메라 - <span id="currentCameraLabel">현재 기체</span></span>
+                    <span><i class="bi bi-camera-video"></i> 열화상 카메라 - <span id="currentCameraLabel">선택 없음</span></span>
                     <div class="d-flex align-items-center gap-2">
-                        <button class="btn btn-sm btn-outline-primary" onclick="refreshStream()">
-                            <i class="bi bi-arrow-clockwise"></i> 새로고침
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleFullscreen()">
-                            <i class="bi bi-fullscreen"></i> 전체화면
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="switchCamera(1)">1번</button>
+                            <button class="btn btn-outline-primary" onclick="switchCamera(2)">2번</button>
+                            <button class="btn btn-outline-primary" onclick="switchCamera(3)">3번</button>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleSingleFullscreen()">
+                            <i class="bi bi-fullscreen"></i>
                         </button>
                     </div>
                 </div>
                 <div class="card-body text-center p-0">
-                    <div id="videoContainer" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center;">
-                        <img id="videoFeed"
-                             src=""
-                             alt="Video Feed"
+                    <div id="singleVideoContainer" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center;">
+                        <img id="singleVideoFeed" src="" alt="Video Feed"
                              style="max-width: 100%; max-height: 720px; display: none;"
-                             onload="this.style.display='block'; document.getElementById('loadingIndicator').style.display='none';"
-                             onerror="showError()">
-                        <div id="loadingIndicator" class="text-white">
-                            <div class="spinner-border text-light mb-3" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
+                             onload="onSingleVideoLoad()" onerror="onSingleVideoError()">
+                        <div id="singleLoading" class="text-white">
+                            <div class="spinner-border text-light mb-3" role="status"></div>
                             <p>카메라 연결 중...</p>
                         </div>
-                        <div id="errorIndicator" class="text-white" style="display: none;">
+                        <div id="singleError" class="text-white" style="display: none;">
                             <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
                             <p class="mt-3">카메라 연결 실패</p>
-                            <button class="btn btn-outline-light btn-sm" onclick="refreshStream()">
-                                <i class="bi bi-arrow-clockwise"></i> 다시 시도
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -49,26 +160,22 @@
     <div class="row mt-3">
         <div class="col-md-6">
             <div class="card">
-                <div class="card-header">
+                <div class="card-header py-2">
                     <i class="bi bi-info-circle"></i> 스트림 정보
                 </div>
-                <div class="card-body">
+                <div class="card-body py-2">
                     <table class="table table-sm mb-0">
                         <tr>
-                            <th style="width: 40%;">스트림 URL</th>
-                            <td><code id="streamUrl">-</code></td>
-                        </tr>
-                        <tr>
-                            <th>상태</th>
-                            <td><span id="streamStatus" class="badge bg-secondary">확인 중</span></td>
-                        </tr>
-                        <tr>
-                            <th>RTSP 포트</th>
-                            <td id="rtspPort">-</td>
+                            <th style="width: 40%;">RTSP 포트</th>
+                            <td id="rtspPort">8554</td>
                         </tr>
                         <tr>
                             <th>스트림 이름</th>
-                            <td id="streamName">-</td>
+                            <td id="streamName">thermal</td>
+                        </tr>
+                        <tr>
+                            <th>HTTP 변환 포트</th>
+                            <td>8080</td>
                         </tr>
                     </table>
                 </div>
@@ -76,33 +183,33 @@
         </div>
         <div class="col-md-6">
             <div class="card">
-                <div class="card-header">
-                    <i class="bi bi-sliders"></i> 드론별 카메라 URL
+                <div class="card-header py-2">
+                    <i class="bi bi-sliders"></i> 드론별 카메라 상태
                 </div>
-                <div class="card-body">
+                <div class="card-body py-2">
                     <table class="table table-sm mb-0">
                         <thead>
                             <tr>
                                 <th>드론</th>
-                                <th>HTTP 스트림</th>
-                                <th>상태</th>
+                                <th>RTSP URL</th>
+                                <th>HTTP URL</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td>1번 (Leader)</td>
-                                <td><a href="#" onclick="switchCamera(1); return false;">192.168.100.11:8080</a></td>
-                                <td><span id="cam1Status" class="badge bg-secondary">-</span></td>
+                                <td>1번</td>
+                                <td><code>rtsp://192.168.100.11:8554/thermal</code></td>
+                                <td><code>:8080/video_feed</code></td>
                             </tr>
                             <tr>
-                                <td>2번 (Follower L)</td>
-                                <td><a href="#" onclick="switchCamera(2); return false;">192.168.100.21:8080</a></td>
-                                <td><span id="cam2Status" class="badge bg-secondary">-</span></td>
+                                <td>2번</td>
+                                <td><code>rtsp://192.168.100.21:8554/thermal</code></td>
+                                <td><code>:8080/video_feed</code></td>
                             </tr>
                             <tr>
-                                <td>3번 (Follower R)</td>
-                                <td><a href="#" onclick="switchCamera(3); return false;">192.168.100.31:8080</a></td>
-                                <td><span id="cam3Status" class="badge bg-secondary">-</span></td>
+                                <td>3번</td>
+                                <td><code>rtsp://192.168.100.31:8554/thermal</code></td>
+                                <td><code>:8080/video_feed</code></td>
                             </tr>
                         </tbody>
                     </table>
@@ -125,42 +232,91 @@
         3: '3번 (Follower R)'
     };
 
-    // currentDroneId는 base.html에서 선언됨
+    let currentViewMode = 'multi';
+    let selectedDroneId = 1;
 
     function getVideoUrl(droneId) {
         const ip = droneIPs[droneId];
         return `http://${ip}:8080/video_feed`;
     }
 
-    function refreshStream() {
-        if (!currentDroneId) return;
+    // 멀티 뷰 함수들
+    function onVideoLoad(droneId) {
+        document.getElementById(`video${droneId}`).style.display = 'block';
+        document.getElementById(`loading${droneId}`).style.display = 'none';
+        document.getElementById(`error${droneId}`).style.display = 'none';
+        document.getElementById(`multi${droneId}Status`).className = 'badge bg-success';
+        document.getElementById(`multi${droneId}Status`).textContent = '연결됨';
+    }
 
-        const video = document.getElementById('videoFeed');
-        const loading = document.getElementById('loadingIndicator');
-        const error = document.getElementById('errorIndicator');
+    function onVideoError(droneId) {
+        document.getElementById(`video${droneId}`).style.display = 'none';
+        document.getElementById(`loading${droneId}`).style.display = 'none';
+        document.getElementById(`error${droneId}`).style.display = 'block';
+        document.getElementById(`multi${droneId}Status`).className = 'badge bg-danger';
+        document.getElementById(`multi${droneId}Status`).textContent = '오프라인';
+    }
+
+    function refreshStream(droneId) {
+        const video = document.getElementById(`video${droneId}`);
+        const loading = document.getElementById(`loading${droneId}`);
+        const error = document.getElementById(`error${droneId}`);
 
         video.style.display = 'none';
         loading.style.display = 'block';
         error.style.display = 'none';
 
-        // 캐시 방지를 위해 타임스탬프 추가
-        const url = getVideoUrl(currentDroneId);
-        video.src = url + '?t=' + Date.now();
-
-        document.getElementById('streamUrl').textContent = url;
-        document.getElementById('currentCameraLabel').textContent = droneLabels[currentDroneId];
+        video.src = getVideoUrl(droneId) + '?t=' + Date.now();
     }
 
-    function showError() {
-        document.getElementById('videoFeed').style.display = 'none';
-        document.getElementById('loadingIndicator').style.display = 'none';
-        document.getElementById('errorIndicator').style.display = 'block';
-        document.getElementById('streamStatus').className = 'badge bg-danger';
-        document.getElementById('streamStatus').textContent = '연결 실패';
+    function refreshAllStreams() {
+        [1, 2, 3].forEach(id => refreshStream(id));
     }
 
-    function toggleFullscreen() {
-        const container = document.getElementById('videoContainer');
+    function openFullscreen(droneId) {
+        const video = document.getElementById(`video${droneId}`);
+        if (video.requestFullscreen) {
+            video.requestFullscreen();
+        }
+    }
+
+    // 단일 뷰 함수들
+    function onSingleVideoLoad() {
+        document.getElementById('singleVideoFeed').style.display = 'block';
+        document.getElementById('singleLoading').style.display = 'none';
+        document.getElementById('singleError').style.display = 'none';
+    }
+
+    function onSingleVideoError() {
+        document.getElementById('singleVideoFeed').style.display = 'none';
+        document.getElementById('singleLoading').style.display = 'none';
+        document.getElementById('singleError').style.display = 'block';
+    }
+
+    function switchCamera(droneId) {
+        selectedDroneId = droneId;
+        const video = document.getElementById('singleVideoFeed');
+        const loading = document.getElementById('singleLoading');
+        const error = document.getElementById('singleError');
+
+        video.style.display = 'none';
+        loading.style.display = 'block';
+        error.style.display = 'none';
+
+        video.src = getVideoUrl(droneId) + '?t=' + Date.now();
+        document.getElementById('currentCameraLabel').textContent = droneLabels[droneId];
+
+        // 버튼 활성화 표시
+        document.querySelectorAll('#singleView .btn-group .btn').forEach((btn, idx) => {
+            btn.classList.remove('active');
+            if (idx + 1 === droneId) {
+                btn.classList.add('active');
+            }
+        });
+    }
+
+    function toggleSingleFullscreen() {
+        const container = document.getElementById('singleVideoContainer');
         if (document.fullscreenElement) {
             document.exitFullscreen();
         } else {
@@ -168,79 +324,46 @@
         }
     }
 
-    async function checkCameraStatus(droneId) {
-        const statusEl = document.getElementById(`cam${droneId}Status`);
-        if (!statusEl) return;
-
-        const url = getVideoUrl(droneId);
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-            await fetch(url, {
-                method: 'HEAD',
-                signal: controller.signal,
-                mode: 'no-cors'
-            });
-            clearTimeout(timeoutId);
-
-            statusEl.className = 'badge bg-success';
-            statusEl.textContent = '온라인';
-        } catch (e) {
-            statusEl.className = 'badge bg-danger';
-            statusEl.textContent = '오프라인';
+    // 뷰 모드 전환
+    function setViewMode(mode) {
+        currentViewMode = mode;
+        if (mode === 'multi') {
+            document.getElementById('multiView').style.display = 'flex';
+            document.getElementById('singleView').style.display = 'none';
+            document.getElementById('viewMulti').checked = true;
+            refreshAllStreams();
+        } else {
+            document.getElementById('multiView').style.display = 'none';
+            document.getElementById('singleView').style.display = 'block';
+            document.getElementById('viewSingle').checked = true;
+            switchCamera(selectedDroneId);
         }
     }
 
+    // 설정 로드
     async function loadConfig() {
         try {
             const response = await fetch('/api/config');
             const data = await response.json();
 
-            if (data.success) {
-                document.getElementById('rtspPort').textContent = data.config.RTSP_PORT || '8554';
-                document.getElementById('streamName').textContent = data.config.STREAM_NAME || 'thermal';
-
-                // 현재 드론 ID 설정
-                currentDroneId = parseInt(data.config.DRONE_ID) || 3;
-                refreshStream();
-
-                // 테이블 현재 선택 표시
-                document.querySelectorAll('tbody tr').forEach((row, idx) => {
-                    row.classList.remove('table-active');
-                    if (idx + 1 === currentDroneId) {
-                        row.classList.add('table-active');
-                    }
-                });
+            if (data.RTSP_PORT) {
+                document.getElementById('rtspPort').textContent = data.RTSP_PORT;
+            }
+            if (data.STREAM_NAME) {
+                document.getElementById('streamName').textContent = data.STREAM_NAME;
+            }
+            if (data.DRONE_ID) {
+                selectedDroneId = parseInt(data.DRONE_ID) || 1;
             }
         } catch (e) {
             console.error('설정 로드 실패:', e);
-            currentDroneId = 3;
-            refreshStream();
         }
     }
-
-    // 비디오 로드 성공 시
-    document.getElementById('videoFeed').onload = function() {
-        this.style.display = 'block';
-        document.getElementById('loadingIndicator').style.display = 'none';
-        document.getElementById('errorIndicator').style.display = 'none';
-        document.getElementById('streamStatus').className = 'badge bg-success';
-        document.getElementById('streamStatus').textContent = '연결됨';
-    };
 
     // 초기화
     document.addEventListener('DOMContentLoaded', function() {
         loadConfig();
-
-        // 각 드론 카메라 상태 확인
-        [1, 2, 3].forEach(id => checkCameraStatus(id));
-
-        // 30초마다 상태 확인
-        setInterval(() => {
-            [1, 2, 3].forEach(id => checkCameraStatus(id));
-        }, 30000);
+        setViewMode('multi');  // 기본 멀티 뷰
     });
 </script>
 {% endblock %}

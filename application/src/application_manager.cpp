@@ -169,10 +169,22 @@ void ApplicationManager::initializeComponents() {
     thermal_overlay_ = new ThermalOverlay();
     
     status_overlay_ = new StatusOverlay();
-    status_overlay_->setDroneName("1");
+
+    // DRONE_ID 환경 변수에서 기체 번호 읽기
+    int osd_drone_id = 1;
+    const char* osd_drone_id_env = std::getenv("DRONE_ID");
+    if (osd_drone_id_env) {
+        try {
+            osd_drone_id = std::stoi(osd_drone_id_env);
+        } catch (...) {
+            osd_drone_id = 1;
+        }
+    }
+    status_overlay_->setDroneName(std::to_string(osd_drone_id));
     status_overlay_->setAmmunition(6, 6);
-    status_overlay_->setFormation(1, 3);
+    status_overlay_->setFormation(osd_drone_id, 3);
     status_overlay_->setBattery(100);
+    std::cout << "  ✓ OSD 기체 ID: " << osd_drone_id << std::endl;
     
     targeting_compositor_ = new TargetingFrameCompositor();
     targeting_compositor_->setLidarOrientation(LIDAR_ORIENTATION_OFFSET);
