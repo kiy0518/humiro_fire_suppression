@@ -890,6 +890,112 @@ def api_drone_ping(ip):
         })
 
 
+@app.route('/api/router/network-drones')
+def api_router_network_drones():
+    """네트워크에 연결된 모든 드론 상태 확인 API
+
+    각 드론의 온라인 상태와 GCS 포트 사용 여부를 확인하여
+    다이어그램에 표시할 수 있도록 정보 제공
+    """
+    import socket
+    import requests
+
+    # 드론 네트워크 정보
+    drones = {
+        1: {'ip': '192.168.100.11', 'name': 'Leader', 'gcs_port': 14550},
+        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': 14560},
+        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': 14570}
+    }
+
+    # 현재 기체 ID (정수로 변환)
+    current_drone_id = int(config_manager.get('DRONE_ID', 1))
+
+    results = []
+
+    for drone_id, info in drones.items():
+        drone_status = {
+            'id': drone_id,
+            'ip': info['ip'],
+            'name': info['name'],
+            'gcs_port': info['gcs_port'],
+            'online': False,
+            'is_current': drone_id == current_drone_id,
+            'gcs_active': False,
+            'fc_connected': False
+        }
+
+        # 현재 기체는 항상 온라인
+        if drone_id == current_drone_id:
+            drone_status['online'] = True
+            # 로컬 GCS 포트 상태 확인
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(0.1)
+                result = sock.connect_ex(('127.0.0.1', info['gcs_port']))
+                sock.close()
+                drone_status['gcs_active'] = True  # 로컬이므로 활성 상태
+            except:
+                pass
+        else:
+            # 다른 기체 GUI 서버 연결 확인
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                result = sock.connect_ex((info['ip'], 5000))
+                sock.close()
+                drone_status['online'] = (result == 0)
+
+                # 온라인이면 원격 상태 조회
+                if drone_status['online']:
+                    try:
+                        resp = requests.get(
+                            f"http://{info['ip']}:5000/api/status",
+                            timeout=1.5
+                        )
+                        if resp.status_code == 200:
+                            remote_status = resp.json()
+                            drone_status['fc_connected'] = remote_status.get('fc', {}).get('connected', False)
+                            drone_status['gcs_active'] = True
+                    except:
+                        pass
+            except:
+                pass
+
+        results.append(drone_status)
+
+    # GCS 포트 규칙: 1번=14550, 2번=14560, 3번=14570
+    # 충돌 = 잘못된 포트 사용 또는 동일 포트 공유
+    online_drones = [d for d in results if d['online']]
+
+    # 각 기체가 올바른 포트를 사용하는지 확인
+    gcs_conflict = False
+    conflict_details = []
+
+    for drone in online_drones:
+        expected_port = 14550 + (drone['id'] - 1) * 10  # 1→14550, 2→14560, 3→14570
+        if drone['gcs_port'] != expected_port:
+            gcs_conflict = True
+            conflict_details.append(f"{drone['id']}번 기체가 잘못된 포트({drone['gcs_port']}) 사용")
+
+    # 여러 기체가 동시에 온라인이면 경고 (브로드캐스트 공유 주의)
+    gcs_shared = len(online_drones) > 1
+
+    return jsonify({
+        'success': True,
+        'current_drone_id': current_drone_id,
+        'drones': results,
+        'gcs_conflict': gcs_conflict,
+        'gcs_shared': gcs_shared,  # 여러 기체가 동시 접속 (정보 표시용)
+        'conflict_details': conflict_details,
+        'gcs_ports': {
+            1: 14550,
+            2: 14560,
+            3: 14570
+        },
+        'gcs_broadcast': '192.168.100.255'
+    })
+
+
 def parse_mavlink_router_config():
     """mavlink-router 설정 파일 파싱"""
     config_path = '/etc/mavlink-router/main.conf'
@@ -948,15 +1054,28 @@ def api_router_config():
         # UdpEndpoint NAME 형식에서 이름 추출
         if section.startswith('UdpEndpoint '):
             name = section.replace('UdpEndpoint ', '')
-            node = {
-                'id': name.lower().replace(' ', '_'),
-                'name': name,
-                'type': 'udp',
-                'port': int(ep.get('Port', 0)),
-                'address': ep.get('Address', ''),
-                'mode': ep.get('Mode', 'Normal'),
-                'direction': 'in' if ep.get('Mode') == 'Server' else 'out'
-            }
+            # GCS는 QGC로 이름 변경하고 양방향 + 3개 포트 표시
+            if name == 'GCS':
+                node = {
+                    'id': 'gcs',  # ID는 유지 (기존 호환성)
+                    'name': 'QGC',
+                    'type': 'udp',
+                    'port': int(ep.get('Port', 0)),
+                    'ports': [14550, 14560, 14570],  # 3개 포트 모두 표시
+                    'address': ep.get('Address', ''),
+                    'mode': ep.get('Mode', 'Normal'),
+                    'direction': 'both'  # 양방향
+                }
+            else:
+                node = {
+                    'id': name.lower().replace(' ', '_'),
+                    'name': name,
+                    'type': 'udp',
+                    'port': int(ep.get('Port', 0)),
+                    'address': ep.get('Address', ''),
+                    'mode': ep.get('Mode', 'Normal'),
+                    'direction': 'in' if ep.get('Mode') == 'Server' else 'out'
+                }
             nodes.append(node)
         elif section.startswith('TcpEndpoint '):
             name = section.replace('TcpEndpoint ', '')

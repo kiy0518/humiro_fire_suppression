@@ -97,6 +97,7 @@
         pointer-events: none;
     }
 
+    /* 비활성 연결선 */
     .connection-line {
         stroke: #4a5568;
         stroke-width: 2;
@@ -104,25 +105,71 @@
         stroke-dasharray: 8, 4;
     }
 
+    /* 활성 연결선 기본 */
     .connection-line.active {
-        stroke: #48bb78;
         stroke-width: 3;
-        animation: flowAnimation 1s linear infinite;
+        stroke-dasharray: 10, 5;
+    }
+
+    /* 입력 방향 (Server: 외부 → 라우터) - 초록색 */
+    .connection-line.active.direction-in {
+        stroke: #48bb78;
+        animation: flowInAnimation 0.8s linear infinite;
+    }
+
+    /* 출력 방향 (Normal: 라우터 → 외부) - 파란색 */
+    .connection-line.active.direction-out {
+        stroke: #4a9eff;
+        animation: flowOutAnimation 0.8s linear infinite;
+    }
+
+    /* 양방향 (TCP) - 노란색 */
+    .connection-line.active.direction-both {
+        stroke: #ffc107;
+        animation: flowBothAnimation 1.2s ease-in-out infinite alternate;
     }
 
     .connection-line.error {
         stroke: #fc8181;
     }
 
-    @keyframes flowAnimation {
-        from { stroke-dashoffset: 12; }
+    /* 입력 애니메이션 (노드 → 라우터 방향) */
+    @keyframes flowInAnimation {
+        from { stroke-dashoffset: 15; }
         to { stroke-dashoffset: 0; }
     }
 
-    /* 데이터 패킷 애니메이션 */
+    /* 출력 애니메이션 (라우터 → 노드 방향) */
+    @keyframes flowOutAnimation {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: 15; }
+    }
+
+    /* 양방향 애니메이션 (왔다갔다) */
+    @keyframes flowBothAnimation {
+        0% { stroke-dashoffset: 15; }
+        50% { stroke-dashoffset: 0; }
+        100% { stroke-dashoffset: -15; }
+    }
+
+    /* 데이터 패킷 (움직이는 원) */
     .packet {
+        filter: drop-shadow(0 0 4px currentColor);
+    }
+
+    .packet.direction-in {
         fill: #48bb78;
-        filter: drop-shadow(0 0 3px #48bb78);
+        filter: drop-shadow(0 0 6px #48bb78);
+    }
+
+    .packet.direction-out {
+        fill: #4a9eff;
+        filter: drop-shadow(0 0 6px #4a9eff);
+    }
+
+    .packet.direction-both {
+        fill: #ffc107;
+        filter: drop-shadow(0 0 6px #ffc107);
     }
 
     /* 범례 */
@@ -289,12 +336,25 @@
                             <span>연결 안됨</span>
                         </div>
                         <div class="legend-item">
-                            <i class="bi bi-arrow-right text-success"></i>
-                            <span>입력 (Server)</span>
+                            <i class="bi bi-arrow-right-circle-fill" style="color: #48bb78; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">입력 (Server)</span>
                         </div>
                         <div class="legend-item">
-                            <i class="bi bi-arrow-right text-info"></i>
-                            <span>출력 (Normal)</span>
+                            <i class="bi bi-arrow-left-circle-fill" style="color: #4a9eff; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">출력 (Normal)</span>
+                        </div>
+                        <div class="legend-item">
+                            <i class="bi bi-arrow-left-right" style="color: #ffc107; font-size: 1.1rem; font-weight: bold;"></i>
+                            <span style="margin-left: 4px;">양방향 (TCP)</span>
+                        </div>
+                        <hr style="margin: 5px 0; border-color: #ddd;">
+                        <div class="legend-item">
+                            <i class="bi bi-drone" style="color: #667eea; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">다른 기체 (온라인)</span>
+                        </div>
+                        <div class="legend-item">
+                            <i class="bi bi-drone" style="color: #6c757d; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">다른 기체 (오프라인)</span>
                         </div>
                     </div>
                 </div>
@@ -433,6 +493,8 @@
 <script>
     let routerConfig = null;
     let portStatus = {};
+    let networkDrones = [];  // 네트워크에 연결된 다른 기체들
+    let routerCurrentDroneId = 1;  // base.html의 currentDroneId와 충돌 방지
 
     // 아이콘 매핑
     const iconMap = {
@@ -486,6 +548,129 @@
         }
     }
 
+    // 네트워크 드론 상태 로드
+    async function loadNetworkDrones() {
+        try {
+            const response = await fetch('/api/router/network-drones');
+            const data = await response.json();
+
+            if (data.success) {
+                networkDrones = data.drones;
+                routerCurrentDroneId = data.current_drone_id;
+
+                // GCS 충돌/공유 경고 표시
+                updateGcsConflictWarning(data);
+
+                // 다른 기체 노드 생성
+                createNetworkDroneNodes(data.gcs_ports);
+
+                log(`네트워크 드론 상태 로드: ${networkDrones.filter(d => d.online).length}/${networkDrones.length}대 온라인`, 'success');
+            }
+        } catch (e) {
+            log(`네트워크 드론 상태 로드 실패: ${e.message}`, 'error');
+        }
+    }
+
+    // GCS 충돌 경고 업데이트
+    function updateGcsConflictWarning(data) {
+        let warningDiv = document.getElementById('gcsConflictWarning');
+        if (!warningDiv) {
+            warningDiv = document.createElement('div');
+            warningDiv.id = 'gcsConflictWarning';
+            warningDiv.style.cssText = 'position: absolute; top: 10px; left: 10px; z-index: 100; max-width: 280px;';
+            document.getElementById('routerDiagram').appendChild(warningDiv);
+        }
+
+        const { gcs_conflict, gcs_shared, conflict_details, drones } = data;
+
+        if (gcs_conflict) {
+            // 포트 충돌 (잘못된 포트 사용) - 빨간색 경고
+            warningDiv.innerHTML = `
+                <div class="alert alert-danger py-2 px-3 mb-0" style="font-size: 0.8rem;">
+                    <i class="bi bi-exclamation-triangle-fill"></i> <strong>QGC 포트 충돌!</strong><br>
+                    <small>${conflict_details.join('<br>')}</small>
+                </div>
+            `;
+        } else if (gcs_shared) {
+            // 여러 기체 동시 접속 (정상이지만 알림) - 파란색 정보
+            const onlineDrones = drones.filter(d => d.online).map(d => `${d.id}번(${d.gcs_port})`).join(', ');
+            warningDiv.innerHTML = `
+                <div class="alert alert-info py-2 px-3 mb-0" style="font-size: 0.8rem;">
+                    <i class="bi bi-info-circle-fill"></i> <strong>다중 기체 접속</strong><br>
+                    <small>${onlineDrones}</small>
+                </div>
+            `;
+        } else {
+            warningDiv.innerHTML = '';
+        }
+    }
+
+    // 네트워크 드론 노드 생성
+    function createNetworkDroneNodes(gcsPorts) {
+        // 기존 네트워크 드론 노드 제거
+        document.querySelectorAll('.network-drone-node').forEach(el => el.remove());
+
+        const container = document.getElementById('dynamicNodes');
+        const qgcNode = document.getElementById('node-gcs');  // QGC 노드
+
+        if (!qgcNode || !container) return;
+
+        // 다른 기체들만 필터 (현재 기체 제외)
+        const otherDrones = networkDrones.filter(d => !d.is_current);
+
+        otherDrones.forEach((drone, index) => {
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'node network-drone-node';
+            nodeEl.id = `node-drone-${drone.id}`;
+            nodeEl.setAttribute('data-drone-id', drone.id);
+            nodeEl.setAttribute('data-direction', 'both');  // QGC와 양방향 통신
+            nodeEl.style.cssText = `
+                position: absolute;
+                background: ${drone.online ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : '#6c757d'};
+                color: white;
+                min-width: 100px;
+            `;
+
+            const statusClass = drone.online ? 'status-connected' : 'status-disconnected';
+            const fcIcon = drone.fc_connected ? '<i class="bi bi-check-circle text-success"></i>' : '';
+            // 기체별 QGC 포트 표시 (규칙: 1=14550, 2=14560, 3=14570)
+            const expectedPort = gcsPorts ? gcsPorts[drone.id] : (14550 + (drone.id - 1) * 10);
+
+            nodeEl.innerHTML = `
+                <div class="node-status ${statusClass}"></div>
+                <div class="node-icon"><i class="bi bi-drone"></i></div>
+                <div class="node-name">${drone.id}번 기체 ${fcIcon}</div>
+                <div class="node-port" style="color: rgba(255,255,255,0.8);">
+                    <i class="bi bi-arrow-left-right" style="color: #ffc107;"></i> :${expectedPort}
+                </div>
+            `;
+
+            container.appendChild(nodeEl);
+
+            // QGC 노드 기준으로 위치 설정
+            const savedKey = `node-drone-${drone.id}`;
+            if (dragState.savedPositions[savedKey]) {
+                nodeEl.style.left = dragState.savedPositions[savedKey].left;
+                nodeEl.style.top = dragState.savedPositions[savedKey].top;
+            } else {
+                // QGC 노드 옆에 배치 (위쪽/아래쪽)
+                const qgcRect = qgcNode.getBoundingClientRect();
+                const diagramRect = document.getElementById('routerDiagram').getBoundingClientRect();
+                const qgcLeft = qgcRect.left - diagramRect.left;
+                const qgcTop = qgcRect.top - diagramRect.top;
+
+                // 다른 기체들을 QGC 왼쪽에 세로로 배치
+                nodeEl.style.left = Math.max(10, qgcLeft - 150) + 'px';
+                nodeEl.style.top = (qgcTop + (index - 0.5) * 80) + 'px';
+            }
+
+            makeDraggable(nodeEl);
+        });
+
+        // 연결선 다시 그리기
+        setTimeout(drawConnections, 50);
+    }
+
     // 동적 노드 생성
     function createNodes() {
         const container = document.getElementById('dynamicNodes');
@@ -493,13 +678,26 @@
 
         routerConfig.nodes.forEach((node, index) => {
             const icon = iconMap[node.id] || 'bi-hdd-network';
-            const directionIcon = node.direction === 'in'
-                ? '<i class="bi bi-arrow-right text-success"></i>'
-                : '<i class="bi bi-arrow-right text-info"></i>';
-
-            const portText = node.direction === 'in'
-                ? `UDP ${node.port} ${directionIcon}`
-                : `${directionIcon} UDP ${node.port}`;
+            // in = Server (외부에서 라우터로 데이터 수신) - 초록색
+            // out = Normal (라우터에서 외부로 데이터 송신) - 파란색
+            // both = 양방향 - 노란색
+            let directionIcon, portText;
+            if (node.direction === 'in') {
+                directionIcon = '<i class="bi bi-arrow-right-circle-fill" style="color: #48bb78; font-size: 1rem;"></i>';
+                portText = `UDP ${node.port} ${directionIcon}`;  // 포트 → (라우터로)
+            } else if (node.direction === 'both') {
+                // 양방향 (QGC 등)
+                directionIcon = '<i class="bi bi-arrow-left-right" style="color: #ffc107; font-size: 1rem;"></i>';
+                // QGC는 3개 포트 모두 표시
+                if (node.ports && node.ports.length > 1) {
+                    portText = `${directionIcon} ${node.ports.join(', ')}`;
+                } else {
+                    portText = `${directionIcon} UDP ${node.port}`;
+                }
+            } else {
+                directionIcon = '<i class="bi bi-arrow-left-circle-fill" style="color: #4a9eff; font-size: 1rem;"></i>';
+                portText = `${directionIcon} UDP ${node.port}`;  // ← 포트 (라우터에서)
+            }
 
             const nodeEl = document.createElement('div');
             nodeEl.className = 'node';
@@ -620,24 +818,101 @@
             const nodeX = nodeRect.left - diagramRect.left + nodeRect.width / 2;
             const nodeY = nodeRect.top - diagramRect.top + nodeRect.height / 2;
 
+            // 방향 정보 가져오기
+            const direction = node.getAttribute('data-direction') || 'in';
+
             // 곡선 경로 생성
             const midX = (nodeX + routerX) / 2;
             const midY = (nodeY + routerY) / 2;
             const ctrlOffset = 30;
 
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', `M ${nodeX} ${nodeY} Q ${midX} ${midY - ctrlOffset} ${routerX} ${routerY}`);
-            path.setAttribute('class', `connection-line ${portStatus[id] ? 'active' : ''}`);
+
+            // 방향에 따라 경로 방향 결정
+            // in: 노드 → 라우터 (Server 모드, 데이터 수신)
+            // out: 라우터 → 노드 (Normal 모드, 데이터 송신)
+            // both: 양방향 (TCP)
+            if (direction === 'out') {
+                // 출력: 라우터에서 노드로
+                path.setAttribute('d', `M ${routerX} ${routerY} Q ${midX} ${midY - ctrlOffset} ${nodeX} ${nodeY}`);
+            } else {
+                // 입력/양방향: 노드에서 라우터로
+                path.setAttribute('d', `M ${nodeX} ${nodeY} Q ${midX} ${midY - ctrlOffset} ${routerX} ${routerY}`);
+            }
+
+            // 활성 상태일 때 방향별 클래스 추가
+            const activeClass = portStatus[id] ? `active direction-${direction}` : '';
+            path.setAttribute('class', `connection-line ${activeClass}`);
             path.setAttribute('id', `line-${id}`);
             svg.appendChild(path);
 
-            // 연결된 포트는 패킷 애니메이션 추가
+            // 연결된 포트는 패킷 애니메이션 추가 (움직이는 원)
             if (portStatus[id]) {
                 const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                circle.setAttribute('r', '4');
-                circle.setAttribute('class', 'packet');
-                circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite">
-                    <mpath href="#line-${id}"/>
+                circle.setAttribute('r', '6');  // 더 큰 원
+                circle.setAttribute('class', `packet direction-${direction}`);
+
+                // 양방향은 왕복 애니메이션
+                if (direction === 'both') {
+                    circle.innerHTML = `<animateMotion dur="1.2s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;0.5;1" calcMode="linear">
+                        <mpath href="#line-${id}"/>
+                    </animateMotion>`;
+                } else {
+                    circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite">
+                        <mpath href="#line-${id}"/>
+                    </animateMotion>`;
+                }
+                svg.appendChild(circle);
+            }
+        });
+
+        // 다른 기체에서 GCS로 연결선 그리기
+        drawNetworkDroneConnections(svg, diagramRect);
+    }
+
+    // 네트워크 드론 ↔ QGC 연결선 그리기 (양방향)
+    function drawNetworkDroneConnections(svg, diagramRect) {
+        const qgcNode = document.getElementById('node-gcs');
+        if (!qgcNode) return;
+
+        const qgcRect = qgcNode.getBoundingClientRect();
+        const qgcX = qgcRect.left - diagramRect.left + qgcRect.width / 2;
+        const qgcY = qgcRect.top - diagramRect.top + qgcRect.height / 2;
+
+        // 다른 기체 노드들
+        const otherDrones = networkDrones.filter(d => !d.is_current);
+
+        otherDrones.forEach(drone => {
+            const droneNode = document.getElementById(`node-drone-${drone.id}`);
+            if (!droneNode) return;
+
+            const droneRect = droneNode.getBoundingClientRect();
+            const droneX = droneRect.left - diagramRect.left + droneRect.width / 2;
+            const droneY = droneRect.top - diagramRect.top + droneRect.height / 2;
+
+            // 곡선 경로 생성
+            const midX = (droneX + qgcX) / 2;
+            const midY = (droneY + qgcY) / 2;
+            const ctrlOffset = 20;
+
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            // 드론 ↔ QGC 양방향
+            path.setAttribute('d', `M ${droneX} ${droneY} Q ${midX} ${midY - ctrlOffset} ${qgcX} ${qgcY}`);
+
+            // 온라인 상태에 따라 스타일 적용 (양방향)
+            const activeClass = drone.online ? 'active direction-both' : '';
+            path.setAttribute('class', `connection-line ${activeClass}`);
+            path.setAttribute('id', `line-drone-${drone.id}`);
+            path.style.strokeDasharray = '5, 5';  // 다른 기체는 점선으로 구분
+            svg.appendChild(path);
+
+            // 온라인 기체는 패킷 애니메이션 추가 (양방향 왕복)
+            if (drone.online) {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('r', '5');
+                circle.setAttribute('class', 'packet direction-both');
+                circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;0.5;1" calcMode="linear">
+                    <mpath href="#line-drone-${drone.id}"/>
                 </animateMotion>`;
                 svg.appendChild(circle);
             }
@@ -1173,6 +1448,10 @@
         loadSavedPositions();
         await loadConfig();
         await refreshStatus();
+        await loadNetworkDrones();  // 네트워크 드론 상태 로드
+
+        // 주기적으로 네트워크 드론 상태 업데이트 (10초마다)
+        setInterval(loadNetworkDrones, 10000);
     });
 </script>
 {% endblock %}

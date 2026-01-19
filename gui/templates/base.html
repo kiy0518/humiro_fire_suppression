@@ -394,10 +394,10 @@
                 console.log('Ping response:', data);
 
                 if (data.success) {
-                    // 연결 성공 시 해당 기체의 GUI로 이동
+                    // 연결 성공 시 해당 기체의 GUI를 새 창에서 열기
                     const targetUrl = `http://${info.ip}:${info.port}`;
-                    console.log('Redirecting to:', targetUrl);
-                    window.location.href = targetUrl;
+                    console.log('Opening in new window:', targetUrl);
+                    window.open(targetUrl, `drone_${droneId}`, 'noopener');
                 } else {
                     // 연결 실패 시 팝업만 표시 (페이지 이동 안함)
                     showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
