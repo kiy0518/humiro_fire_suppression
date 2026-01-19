@@ -133,8 +133,19 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
     std::cout << "\n[ROS2 초기화]" << std::endl;
     try {
         rclcpp::init(argc, argv);
-        ros2_node_ = rclcpp::Node::make_shared("humiro_fire_suppression");
-        std::cout << "  ✓ ROS2 노드 생성: humiro_fire_suppression" << std::endl;
+
+        // DRONE_ID 기반 노드 이름 생성 (다중 드론 충돌 방지)
+        int drone_id = 1;
+        const char* drone_id_env = std::getenv("DRONE_ID");
+        if (drone_id_env) {
+            try {
+                drone_id = std::stoi(drone_id_env);
+            } catch (...) {}
+        }
+        std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
+
+        ros2_node_ = rclcpp::Node::make_shared(node_name);
+        std::cout << "  ✓ ROS2 노드 생성: " << node_name << std::endl;
         std::cout << "  → uXRCE-DDS 토픽 구독 준비 완료" << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
@@ -677,14 +688,14 @@ void ApplicationManager::initializeCustomMessage() {
         }
 
         // ===== 테스트용 메시지 핸들러 추가 (EXTERNAL_UDP_PORT) =====
-        // DRONE_ID 기반으로 포트 계산 (드론1=14553, 드론2=14563, 드론3=14573)
-        uint16_t external_port = 14553 + port_offset;
+        // DRONE_ID 기반으로 포트 계산 (드론1=16001, 드론2=16011, 드론3=16021)
+        uint16_t external_port = 16001 + port_offset;
 
         std::cout << "\n[테스트 메시지 핸들러 초기화 - " << external_port << " 포트]" << std::endl;
         std::cout << "  → DRONE_ID " << drone_id << " 기반 External 포트: " << external_port << std::endl;
 
         test_message_handler_ = new custom_message::CustomMessage(
-            external_port,  // 수신 포트 (DRONE_ID 기반: 14553/14563/14573)
+            external_port,  // 수신 포트 (DRONE_ID 기반: 16001/16011/16021)
             external_port,  // 송신 포트 (DRONE_ID 기반)
             "0.0.0.0",  // 바인드 주소
             target_address,  // 대상 주소

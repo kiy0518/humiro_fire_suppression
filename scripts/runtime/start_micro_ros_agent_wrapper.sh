@@ -14,6 +14,10 @@ export ROS_DOMAIN_ID=0
 # export ROS_NAMESPACE=drone3
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
+# FastDDS가 eth0(10.0.0.x)만 사용하도록 설정 (WiFi 인터페이스 제외)
+# 이렇게 하면 다른 VIM4 보드와 WiFi를 통한 DDS discovery가 방지됨
+export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_eth0_only.xml"
+
 # ROS2 환경 로드
 source /opt/ros/humble/setup.bash
 
