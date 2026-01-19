@@ -43,7 +43,9 @@ class ConfigManager:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
-                        self._device_config[key.strip()] = value.strip().strip('"\'')
+                        # 인라인 주석 제거 (# 이후 부분)
+                        value = value.split("#")[0].strip().strip('"\'')
+                        self._device_config[key.strip()] = value
 
     def reload(self):
         """설정 다시 로드"""
@@ -110,53 +112,148 @@ class ConfigManager:
             backup_path = os.path.join(backup_subdir, filename)
             shutil.copy2(file_path, backup_path)
 
-    # === 기체별 설정 프리셋 ===
+    # === 기체별 설정 프리셋 (DRONE_ID 기반 자동 계산) ===
+
+    @staticmethod
+    def calculate_config_from_drone_id(drone_id: int, gcs_port_mode: str = "separate") -> Dict[str, str]:
+        """DRONE_ID 기반 설정값 자동 계산
+
+        Args:
+            drone_id: 드론 번호 (1, 2, 3, ...)
+            gcs_port_mode: GCS 포트 모드
+                - "unified": 모든 기체가 14550 사용 (브로드캐스트 공유)
+                - "separate": 기체별 포트 분리 (1번=14550, 2번=14560, 3번=14570)
+
+        규칙:
+        - ETH0_IP: 10.0.0.(드론번호*10+1) → 1번=10.0.0.11, 2번=10.0.0.21, 3번=10.0.0.31
+        - FC_IP: 10.0.0.(드론번호*10+2) → 1번=10.0.0.12, 2번=10.0.0.22, 3번=10.0.0.32
+        - WIFI_IP: 192.168.100.(드론번호*10+1) → 1번=192.168.100.11, 2번=192.168.100.21, 3번=192.168.100.31
+        - ROS_NAMESPACE: drone{드론번호}
+        - MAV_SYS_ID: 드론번호
+        - MAV_COMP_ID: 191 (고정)
+        - EXTERNAL_UDP_PORT: 16000 + 드론번호 → 1번=16001, 2번=16002, 3번=16003
+        - QGC_UDP_PORT:
+            - unified 모드: 14550 (모든 기체 동일)
+            - separate 모드: 14550 + (드론번호-1)*10 → 1번=14550, 2번=14560, 3번=14570
+        - ROS_DOMAIN_ID: 0 (고정, 모든 기체 동일)
+        - ROLE: 1번=Leader, 나머지=Follower
+        """
+        base_offset = drone_id * 10
+
+        # GCS 포트 계산 (모드에 따라)
+        if gcs_port_mode == "unified":
+            gcs_port = 14550  # 모든 기체 동일
+        else:  # separate (기본값)
+            gcs_port = 14550 + (drone_id - 1) * 10  # 1번=14550, 2번=14560, 3번=14570
+
+        return {
+            "DRONE_ID": str(drone_id),
+            "ETH0_IP": f"10.0.0.{base_offset + 1}",
+            "FC_IP": f"10.0.0.{base_offset + 2}",
+            "WIFI_IP": f"192.168.100.{base_offset + 1}",
+            "ROS_NAMESPACE": f"drone{drone_id}",
+            "MAV_SYS_ID": str(drone_id),
+            "MAV_COMP_ID": "191",
+            "EXTERNAL_UDP_PORT": str(16000 + drone_id),
+            "ROS_DOMAIN_ID": "0",
+            "QGC_UDP_PORT": str(gcs_port),
+            "FC_MAVLINK_PORT": "14540",
+            "XRCE_DDS_PORT": "8888",
+            "ROLE": "Leader" if drone_id == 1 else "Follower",
+            "GCS_PORT_MODE": gcs_port_mode,
+        }
+
+    @staticmethod
+    def get_gcs_port_for_drone(drone_id: int, gcs_port_mode: str = "separate") -> int:
+        """특정 드론의 GCS 포트 계산
+
+        Args:
+            drone_id: 드론 번호
+            gcs_port_mode: unified 또는 separate
+
+        Returns:
+            GCS 포트 번호
+        """
+        if gcs_port_mode == "unified":
+            return 14550
+        return 14550 + (drone_id - 1) * 10
+
+    def get_gcs_port_mode(self) -> str:
+        """현재 GCS 포트 모드 가져오기"""
+        return self.get("GCS_PORT_MODE", "separate")
 
     def get_vehicle_preset(self, drone_id: int) -> Dict[str, str]:
-        """기체별 설정 프리셋 반환
+        """기체별 설정 프리셋 반환 (DRONE_ID 기반 자동 계산)
 
         IP 체계:
         - ETH0 (VIM4): 10.0.0.X1 (X = 드론번호)
         - FC: 10.0.0.X2 (X = 드론번호)
         - WIFI: 192.168.100.X1 (X = 드론번호)
         """
-        presets = {
-            1: {  # Leader
-                "DRONE_ID": "1",
-                "ETH0_IP": "10.0.0.11",
-                "FC_IP": "10.0.0.12",
-                "WIFI_IP": "192.168.100.11",
-                "ROS_NAMESPACE": "drone1",
-                "MAV_SYS_ID": "1",
-                "ROLE": "Leader",
-            },
-            2: {  # Follower Left
-                "DRONE_ID": "2",
-                "ETH0_IP": "10.0.0.21",
-                "FC_IP": "10.0.0.22",
-                "WIFI_IP": "192.168.100.21",
-                "ROS_NAMESPACE": "drone2",
-                "MAV_SYS_ID": "2",
-                "ROLE": "Follower",
-            },
-            3: {  # Follower Right
-                "DRONE_ID": "3",
-                "ETH0_IP": "10.0.0.31",
-                "FC_IP": "10.0.0.32",
-                "WIFI_IP": "192.168.100.31",
-                "ROS_NAMESPACE": "drone3",
-                "MAV_SYS_ID": "3",
-                "ROLE": "Follower",
-            },
-        }
-        return presets.get(drone_id, presets[1])
+        gcs_mode = self.get_gcs_port_mode()
+        return self.calculate_config_from_drone_id(drone_id, gcs_mode)
 
     def apply_vehicle_preset(self, drone_id: int) -> bool:
-        """기체 프리셋 적용"""
+        """기체 프리셋 적용 (DRONE_ID 기반 자동 계산 값 적용)"""
         preset = self.get_vehicle_preset(drone_id)
         for key, value in preset.items():
             self._device_config[key] = value
         return self.save_device_config()
+
+    def regenerate_config_from_drone_id(
+        self,
+        drone_id: int,
+        preserve_wifi: bool = True,
+        gcs_port_mode: str = None
+    ) -> bool:
+        """DRONE_ID 기반으로 device_config.env 재생성
+
+        Args:
+            drone_id: 드론 번호 (1, 2, 3, ...)
+            preserve_wifi: True면 기존 WiFi 설정(SSID, 비밀번호, 인터페이스, 게이트웨이 등) 유지
+            gcs_port_mode: GCS 포트 모드 ("unified" 또는 "separate"), None이면 기존 설정 유지
+
+        Returns:
+            성공 여부
+        """
+        # 기존 WiFi 설정 및 GCS_PORT_MODE 백업
+        wifi_settings = {}
+        if preserve_wifi:
+            wifi_keys = [
+                "WIFI_INTERFACE", "WIFI_GATEWAY", "WIFI_NETMASK",
+                "WIFI_SSID_1", "WIFI_PASSWORD_1",
+                "WIFI_SSID_2", "WIFI_PASSWORD_2",
+                "WIFI_SSID_3", "WIFI_PASSWORD_3",
+                "RTSP_PORT", "STREAM_NAME",
+            ]
+            for key in wifi_keys:
+                if key in self._device_config:
+                    wifi_settings[key] = self._device_config[key]
+
+        # GCS 포트 모드 결정 (명시적 지정 > 기존 설정 > 기본값)
+        if gcs_port_mode is None:
+            gcs_port_mode = self.get_gcs_port_mode()
+
+        # DRONE_ID 기반 자동 계산 값 적용
+        calculated = self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
+        self._device_config.update(calculated)
+
+        # WiFi 설정 복원
+        if preserve_wifi:
+            self._device_config.update(wifi_settings)
+
+        return self.save_device_config()
+
+    def get_calculated_preview(self, drone_id: int, gcs_port_mode: str = None) -> Dict[str, str]:
+        """DRONE_ID 변경 시 미리보기 (실제 저장 없이 계산 결과 반환)
+
+        Args:
+            drone_id: 드론 번호
+            gcs_port_mode: GCS 포트 모드 (None이면 현재 설정 사용)
+        """
+        if gcs_port_mode is None:
+            gcs_port_mode = self.get_gcs_port_mode()
+        return self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
 
     # === 비행 모드 파라미터 프리셋 ===
 
