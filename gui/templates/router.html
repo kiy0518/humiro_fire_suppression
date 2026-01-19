@@ -561,8 +561,8 @@
                 // GCS 충돌/공유 경고 표시
                 updateGcsConflictWarning(data);
 
-                // 다른 기체 노드 생성
-                createNetworkDroneNodes(data.gcs_ports);
+                // 다른 기체 노드 생성 (모든 기체 14550 사용)
+                createNetworkDroneNodes();
 
                 log(`네트워크 드론 상태 로드: ${networkDrones.filter(d => d.online).length}/${networkDrones.length}대 온라인`, 'success');
             }
@@ -592,12 +592,12 @@
                 </div>
             `;
         } else if (gcs_shared) {
-            // 여러 기체 동시 접속 (정상이지만 알림) - 파란색 정보
-            const onlineDrones = drones.filter(d => d.online).map(d => `${d.id}번(${d.gcs_port})`).join(', ');
+            // 여러 기체 동시 접속 - 모든 기체가 14550 공유
+            const onlineDrones = drones.filter(d => d.online).map(d => `${d.id}번`).join(', ');
             warningDiv.innerHTML = `
                 <div class="alert alert-info py-2 px-3 mb-0" style="font-size: 0.8rem;">
-                    <i class="bi bi-info-circle-fill"></i> <strong>다중 기체 접속</strong><br>
-                    <small>${onlineDrones}</small>
+                    <i class="bi bi-info-circle-fill"></i> <strong>다중 기체 접속 (14550)</strong><br>
+                    <small>${onlineDrones} 기체 브로드캐스트 공유</small>
                 </div>
             `;
         } else {
@@ -605,8 +605,8 @@
         }
     }
 
-    // 네트워크 드론 노드 생성
-    function createNetworkDroneNodes(gcsPorts) {
+    // 네트워크 드론 노드 생성 (모든 기체 14550 사용)
+    function createNetworkDroneNodes() {
         // 기존 네트워크 드론 노드 제거
         document.querySelectorAll('.network-drone-node').forEach(el => el.remove());
 
@@ -633,15 +633,13 @@
 
             const statusClass = drone.online ? 'status-connected' : 'status-disconnected';
             const fcIcon = drone.fc_connected ? '<i class="bi bi-check-circle text-success"></i>' : '';
-            // 기체별 QGC 포트 표시 (규칙: 1=14550, 2=14560, 3=14570)
-            const expectedPort = gcsPorts ? gcsPorts[drone.id] : (14550 + (drone.id - 1) * 10);
 
             nodeEl.innerHTML = `
                 <div class="node-status ${statusClass}"></div>
                 <div class="node-icon"><i class="bi bi-drone"></i></div>
                 <div class="node-name">${drone.id}번 기체 ${fcIcon}</div>
                 <div class="node-port" style="color: rgba(255,255,255,0.8);">
-                    <i class="bi bi-arrow-left-right" style="color: #ffc107;"></i> :${expectedPort}
+                    <i class="bi bi-arrow-left-right" style="color: #ffc107;"></i> :14550
                 </div>
             `;
 
@@ -686,14 +684,9 @@
                 directionIcon = '<i class="bi bi-arrow-right-circle-fill" style="color: #48bb78; font-size: 1rem;"></i>';
                 portText = `UDP ${node.port} ${directionIcon}`;  // 포트 → (라우터로)
             } else if (node.direction === 'both') {
-                // 양방향 (QGC 등)
+                // 양방향 (QGC 등) - 모든 기체 14550 공유
                 directionIcon = '<i class="bi bi-arrow-left-right" style="color: #ffc107; font-size: 1rem;"></i>';
-                // QGC는 3개 포트 모두 표시
-                if (node.ports && node.ports.length > 1) {
-                    portText = `${directionIcon} ${node.ports.join(', ')}`;
-                } else {
-                    portText = `${directionIcon} UDP ${node.port}`;
-                }
+                portText = `${directionIcon} UDP ${node.port}`;
             } else {
                 directionIcon = '<i class="bi bi-arrow-left-circle-fill" style="color: #4a9eff; font-size: 1rem;"></i>';
                 portText = `${directionIcon} UDP ${node.port}`;  // ← 포트 (라우터에서)

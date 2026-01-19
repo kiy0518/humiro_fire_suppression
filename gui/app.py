@@ -900,11 +900,11 @@ def api_router_network_drones():
     import socket
     import requests
 
-    # 드론 네트워크 정보
+    # 드론 네트워크 정보 (모든 기체가 동일한 GCS 포트 14550 사용)
     drones = {
         1: {'ip': '192.168.100.11', 'name': 'Leader', 'gcs_port': 14550},
-        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': 14560},
-        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': 14570}
+        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': 14550},
+        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': 14550}
     }
 
     # 현재 기체 ID (정수로 변환)
@@ -963,36 +963,21 @@ def api_router_network_drones():
 
         results.append(drone_status)
 
-    # GCS 포트 규칙: 1번=14550, 2번=14560, 3번=14570
-    # 충돌 = 잘못된 포트 사용 또는 동일 포트 공유
+    # 모든 기체가 동일한 GCS 포트 14550 사용 (브로드캐스트 공유)
     online_drones = [d for d in results if d['online']]
 
-    # 각 기체가 올바른 포트를 사용하는지 확인
-    gcs_conflict = False
-    conflict_details = []
-
-    for drone in online_drones:
-        expected_port = 14550 + (drone['id'] - 1) * 10  # 1→14550, 2→14560, 3→14570
-        if drone['gcs_port'] != expected_port:
-            gcs_conflict = True
-            conflict_details.append(f"{drone['id']}번 기체가 잘못된 포트({drone['gcs_port']}) 사용")
-
-    # 여러 기체가 동시에 온라인이면 경고 (브로드캐스트 공유 주의)
+    # 여러 기체가 동시에 온라인이면 알림 (브로드캐스트 공유)
     gcs_shared = len(online_drones) > 1
 
     return jsonify({
         'success': True,
         'current_drone_id': current_drone_id,
         'drones': results,
-        'gcs_conflict': gcs_conflict,
+        'gcs_conflict': False,  # 모든 기체가 14550 사용하므로 충돌 없음
         'gcs_shared': gcs_shared,  # 여러 기체가 동시 접속 (정보 표시용)
-        'conflict_details': conflict_details,
-        'gcs_ports': {
-            1: 14550,
-            2: 14560,
-            3: 14570
-        },
-        'gcs_broadcast': '192.168.100.255'
+        'conflict_details': [],
+        'gcs_port': 14550,  # 모든 기체 공통 포트
+        'gcs_broadcast': '192.168.100.255:14550'
     })
 
 
@@ -1054,14 +1039,13 @@ def api_router_config():
         # UdpEndpoint NAME 형식에서 이름 추출
         if section.startswith('UdpEndpoint '):
             name = section.replace('UdpEndpoint ', '')
-            # GCS는 QGC로 이름 변경하고 양방향 + 3개 포트 표시
+            # GCS는 QGC로 이름 변경하고 양방향 (모든 기체 14550 공유)
             if name == 'GCS':
                 node = {
                     'id': 'gcs',  # ID는 유지 (기존 호환성)
                     'name': 'QGC',
                     'type': 'udp',
-                    'port': int(ep.get('Port', 0)),
-                    'ports': [14550, 14560, 14570],  # 3개 포트 모두 표시
+                    'port': 14550,  # 모든 기체 공통 포트
                     'address': ep.get('Address', ''),
                     'mode': ep.get('Mode', 'Normal'),
                     'direction': 'both'  # 양방향
