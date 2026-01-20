@@ -30,6 +30,16 @@ config_manager = ConfigManager(PROJECT_ROOT)
 system_checker = SystemChecker()
 wifi_manager = WiFiManager()
 
+@app.context_processor
+def inject_drone_info():
+    """모든 템플릿에 기체 정보 주입"""
+    drone_id = config_manager.get_drone_id()
+    role = config_manager.get('ROLE', 'Leader' if drone_id == 1 else 'Follower')
+    return {
+        'drone_id': drone_id,
+        'drone_role': role
+    }
+
 # MAVLink CRC 계산 함수
 def mavlink_crc16(data, crc=0xFFFF):
     """MAVLink CRC-16-CCITT-FALSE 계산"""
