@@ -226,7 +226,7 @@
                      style="vertical-align: middle; background: white; border-radius: 4px; padding: 2px 4px;">
             </a>
             <span class="ms-2 badge" style="background-color: rgba(255,255,255,0.2); font-size: 0.85rem;">
-                <i class="bi bi-drone"></i> {{ drone_id }}번 기체
+                <i class="bi bi-drone"></i> {{ drone_id }}번
                 {% if drone_role == 'Leader' %}
                 <span class="badge bg-warning text-dark ms-1">리더</span>
                 {% else %}
@@ -425,10 +425,11 @@
                 console.log('Ping response:', data);
 
                 if (data.success) {
-                    // 연결 성공 시 해당 기체의 GUI를 새 창에서 열기
-                    const targetUrl = `http://${info.ip}:${info.port}`;
-                    console.log('Opening in new window:', targetUrl);
-                    window.open(targetUrl, `drone_${droneId}`, 'noopener');
+                    // 연결 성공 시 해당 기체의 GUI로 현재 페이지 경로 유지하며 이동
+                    const currentPath = window.location.pathname;
+                    const targetUrl = `http://${info.ip}:${info.port}${currentPath}`;
+                    console.log('Navigating to:', targetUrl);
+                    window.location.href = targetUrl;
                 } else {
                     // 연결 실패 시 팝업만 표시 (페이지 이동 안함)
                     showToast(`네트워크 상에 ${droneId}번 기체가 없습니다.`, 'danger');
