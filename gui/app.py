@@ -1000,15 +1000,26 @@ def api_router_network_drones():
     import socket
     import requests
 
-    # 드론 네트워크 정보 (모든 기체가 동일한 GCS 포트 14550 사용)
-    drones = {
-        1: {'ip': '192.168.100.11', 'name': 'Leader', 'gcs_port': 14550},
-        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': 14550},
-        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': 14550}
-    }
-
     # 현재 기체 ID (정수로 변환)
     current_drone_id = int(config_manager.get('DRONE_ID', 1))
+
+    # GCS 포트 모드 확인
+    gcs_port_mode = config_manager.get('GCS_PORT_MODE', 'separate')
+
+    # 드론 네트워크 정보 - GCS_PORT_MODE에 따라 포트 결정
+    # separate: 각 기체별 포트 (14550, 14560, 14570)
+    # unified: 모든 기체 14550
+    def get_gcs_port(drone_id):
+        if gcs_port_mode == 'unified':
+            return 14550
+        else:  # separate
+            return 14550 + (drone_id - 1) * 10
+
+    drones = {
+        1: {'ip': '192.168.100.11', 'name': 'Leader', 'gcs_port': get_gcs_port(1)},
+        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': get_gcs_port(2)},
+        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': get_gcs_port(3)}
+    }
 
     results = []
 
@@ -1063,21 +1074,28 @@ def api_router_network_drones():
 
         results.append(drone_status)
 
-    # 모든 기체가 동일한 GCS 포트 14550 사용 (브로드캐스트 공유)
     online_drones = [d for d in results if d['online']]
 
-    # 여러 기체가 동시에 온라인이면 알림 (브로드캐스트 공유)
-    gcs_shared = len(online_drones) > 1
+    # GCS 포트 모드에 따른 상태 결정
+    if gcs_port_mode == 'unified':
+        # 통합 모드: 모든 기체가 14550 공유
+        gcs_shared = len(online_drones) > 1
+        current_gcs_port = 14550
+    else:
+        # 분리 모드: 각 기체별 포트 사용
+        gcs_shared = False
+        current_gcs_port = get_gcs_port(current_drone_id)
 
     return jsonify({
         'success': True,
         'current_drone_id': current_drone_id,
+        'gcs_port_mode': gcs_port_mode,
         'drones': results,
-        'gcs_conflict': False,  # 모든 기체가 14550 사용하므로 충돌 없음
-        'gcs_shared': gcs_shared,  # 여러 기체가 동시 접속 (정보 표시용)
+        'gcs_conflict': False,
+        'gcs_shared': gcs_shared,
         'conflict_details': [],
-        'gcs_port': 14550,  # 모든 기체 공통 포트
-        'gcs_broadcast': '192.168.100.255:14550'
+        'gcs_port': current_gcs_port,
+        'gcs_broadcast': f'192.168.100.255:{current_gcs_port}'
     })
 
 

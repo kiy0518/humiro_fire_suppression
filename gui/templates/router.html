@@ -642,7 +642,7 @@
                 // GCS 충돌/공유 경고 표시
                 updateGcsConflictWarning(data);
 
-                // 다른 기체 노드 생성 (모든 기체 14550 사용)
+                // 다른 기체 노드 생성 (GCS_PORT_MODE에 따라 포트 결정)
                 createNetworkDroneNodes();
 
                 // 현재 기체 포트 정보 표시
@@ -719,11 +719,12 @@
                 </div>
             `;
         } else if (gcs_shared) {
-            // 여러 기체 동시 접속 - 모든 기체가 14550 공유
+            // 여러 기체 동시 접속 - 포트 통합 모드
             const onlineDrones = drones.filter(d => d.online).map(d => `${d.id}번`).join(', ');
+            const sharedPort = data.gcs_port || 14550;
             warningDiv.innerHTML = `
                 <div class="alert alert-info py-2 px-3 mb-0" style="font-size: 0.8rem;">
-                    <i class="bi bi-info-circle-fill"></i> <strong>다중 기체 접속 (14550)</strong><br>
+                    <i class="bi bi-info-circle-fill"></i> <strong>다중 기체 접속 (${sharedPort})</strong><br>
                     <small>${onlineDrones} 기체 브로드캐스트 공유</small>
                 </div>
             `;
@@ -732,7 +733,7 @@
         }
     }
 
-    // 네트워크 드론 노드 생성 (모든 기체 14550 사용)
+    // 네트워크 드론 노드 생성 (GCS_PORT_MODE에 따라 포트 결정)
     function createNetworkDroneNodes() {
         // 기존 네트워크 드론 노드 제거
         document.querySelectorAll('.network-drone-node').forEach(el => el.remove());
@@ -761,12 +762,15 @@
             const statusClass = drone.online ? 'status-connected' : 'status-disconnected';
             const fcIcon = drone.fc_connected ? '<i class="bi bi-check-circle text-success"></i>' : '';
 
+            // 드론별 GCS 포트 (API 응답에서 가져옴)
+            const droneGcsPort = drone.gcs_port || (14550 + (drone.id - 1) * 10);
+
             nodeEl.innerHTML = `
                 <div class="node-status ${statusClass}"></div>
                 <div class="node-icon"><i class="bi bi-drone"></i></div>
                 <div class="node-name">${drone.id}번 기체 ${fcIcon}</div>
                 <div class="node-port" style="color: rgba(255,255,255,0.8);">
-                    <i class="bi bi-arrow-left-right" style="color: #ffc107;"></i> :14550
+                    <i class="bi bi-arrow-left-right" style="color: #ffc107;"></i> :${droneGcsPort}
                 </div>
             `;
 
