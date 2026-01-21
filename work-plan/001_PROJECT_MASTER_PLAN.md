@@ -9,40 +9,54 @@
 ## 군집 드론 자율성 로드맵
 
 ```mermaid
-graph TB
-    subgraph Level3["🚀 Level 3: 완전 자율 (미래 목표)"]
-        direction LR
-        D1_L3["🤖 기체1<br/>AI 판단"]
-        D2_L3["🤖 기체2<br/>AI 판단"]
-        D3_L3["🤖 기체3<br/>AI 판단"]
-    end
-
-    subgraph Level2["⚡ Level 2: 분산 협조 (다음 단계)"]
-        direction LR
-        D1_L2["📡 기체1<br/>개별 판단"]
-        D2_L2["📡 기체2<br/>개별 판단"]
-        D3_L2["📡 기체3<br/>개별 판단"]
-        D1_L2 <--> D2_L2 <--> D3_L2
-    end
-
-    subgraph Level1["🎯 Level 1: 리더-팔로워 (현재 목표)"]
+graph LR
+    subgraph L1[" "]
         direction TB
-        Leader["👑 리더<br/>모든 결정"]
+        L1_title["🎯 Level 1<br/>리더-팔로워<br/>(현재 목표)"]
+        Leader["👑 리더"]
         F1["🛸 팔로워L"]
         F2["🛸 팔로워R"]
-        Leader -->|명령/상태| F1
-        Leader -->|명령/상태| F2
+        L1_title ~~~ Leader
+        Leader -->|명령| F1
+        Leader -->|명령| F2
     end
 
-    Level1 -.->|발전| Level2
-    Level2 -.->|발전| Level3
+    subgraph L2[" "]
+        direction TB
+        L2_title["⚡ Level 2<br/>분산 협조<br/>(다음 단계)"]
+        D1["📡 기체1"]
+        D2["📡 기체2"]
+        D3["📡 기체3"]
+        L2_title ~~~ D1
+        D1 <--> D2 <--> D3
+    end
 
-    style Level1 fill:#e3f2fd,stroke:#1565c0,stroke-width:3px
-    style Level2 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    style Level3 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style Leader fill:#1565c0,color:#fff
+    subgraph L3[" "]
+        direction TB
+        L3_title["🚀 Level 3<br/>완전 자율<br/>(미래 목표)"]
+        A1["🤖 기체1"]
+        A2["🤖 기체2"]
+        A3["🤖 기체3"]
+        L3_title ~~~ A1
+    end
+
+    L1 ==>|발전| L2 ==>|발전| L3
+
+    style L1 fill:#e3f2fd,stroke:#1565c0,stroke-width:3px
+    style L2 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    style L3 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style L1_title fill:#1565c0,color:#fff
+    style L2_title fill:#ef6c00,color:#fff
+    style L3_title fill:#7b1fa2,color:#fff
+    style Leader fill:#1976d2,color:#fff
     style F1 fill:#4caf50,color:#fff
     style F2 fill:#9c27b0,color:#fff
+    style D1 fill:#ff9800,color:#fff
+    style D2 fill:#ff9800,color:#fff
+    style D3 fill:#ff9800,color:#fff
+    style A1 fill:#ab47bc,color:#fff
+    style A2 fill:#ab47bc,color:#fff
+    style A3 fill:#ab47bc,color:#fff
 ```
 
 ### Level 1: 리더-팔로워 (현재 목표) 🎯
