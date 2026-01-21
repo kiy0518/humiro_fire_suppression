@@ -2,26 +2,38 @@
 
 ## 빠른 시작 (설치 완료 후)
 
-### 3대 드론 헤드리스 실행
+### 3대 드론 헤드리스 실행 (10m 간격 배치)
+
+**시뮬레이션 좌표**: 위도 35.905863, 경도 128.802615 (대구 지역)
+
+**배치 구조**:
+```
+        좌측(-10m)      센터(0m)       우측(+10m)
+            ▼             ▼              ▼
+         드론 2         드론 1          드론 3
+        [-10,0,0]       [0,0,0]        [10,0,0]
+
+        ◄────── 10m ──────►◄────── 10m ──────►
+```
 
 **WSL2 터미널 3개 열기**
 
-**터미널 1 (드론 1):**
+**터미널 1 (드론 1 - 센터):**
 ```bash
 cd ~/PX4-Autopilot
-HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 0
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 0
 ```
 
-**터미널 2 (드론 2):**
+**터미널 2 (드론 2 - 좌측 10m):**
 ```bash
 cd ~/PX4-Autopilot
-HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="3,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 1
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="-10,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 1
 ```
 
-**터미널 3 (드론 3):**
+**터미널 3 (드론 3 - 우측 10m):**
 ```bash
 cd ~/PX4-Autopilot
-HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="6,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 2
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="10,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 2
 ```
 
 ### PX4 콘솔 설정 (각 터미널에서)
@@ -294,7 +306,9 @@ mavlink 타겟 IP를 새 게이트웨이 IP로 업데이트하세요.
 |------|------|------|
 | `HEADLESS` | GUI 없이 실행 | `1` |
 | `PX4_SYS_AUTOSTART` | 기체 타입 | `4001` (x500) |
-| `PX4_GZ_MODEL_POSE` | 초기 위치 (x,y,z,roll,pitch,yaw) | `"3,0,0,0,0,0"` |
+| `PX4_GZ_MODEL_POSE` | 초기 위치 (x,y,z,roll,pitch,yaw) | `"10,0,0,0,0,0"` |
+| `PX4_HOME_LAT` | 홈 위치 위도 | `35.905863` |
+| `PX4_HOME_LON` | 홈 위치 경도 | `128.802615` |
 | `-i` | 인스턴스 번호 | `0`, `1`, `2` |
 
 ---
@@ -315,5 +329,5 @@ mavlink start -u <local_port> -o <remote_port> -t <target_ip> -r <rate>
 ---
 
 **작성일**: 2026-01-21
-**버전**: 2.0
+**버전**: 2.1
 **테스트 환경**: Windows 11 + WSL2 Ubuntu 22.04 + PX4 v1.15 + QGC 4.x
