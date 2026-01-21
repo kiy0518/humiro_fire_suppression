@@ -229,32 +229,90 @@ pkill -9 ruby
 
 ---
 
-## Part 5: VIM4 연결 (향후)
+## Part 5: VIM4 연결
 
 ### 5.1 구조
 
 ```
-VIM4 (192.168.100.30) ──UDP──► Windows PC (192.168.100.4:18001) ──► WSL2 SITL #1
-VIM4 (192.168.100.31) ──UDP──► Windows PC (192.168.100.4:18002) ──► WSL2 SITL #2
-VIM4 (192.168.100.32) ──UDP──► Windows PC (192.168.100.4:18003) ──► WSL2 SITL #3
+┌─────────────────┐     ┌─────────────────────────────────┐     ┌──────────────┐
+│  VIM4 드론들     │     │         Windows PC              │     │    WSL2      │
+│                 │     │        192.168.100.4            │     │              │
+│ .30 (드론1) ────┼─UDP─┼──► :18001 ──socat──► WSL:18001 ─┼─────┼─► SITL #1    │
+│ .31 (드론2) ────┼─UDP─┼──► :18002 ──socat──► WSL:18002 ─┼─────┼─► SITL #2    │
+│ .32 (드론3) ────┼─UDP─┼──► :18003 ──socat──► WSL:18003 ─┼─────┼─► SITL #3    │
+│                 │     │                                 │     │              │
+└─────────────────┘     └─────────────────────────────────┘     └──────────────┘
 ```
 
-### 5.2 Windows 포트 포워딩 (VIM4 연결 시 필요)
+### 5.2 Windows UDP 포트 포워딩 (socat 사용)
 
+Windows에서 `netsh`는 TCP만 지원하므로, UDP 포워딩에는 **socat** 필요합니다.
+
+#### 방법 1: WSL2에서 socat 실행 (권장)
+
+WSL2 터미널에서 (PX4 실행 전에):
+
+```bash
+# socat 설치
+sudo apt install -y socat
+
+# WSL2 IP 확인
+WSL_IP=$(hostname -I | awk '{print $1}')
+echo "WSL2 IP: $WSL_IP"
+
+# UDP 포워딩 시작 (백그라운드)
+socat UDP4-LISTEN:18001,fork,reuseaddr UDP4:127.0.0.1:18001 &
+socat UDP4-LISTEN:18002,fork,reuseaddr UDP4:127.0.0.1:18002 &
+socat UDP4-LISTEN:18003,fork,reuseaddr UDP4:127.0.0.1:18003 &
+
+echo "UDP 포워딩 시작됨"
+```
+
+#### 방법 2: Windows에서 직접 실행
+
+1. **socat for Windows 설치**: https://github.com/tech128/socat-1.7.3.0-windows
+
+2. **PowerShell에서 실행**:
 ```powershell
 # WSL2 IP 확인
 $wslIP = (wsl hostname -I).Trim().Split(" ")[0]
+Write-Host "WSL2 IP: $wslIP"
 
-# 포트 포워딩 설정
-netsh interface portproxy add v4tov4 listenport=18001 listenaddress=0.0.0.0 connectport=18001 connectaddress=$wslIP
-netsh interface portproxy add v4tov4 listenport=18002 listenaddress=0.0.0.0 connectport=18002 connectaddress=$wslIP
-netsh interface portproxy add v4tov4 listenport=18003 listenaddress=0.0.0.0 connectport=18003 connectaddress=$wslIP
-
-# 확인
-netsh interface portproxy show all
+# 각 포트에 대해 socat 실행
+Start-Process socat -ArgumentList "UDP4-LISTEN:18001,fork,reuseaddr UDP4:${wslIP}:18001"
+Start-Process socat -ArgumentList "UDP4-LISTEN:18002,fork,reuseaddr UDP4:${wslIP}:18002"
+Start-Process socat -ArgumentList "UDP4-LISTEN:18003,fork,reuseaddr UDP4:${wslIP}:18003"
 ```
 
-> **주의**: 포트 포워딩은 TCP만 지원합니다. UDP는 별도 도구(socat 등) 필요.
+### 5.3 VIM4 mavlink-router 설정
+
+각 VIM4에서 `/etc/mavlink-router/main.conf`:
+
+```ini
+[General]
+TcpServerPort = 5790
+ReportStats = false
+MavlinkDialect = common
+
+# SITL 연결 (Windows PC)
+[UdpEndpoint SITL]
+Mode = Normal
+Address = 192.168.100.4
+Port = 18001  # 드론2는 18002, 드론3은 18003
+
+# 로컬 GUI
+[UdpEndpoint LocalGUI]
+Mode = Eavesdropping
+Address = 127.0.0.1
+Port = 14551
+```
+
+### 5.4 Windows 방화벽 설정
+
+```powershell
+# UDP 인바운드 허용
+netsh advfirewall firewall add rule name="SITL UDP Inbound" dir=in action=allow protocol=UDP localport=18001-18003
+```
 
 ---
 
@@ -330,5 +388,5 @@ mavlink start -u <local_port> -o <remote_port> -t <target_ip> -r <rate>
 ---
 
 **작성일**: 2026-01-21
-**버전**: 2.2
+**버전**: 2.3
 **테스트 환경**: Windows 11 + WSL2 Ubuntu 22.04 + PX4 v1.15 + QGC 4.x
