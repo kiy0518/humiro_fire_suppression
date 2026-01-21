@@ -2,7 +2,17 @@
 
 ## 빠른 시작 (설치 완료 후)
 
-### 3대 드론 헤드리스 실행 (10m 간격 배치)
+### Step 1: 기존 프로세스 정리
+
+WSL2 접속 후:
+```bash
+pkill -9 px4
+pkill -9 gz
+pkill -9 ruby
+pkill -9 socat
+```
+
+### Step 2: 터미널 3개 열고 PX4 실행
 
 **시뮬레이션 좌표**: 위도 35.905863, 경도 128.802615 (대구 지역)
 
@@ -15,8 +25,6 @@
 
         ◄────── 10m ──────►◄────── 10m ──────►
 ```
-
-**WSL2 터미널 3개 열기**
 
 **터미널 1 (드론 1 - 센터):**
 ```bash
@@ -36,9 +44,11 @@ cd ~/PX4-Autopilot
 PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="10,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 2
 ```
 
-### PX4 콘솔 설정 (각 터미널에서)
+### Step 3: 각 PX4 콘솔에서 mavlink 설정
 
-**드론 1 콘솔:**
+> **중요**: socat 없이 PX4에서 직접 Windows Host IP로 전송합니다.
+
+**드론 1 콘솔 (pxh>):**
 ```
 param set COM_RCL_EXCEPT 4
 param set NAV_RCL_ACT 0
@@ -65,7 +75,7 @@ mavlink start -u 18003 -o 18003 -t 172.20.64.1 -r 4000000
 > **참고**: `172.20.64.1`은 WSL2에서 Windows Host로 접근하는 IP입니다.
 > 환경에 따라 다를 수 있으니 `ip route | grep default` 명령으로 확인하세요.
 
-### QGroundControl 설정
+### Step 4: QGroundControl 연결
 
 **Comm Links 추가** (Application Settings → Comm Links):
 
@@ -77,7 +87,7 @@ mavlink start -u 18003 -o 18003 -t 172.20.64.1 -r 4000000
 
 각 링크에서 **Connect** 클릭
 
-### 이륙 테스트
+### Step 5: 이륙 테스트
 
 각 PX4 콘솔에서:
 ```
@@ -388,5 +398,5 @@ mavlink start -u <local_port> -o <remote_port> -t <target_ip> -r <rate>
 ---
 
 **작성일**: 2026-01-21
-**버전**: 2.3
+**버전**: 2.4
 **테스트 환경**: Windows 11 + WSL2 Ubuntu 22.04 + PX4 v1.15 + QGC 4.x
