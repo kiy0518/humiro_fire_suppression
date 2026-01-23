@@ -292,6 +292,13 @@
             <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <span><i class="bi bi-broadcast"></i> 포트 라우팅 다이어그램 <small class="text-muted">(드래그 가능)</small></span>
                 <div class="d-flex align-items-center gap-3">
+                    <!-- SITL 모드 토글 -->
+                    <div class="form-check form-switch mb-0" title="SITL/FC 모드 전환">
+                        <input class="form-check-input" type="checkbox" id="sitlModeToggle" style="cursor: pointer;">
+                        <label class="form-check-label small" for="sitlModeToggle" style="cursor: pointer;">
+                            <span id="sitlModeLabel">FC 모드</span>
+                        </label>
+                    </div>
                     <!-- GCS 포트 모드 토글 -->
                     <div class="form-check form-switch mb-0" title="GCS 포트 모드 설정">
                         <input class="form-check-input" type="checkbox" id="gcsPortModeToggle" style="cursor: pointer;">
@@ -335,7 +342,7 @@
                     <div id="dynamicNodes"></div>
 
                     <!-- 범례 -->
-                    <div class="legend">
+                    <div class="legend" id="diagramLegend">
                         <div class="legend-item">
                             <div class="legend-dot status-connected"></div>
                             <span>연결됨</span>
@@ -357,13 +364,30 @@
                             <span style="margin-left: 4px;">양방향 (TCP)</span>
                         </div>
                         <hr style="margin: 5px 0; border-color: #ddd;">
-                        <div class="legend-item">
-                            <i class="bi bi-drone" style="color: #667eea; font-size: 1.1rem;"></i>
-                            <span style="margin-left: 4px;">다른 기체 (온라인)</span>
+                        <!-- FC/SITL 모드에 따라 동적 표시 -->
+                        <div id="legendFcMode" class="legend-item">
+                            <i class="bi bi-cpu" style="color: #4caf50; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">실제 FC (비행)</span>
                         </div>
-                        <div class="legend-item">
-                            <i class="bi bi-drone" style="color: #6c757d; font-size: 1.1rem;"></i>
-                            <span style="margin-left: 4px;">다른 기체 (오프라인)</span>
+                        <div id="legendSitlMode" class="legend-item" style="display: none;">
+                            <i class="bi bi-pc-display" style="color: #ff6b6b; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">PC SITL (현재 연결)</span>
+                        </div>
+                        <div id="legendSitlOther" class="legend-item" style="display: none;">
+                            <i class="bi bi-pc-display" style="color: #ff9800; font-size: 1.1rem;"></i>
+                            <span style="margin-left: 4px;">다른 SITL 인스턴스</span>
+                        </div>
+                        <!-- 다른 기체 범례 (FC 모드에서만 표시) -->
+                        <div id="legendOtherDrones">
+                            <hr style="margin: 5px 0; border-color: #ddd;">
+                            <div class="legend-item">
+                                <i class="bi bi-drone" style="color: #667eea; font-size: 1.1rem;"></i>
+                                <span style="margin-left: 4px;">다른 기체 (온라인)</span>
+                            </div>
+                            <div class="legend-item">
+                                <i class="bi bi-drone" style="color: #6c757d; font-size: 1.1rem;"></i>
+                                <span style="margin-left: 4px;">다른 기체 (오프라인)</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -580,10 +604,24 @@
     // 아이콘 매핑
     const iconMap = {
         'fc': 'bi-cpu',
+        'pc_sitl': 'bi-pc-display',  // SITL 시뮬레이터 (PC)
         'gcs': 'bi-display',
         'ros2': 'bi-gear-wide-connected',
+        'localgui': 'bi-window',
         'external': 'bi-box-arrow-in-right',
+        'application': 'bi-app-indicator',
         'tcp': 'bi-ethernet'
+    };
+
+    // 노드 이름 매핑 (더 친숙한 이름)
+    const nameMap = {
+        'fc': 'FC (PX4)',
+        'pc_sitl': 'PC SITL',
+        'gcs': 'QGC',
+        'localgui': 'Local GUI',
+        'external': 'External (송신)',
+        'application': 'App Manager',
+        'ros2': 'ROS2'
     };
 
     // 노드 위치 (인덱스 기반)
@@ -708,6 +746,12 @@
             document.getElementById('routerDiagram').appendChild(warningDiv);
         }
 
+        // SITL 모드일 때는 GCS 충돌 경고 표시하지 않음
+        if (currentSitlMode === 'sitl') {
+            warningDiv.innerHTML = '';
+            return;
+        }
+
         const { gcs_conflict, gcs_shared, conflict_details, drones } = data;
 
         if (gcs_conflict) {
@@ -733,17 +777,113 @@
         }
     }
 
+    // SITL 인스턴스 상태 (SITL 모드에서 사용)
+    let sitlInstances = [];
+
+    // SITL 인스턴스 상태 로드
+    async function loadSitlInstances() {
+        if (currentSitlMode !== 'sitl') {
+            sitlInstances = [];
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/router/sitl-instances');
+            const data = await response.json();
+
+            if (data.success && data.is_sitl_mode) {
+                sitlInstances = data.instances;
+                createSitlInstanceNodes();
+            }
+        } catch (e) {
+            console.error('SITL 인스턴스 상태 로드 실패:', e);
+        }
+    }
+
+    // SITL 인스턴스 노드 생성 (SITL 모드에서만)
+    function createSitlInstanceNodes() {
+        // 기존 SITL 인스턴스 노드 제거
+        document.querySelectorAll('.sitl-instance-node').forEach(el => el.remove());
+
+        if (currentSitlMode !== 'sitl' || sitlInstances.length === 0) return;
+
+        const container = document.getElementById('dynamicNodes');
+        const sitlNode = document.getElementById('node-pc_sitl');  // PC SITL 노드
+
+        if (!sitlNode || !container) return;
+
+        // 다른 SITL 인스턴스들 (현재 연결된 것 제외)
+        const currentDroneId = routerCurrentDroneId;
+        const otherInstances = sitlInstances.filter(inst => inst.id !== currentDroneId);
+
+        otherInstances.forEach((inst, index) => {
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'node sitl-instance-node';
+            nodeEl.id = `node-sitl-${inst.id}`;
+            nodeEl.setAttribute('data-sitl-id', inst.id);
+            nodeEl.setAttribute('data-direction', 'out');
+            nodeEl.style.cssText = `
+                position: absolute;
+                background: ${inst.connected ? 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)' : '#6c757d'};
+                color: white;
+                min-width: 110px;
+                border: 2px solid ${inst.connected ? '#ff9800' : '#6c757d'};
+            `;
+
+            const statusClass = inst.connected ? 'status-connected' : 'status-disconnected';
+
+            nodeEl.innerHTML = `
+                <div class="node-status ${statusClass}"></div>
+                <div class="node-icon"><i class="bi bi-pc-display"></i></div>
+                <div class="node-name">SITL ${inst.id}번</div>
+                <div class="node-port" style="color: rgba(255,255,255,0.8);">
+                    ${inst.ip}:${inst.port}
+                </div>
+            `;
+
+            container.appendChild(nodeEl);
+
+            // PC SITL 노드 기준으로 위치 설정
+            const savedKey = `node-sitl-${inst.id}`;
+            if (dragState.savedPositions[savedKey]) {
+                nodeEl.style.left = dragState.savedPositions[savedKey].left;
+                nodeEl.style.top = dragState.savedPositions[savedKey].top;
+            } else {
+                // PC SITL 노드 옆에 배치
+                const sitlRect = sitlNode.getBoundingClientRect();
+                const diagramRect = document.getElementById('routerDiagram').getBoundingClientRect();
+                const sitlLeft = sitlRect.left - diagramRect.left;
+                const sitlTop = sitlRect.top - diagramRect.top;
+
+                // 다른 SITL 인스턴스들을 PC SITL 왼쪽에 세로로 배치
+                nodeEl.style.left = Math.max(10, sitlLeft - 150) + 'px';
+                nodeEl.style.top = (sitlTop + (index - 0.5) * 80) + 'px';
+            }
+
+            makeDraggable(nodeEl);
+        });
+
+        setTimeout(drawConnections, 50);
+    }
+
     // 네트워크 드론 노드 생성 (GCS_PORT_MODE에 따라 포트 결정)
     function createNetworkDroneNodes() {
         // 기존 네트워크 드론 노드 제거
         document.querySelectorAll('.network-drone-node').forEach(el => el.remove());
+
+        // SITL 모드일 때는 다른 VIM4 기체 노드 대신 SITL 인스턴스 표시
+        if (currentSitlMode === 'sitl') {
+            // SITL 인스턴스 노드 로드 및 생성
+            loadSitlInstances();
+            return;
+        }
 
         const container = document.getElementById('dynamicNodes');
         const qgcNode = document.getElementById('node-gcs');  // QGC 노드
 
         if (!qgcNode || !container) return;
 
-        // 다른 기체들만 필터 (현재 기체 제외)
+        // FC 모드: 다른 VIM4 기체들만 필터 (현재 기체 제외)
         const otherDrones = networkDrones.filter(d => !d.is_current);
 
         otherDrones.forEach((drone, index) => {
@@ -807,6 +947,8 @@
 
         routerConfig.nodes.forEach((node, index) => {
             const icon = iconMap[node.id] || 'bi-hdd-network';
+            const displayName = nameMap[node.id] || node.name;
+
             // in = Server (외부에서 라우터로 데이터 수신) - 초록색
             // out = Normal (라우터에서 외부로 데이터 송신) - 파란색
             // both = 양방향 - 노란색
@@ -829,10 +971,31 @@
             nodeEl.setAttribute('data-port', node.port);
             nodeEl.setAttribute('data-direction', node.direction);
 
+            // SITL 노드는 특별한 스타일 적용
+            const isSitl = node.id === 'pc_sitl';
+            if (isSitl) {
+                nodeEl.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #c44569 100%)';
+                nodeEl.style.border = '2px solid #ff6b6b';
+            }
+
+            // FC 노드 스타일
+            const isFc = node.id === 'fc';
+            if (isFc) {
+                nodeEl.style.background = 'linear-gradient(135deg, #4caf50 0%, #2e7d32 100%)';
+                nodeEl.style.border = '2px solid #4caf50';
+            }
+
+            // SITL 노드에 PC IP 표시
+            let addressInfo = '';
+            if (isSitl && node.address) {
+                addressInfo = `<div class="node-address" style="font-size: 0.7rem; color: rgba(255,255,255,0.8);">${node.address}</div>`;
+            }
+
             nodeEl.innerHTML = `
                 <div class="node-status status-unknown"></div>
                 <div class="node-icon"><i class="bi ${icon}"></i></div>
-                <div class="node-name">${node.name}</div>
+                <div class="node-name">${displayName}</div>
+                ${addressInfo}
                 <div class="node-port">${portText}</div>
                 <button class="btn btn-primary btn-sm test-btn" onclick="testPort('${node.id}', event)">테스트</button>
             `;
@@ -994,8 +1157,14 @@
         drawNetworkDroneConnections(svg, diagramRect);
     }
 
-    // 네트워크 드론 ↔ QGC 연결선 그리기 (양방향)
+    // 네트워크 드론 ↔ QGC 연결선 그리기 (양방향) 또는 SITL 인스턴스 ↔ 라우터 연결선
     function drawNetworkDroneConnections(svg, diagramRect) {
+        // SITL 모드일 때는 SITL 인스턴스 연결선 그리기
+        if (currentSitlMode === 'sitl') {
+            drawSitlInstanceConnections(svg, diagramRect);
+            return;
+        }
+
         const qgcNode = document.getElementById('node-gcs');
         if (!qgcNode) return;
 
@@ -1037,6 +1206,57 @@
                 circle.setAttribute('class', 'packet direction-both');
                 circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite" keyPoints="0;1;0" keyTimes="0;0.5;1" calcMode="linear">
                     <mpath href="#line-drone-${drone.id}"/>
+                </animateMotion>`;
+                svg.appendChild(circle);
+            }
+        });
+    }
+
+    // SITL 인스턴스 ↔ PC SITL 노드 연결선 그리기
+    function drawSitlInstanceConnections(svg, diagramRect) {
+        const sitlNode = document.getElementById('node-pc_sitl');
+        if (!sitlNode) return;
+
+        const sitlRect = sitlNode.getBoundingClientRect();
+        const sitlX = sitlRect.left - diagramRect.left + sitlRect.width / 2;
+        const sitlY = sitlRect.top - diagramRect.top + sitlRect.height / 2;
+
+        // 다른 SITL 인스턴스들 (현재 연결된 것 제외)
+        const currentDroneId = routerCurrentDroneId;
+        const otherInstances = sitlInstances.filter(inst => inst.id !== currentDroneId);
+
+        otherInstances.forEach(inst => {
+            const instNode = document.getElementById(`node-sitl-${inst.id}`);
+            if (!instNode) return;
+
+            const instRect = instNode.getBoundingClientRect();
+            const instX = instRect.left - diagramRect.left + instRect.width / 2;
+            const instY = instRect.top - diagramRect.top + instRect.height / 2;
+
+            // 곡선 경로 생성
+            const midX = (instX + sitlX) / 2;
+            const midY = (instY + sitlY) / 2;
+            const ctrlOffset = 20;
+
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            // SITL 인스턴스 → PC SITL (같은 PC에서 실행)
+            path.setAttribute('d', `M ${instX} ${instY} Q ${midX} ${midY - ctrlOffset} ${sitlX} ${sitlY}`);
+
+            // 연결 상태에 따라 스타일 적용
+            const activeClass = inst.connected ? 'active direction-out' : '';
+            path.setAttribute('class', `connection-line ${activeClass}`);
+            path.setAttribute('id', `line-sitl-${inst.id}`);
+            path.style.strokeDasharray = '5, 5';  // 점선으로 구분
+            path.style.stroke = inst.connected ? '#ff9800' : '#6c757d';  // 주황색
+            svg.appendChild(path);
+
+            // 연결된 인스턴스는 패킷 애니메이션 추가
+            if (inst.connected) {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('r', '5');
+                circle.setAttribute('fill', '#ff9800');
+                circle.innerHTML = `<animateMotion dur="1.5s" repeatCount="indefinite">
+                    <mpath href="#line-sitl-${inst.id}"/>
                 </animateMotion>`;
                 svg.appendChild(circle);
             }
@@ -1646,17 +1866,188 @@
         }
     }
 
+    // ===== SITL 모드 관리 =====
+    let currentSitlMode = 'fc';
+    let currentSitlIp = '192.168.100.4';
+
+    // SITL 모드 상태 로드
+    async function loadSitlMode() {
+        try {
+            const response = await fetch('/api/router/sitl-mode');
+            const data = await response.json();
+            if (data.success) {
+                currentSitlMode = data.mode;
+                currentSitlIp = data.sitl_ip || '192.168.100.4';
+                updateSitlModeToggle();
+
+                // SITL 경고 배너도 즉시 업데이트
+                updateSitlBanner(currentSitlMode === 'sitl');
+
+                // SITL 인스턴스 노드도 로드/제거
+                if (currentSitlMode === 'sitl') {
+                    await loadSitlInstances();
+                } else {
+                    // FC 모드: SITL 인스턴스 노드 제거
+                    document.querySelectorAll('.sitl-instance-node').forEach(el => el.remove());
+                }
+            }
+        } catch (e) {
+            console.error('SITL 모드 로드 실패:', e);
+        }
+    }
+
+    // SITL 경고 배너 업데이트 (base.html의 배너)
+    function updateSitlBanner(isSitlMode) {
+        const banner = document.getElementById('sitlWarningBanner');
+        if (banner) {
+            if (isSitlMode) {
+                banner.classList.remove('d-none');
+            } else {
+                banner.classList.add('d-none');
+            }
+        }
+    }
+
+    // SITL 모드 토글 UI 업데이트
+    function updateSitlModeToggle() {
+        const toggle = document.getElementById('sitlModeToggle');
+        const label = document.getElementById('sitlModeLabel');
+
+        // 범례 요소들
+        const legendFcMode = document.getElementById('legendFcMode');
+        const legendSitlMode = document.getElementById('legendSitlMode');
+        const legendSitlOther = document.getElementById('legendSitlOther');
+        const legendOtherDrones = document.getElementById('legendOtherDrones');
+
+        if (currentSitlMode === 'sitl') {
+            toggle.checked = true;
+            label.innerHTML = `SITL 모드 <small class="text-warning">(${currentSitlIp})</small>`;
+            toggle.parentElement.classList.add('text-warning');
+
+            // 범례 업데이트: SITL 모드 표시, FC 모드/다른 기체 숨김
+            if (legendFcMode) legendFcMode.style.display = 'none';
+            if (legendSitlMode) legendSitlMode.style.display = 'flex';
+            if (legendSitlOther) legendSitlOther.style.display = 'flex';
+            if (legendOtherDrones) legendOtherDrones.style.display = 'none';
+        } else {
+            toggle.checked = false;
+            label.innerHTML = 'FC 모드 <small class="text-success">(실제 비행)</small>';
+            toggle.parentElement.classList.remove('text-warning');
+
+            // 범례 업데이트: FC 모드/다른 기체 표시, SITL 모드 숨김
+            if (legendFcMode) legendFcMode.style.display = 'flex';
+            if (legendSitlMode) legendSitlMode.style.display = 'none';
+            if (legendSitlOther) legendSitlOther.style.display = 'none';
+            if (legendOtherDrones) legendOtherDrones.style.display = 'block';
+        }
+    }
+
+    // SITL 모드 변경
+    async function changeSitlMode(mode, sitlIp) {
+        try {
+            log(`SITL 모드 변경 중: ${mode}...`, 'info');
+
+            const response = await fetch('/api/router/sitl-mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: mode,
+                    sitl_ip: sitlIp
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                currentSitlMode = mode;
+                currentSitlIp = sitlIp;
+                updateSitlModeToggle();
+                log(`SITL 모드 변경 완료: ${mode}`, 'success');
+
+                // SITL 경고 배너 즉시 업데이트
+                updateSitlBanner(mode === 'sitl');
+
+                // 설정 다시 로드
+                await loadConfig();
+                await refreshStatus();
+                await loadNetworkDrones();  // 네트워크 드론/SITL 인스턴스 다시 로드
+
+                const modeText = mode === 'sitl' ? `SITL 시뮬레이션 (${sitlIp})` : '실제 FC 연결';
+                alert(`${modeText} 모드로 전환되었습니다.\n\nmavlink-router가 재시작되었습니다.`);
+            } else {
+                throw new Error(result.error || '변경 실패');
+            }
+        } catch (e) {
+            log(`SITL 모드 변경 실패: ${e.message}`, 'error');
+            alert('SITL 모드 변경 실패: ' + e.message);
+            // 토글 원래대로 복구
+            updateSitlModeToggle();
+        }
+    }
+
+    // SITL IP 입력 프롬프트
+    function promptSitlIp() {
+        const defaultIp = currentSitlIp || '192.168.100.4';
+        const ip = prompt('SITL이 실행 중인 PC의 IP 주소를 입력하세요:', defaultIp);
+
+        if (ip === null) {
+            // 취소
+            return null;
+        }
+
+        // IP 형식 간단 검증
+        const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (!ipPattern.test(ip)) {
+            alert('올바른 IP 주소 형식이 아닙니다. (예: 192.168.100.4)');
+            return null;
+        }
+
+        return ip;
+    }
+
     // 초기화
     document.addEventListener('DOMContentLoaded', async () => {
-        loadSavedPositions();
-        await loadGcsPortMode();  // GCS 포트 모드 먼저 로드
-        await loadConfig();
-        await refreshStatus();
-        await loadNetworkDrones();  // 네트워크 드론 상태 로드
+        // 이벤트 핸들러를 먼저 등록 (비동기 로드 완료 전에도 토글이 동작하도록)
+        // SITL 모드 토글 이벤트 핸들러
+        document.getElementById('sitlModeToggle').addEventListener('change', (e) => {
+            const requestedMode = e.target.checked ? 'sitl' : 'fc';
+
+            // 현재 서버 상태와 동일한 모드를 요청하면 무시 (초기 동기화 시 발생)
+            if (requestedMode === currentSitlMode) {
+                return;
+            }
+
+            if (e.target.checked) {
+                // SITL 모드로 전환
+                const sitlIp = promptSitlIp();
+                if (sitlIp) {
+                    if (confirm(`SITL 시뮬레이션 모드로 전환하시겠습니까?\n\nPC IP: ${sitlIp}\n\n주의: mavlink-router가 재시작됩니다.`)) {
+                        changeSitlMode('sitl', sitlIp);
+                    } else {
+                        updateSitlModeToggle();
+                    }
+                } else {
+                    updateSitlModeToggle();
+                }
+            } else {
+                // FC 모드로 전환
+                if (confirm('실제 FC 연결 모드로 전환하시겠습니까?\n\n주의: mavlink-router가 재시작됩니다.')) {
+                    changeSitlMode('fc', null);
+                } else {
+                    updateSitlModeToggle();
+                }
+            }
+        });
 
         // GCS 포트 모드 토글 이벤트 핸들러
         document.getElementById('gcsPortModeToggle').addEventListener('change', (e) => {
             const newMode = e.target.checked ? 'separate' : 'unified';
+
+            // 현재 서버 상태와 동일한 모드를 요청하면 무시 (초기 동기화 시 발생)
+            if (newMode === currentGcsPortMode) {
+                return;
+            }
+
             if (confirm(`GCS 포트 모드를 "${newMode === 'separate' ? '분리 (기체별 포트)' : '통합 (모두 14550)'}"로 변경하시겠습니까?`)) {
                 changeGcsPortMode(newMode);
             } else {
@@ -1664,6 +2055,14 @@
                 updateGcsPortModeToggle();
             }
         });
+
+        // 데이터 로드 (이벤트 핸들러 등록 후)
+        loadSavedPositions();
+        await loadSitlMode();  // SITL 모드 먼저 로드
+        await loadGcsPortMode();  // GCS 포트 모드 로드
+        await loadConfig();
+        await refreshStatus();
+        await loadNetworkDrones();  // 네트워크 드론 상태 로드
 
         // 주기적으로 네트워크 드론 상태 업데이트 (10초마다)
         setInterval(loadNetworkDrones, 10000);

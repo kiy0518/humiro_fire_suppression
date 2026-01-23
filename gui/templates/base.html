@@ -330,6 +330,20 @@
         </div>
     </nav>
 
+    <!-- SITL 모드 경고 배너 -->
+    <div id="sitlWarningBanner" class="alert alert-danger mb-0 rounded-0 d-none" style="border: none; background: linear-gradient(90deg, #dc3545 0%, #c82333 100%);">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center justify-content-center">
+                <i class="bi bi-exclamation-triangle-fill fs-4 me-2"></i>
+                <strong class="me-2">SITL 시뮬레이션 모드</strong>
+                <span class="me-3">- 실제 FC와 연결되어 있지 않습니다. 실제 비행 전 FC 모드로 전환하세요.</span>
+                <a href="/router" class="btn btn-light btn-sm">
+                    <i class="bi bi-gear"></i> 라우터 설정
+                </a>
+            </div>
+        </div>
+    </div>
+
     <!-- 메인 컨텐츠 -->
     <main class="container-fluid py-4">
         {% block content %}{% endblock %}
@@ -477,6 +491,35 @@
                     .catch(err => console.log('SW registration failed'));
             });
         }
+
+        // SITL 모드 확인 및 경고 배너 표시
+        function checkSitlMode() {
+            fetch('/api/router/sitl-mode')
+                .then(response => response.json())
+                .then(data => {
+                    const banner = document.getElementById('sitlWarningBanner');
+                    if (banner) {
+                        if (data.success && data.is_sitl_mode) {
+                            banner.classList.remove('d-none');
+                        } else {
+                            banner.classList.add('d-none');
+                        }
+                    }
+                })
+                .catch(err => {
+                    // API 오류 시 배너 숨김 (FC 모드로 간주)
+                    const banner = document.getElementById('sitlWarningBanner');
+                    if (banner) {
+                        banner.classList.add('d-none');
+                    }
+                });
+        }
+
+        // 페이지 로드 및 주기적으로 SITL 모드 확인
+        document.addEventListener('DOMContentLoaded', () => {
+            checkSitlMode();
+            setInterval(checkSitlMode, 30000); // 30초마다 확인
+        });
 
         // PWA 설치 프롬프트
         let deferredPrompt;

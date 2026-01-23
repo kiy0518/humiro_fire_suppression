@@ -1,129 +1,188 @@
-# 군집 드론 시뮬레이션 환경 구축 가이드
+# 군집 드론 시뮬레이션 환경 구축 가이드 (VirtualBox)
 
-## 빠른 시작 (설치 완료 후)
+## 개요
 
-### Step 1: 기존 프로세스 정리
+VIM4 미션 컴퓨터에서 3대의 SITL 드론을 제어하기 위한 시뮬레이션 환경 구축 가이드입니다.
 
-WSL2 접속 후:
-```bash
-pkill -9 px4
-pkill -9 gz
-pkill -9 ruby
-pkill -9 socat
+**VirtualBox 브리지 모드**를 사용하면 NAT 문제 없이 깔끔하게 구성할 수 있습니다.
+
+---
+
+## 시스템 구성도
+
 ```
-
-### Step 2: 터미널 3개 열고 PX4 실행
-
-**시뮬레이션 좌표**: 위도 35.905863, 경도 128.802615 (대구 지역)
-
-**배치 구조**:
-```
-        좌측(-10m)      센터(0m)       우측(+10m)
-            ▼             ▼              ▼
-         드론 2         드론 1          드론 3
-        [-10,0,0]       [0,0,0]        [10,0,0]
-
-        ◄────── 10m ──────►◄────── 10m ──────►
-```
-
-**터미널 1 (드론 1 - 센터):**
-```bash
-cd ~/PX4-Autopilot
-PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 0
-```
-
-**터미널 2 (드론 2 - 좌측 10m):**
-```bash
-cd ~/PX4-Autopilot
-PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="-10,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 1
-```
-
-**터미널 3 (드론 3 - 우측 10m):**
-```bash
-cd ~/PX4-Autopilot
-PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="10,0,0,0,0,0" ./build/px4_sitl_default/bin/px4 -i 2
-```
-
-### Step 3: 각 PX4 콘솔에서 mavlink 설정
-
-> **중요**: socat 없이 PX4에서 직접 Windows Host IP로 전송합니다.
-
-**드론 1 콘솔 (pxh>):**
-```
-param set COM_RCL_EXCEPT 4
-param set NAV_RCL_ACT 0
-mavlink stop-all
-mavlink start -u 18001 -o 18001 -t 172.20.64.1 -r 4000000
-```
-
-**드론 2 콘솔:**
-```
-param set COM_RCL_EXCEPT 4
-param set NAV_RCL_ACT 0
-mavlink stop-all
-mavlink start -u 18002 -o 18002 -t 172.20.64.1 -r 4000000
-```
-
-**드론 3 콘솔:**
-```
-param set COM_RCL_EXCEPT 4
-param set NAV_RCL_ACT 0
-mavlink stop-all
-mavlink start -u 18003 -o 18003 -t 172.20.64.1 -r 4000000
-```
-
-> **참고**: `172.20.64.1`은 WSL2에서 Windows Host로 접근하는 IP입니다.
-> 환경에 따라 다를 수 있으니 `ip route | grep default` 명령으로 확인하세요.
-
-### Step 4: QGroundControl 연결
-
-**Comm Links 추가** (Application Settings → Comm Links):
-
-| Name | Type | Listening Port |
-|------|------|----------------|
-| Drone1 | UDP | 18001 |
-| Drone2 | UDP | 18002 |
-| Drone3 | UDP | 18003 |
-
-각 링크에서 **Connect** 클릭
-
-### Step 5: 이륙 테스트
-
-각 PX4 콘솔에서:
-```
-commander arm -f
-commander takeoff
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                  LAN (192.168.100.x/24)                             │
+│                                                                                     │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │                        VirtualBox VM (192.168.100.50)                        │   │
+│  │                              Ubuntu 22.04                                    │   │
+│  │                                                                              │   │
+│  │   ┌─────────────┐      ┌─────────────┐      ┌─────────────┐                  │   │
+│  │   │  SITL #1    │      │  SITL #2    │      │  SITL #3    │                  │   │
+│  │   │  -i 0       │      │  -i 1       │      │  -i 2       │                  │   │
+│  │   │             │      │             │      │             │                  │   │
+│  │   │ → .30:18001 │      │ → .31:18002 │      │ → .32:18003 │                  │   │
+│  │   └──────┬──────┘      └──────┬──────┘      └──────┬──────┘                  │   │
+│  │          │                    │                    │                         │   │
+│  └──────────┼────────────────────┼────────────────────┼─────────────────────────┘   │
+│             │ UDP                │ UDP                │ UDP                         │
+│             ▼                    ▼                    ▼                             │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐                      │
+│  │ VIM4 드론1       │  │ VIM4 드론2       │  │ VIM4 드론3       │                      │
+│  │ 192.168.100.30  │  │ 192.168.100.31  │  │ 192.168.100.32  │                      │
+│  │                 │  │                 │  │                 │                      │
+│  │ ┌─────────────┐ │  │ ┌─────────────┐ │  │ ┌─────────────┐ │                      │
+│  │ │mavlink-     │ │  │ │mavlink-     │ │  │ │mavlink-     │ │                      │
+│  │ │router       │ │  │ │router       │ │  │ │router       │ │                      │
+│  │ │             │ │  │ │             │ │  │ │             │ │                      │
+│  │ │ FC:14540    │ │  │ │ FC:14540    │ │  │ │ FC:14540    │ │                      │
+│  │ │ SITL:18001  │ │  │ │ SITL:18002  │ │  │ │ SITL:18003  │ │                      │
+│  │ └──────┬──────┘ │  │ └──────┬──────┘ │  │ └──────┬──────┘ │                      │
+│  │        │        │  │        │        │  │        │        │                      │
+│  │ ┌──────┴──────┐ │  │ ┌──────┴──────┐ │  │ ┌──────┴──────┐ │                      │
+│  │ │  WEB GUI    │ │  │ │  WEB GUI    │ │  │ │  WEB GUI    │ │                      │
+│  │ │  :5000      │ │  │ │  :5000      │ │  │ │  :5000      │ │                      │
+│  │ │ [FC/SITL]   │ │  │ │ [FC/SITL]   │ │  │ │ [FC/SITL]   │ │                      │
+│  │ └─────────────┘ │  │ └─────────────┘ │  │ └─────────────┘ │                      │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘                      │
+│           │ eth0               │ eth0               │ eth0                          │
+│           │ 10.0.0.11          │ 10.0.0.11          │ 10.0.0.11                     │
+└───────────┼────────────────────┼────────────────────┼────────────────────────────────┘
+            ▼                    ▼                    ▼
+┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
+│   실제 FC          │ │   실제 FC          │ │   실제 FC          │
+│   10.0.0.12:14540 │ │   10.0.0.12:14540 │ │   10.0.0.12:14540 │
+│   (실제 비행 시)    │ │   (실제 비행 시)    │ │   (실제 비행 시)    │
+└───────────────────┘ └───────────────────┘ └───────────────────┘
 ```
 
 ---
 
-## Part 1: WSL2 설치
+## 동작 원리
 
-### 1.1 WSL2 설치 (PowerShell 관리자 권한)
+### FC/SITL 자동 전환
 
-```powershell
-# WSL 설치
-wsl --install
+mavlink-router는 **FC와 SITL 엔드포인트를 모두** 가지고 있습니다.
 
-# Ubuntu 22.04 설치
-wsl --install -d Ubuntu-22.04
+```ini
+# FC 연결 (실제 비행)
+[UdpEndpoint FC]
+Mode = Server
+Address = 0.0.0.0
+Port = 14540
 
-# 재부팅 후 버전 확인
-wsl --list --verbose
+# SITL 연결 (시뮬레이션)
+[UdpEndpoint SITL]
+Mode = Server
+Address = 0.0.0.0
+Port = 18001  # 드론별: 18001, 18002, 18003
 ```
 
-### 1.2 Windows 방화벽 설정
+| 상황 | FC (14540) | SITL (18001) | 결과 |
+|------|------------|--------------|------|
+| 실제 비행 | ✅ 연결됨 | ❌ 없음 | FC로 메시지 라우팅 |
+| 시뮬레이션 | ❌ 없음 | ✅ 연결됨 | SITL로 메시지 라우팅 |
 
-```powershell
-# MAVLink UDP 포트 허용
-netsh advfirewall firewall add rule name="PX4 SITL Multi" dir=in action=allow protocol=UDP localport=18001-18003
+**웹 GUI에서 별도 설정 없이 자동 전환**됩니다.
+
+---
+
+## Part 1: VirtualBox 설치 및 VM 생성
+
+### 1.1 VirtualBox 다운로드
+
+https://www.virtualbox.org/wiki/Downloads 에서 다운로드 후 설치
+
+### 1.2 Ubuntu ISO 다운로드
+
+https://ubuntu.com/download/desktop 에서 Ubuntu 22.04 LTS 다운로드
+
+### 1.3 VM 생성
+
+1. VirtualBox 실행 → **새로 만들기** 클릭
+2. 설정:
+   - **이름**: PX4-SITL
+   - **종류**: Linux
+   - **버전**: Ubuntu (64-bit)
+   - **메모리**: 8192 MB (최소 4GB, 권장 8GB)
+   - **프로세서**: 4개 이상
+   - **하드 디스크**: 50GB (동적 할당)
+
+3. **만들기** 클릭
+
+### 1.4 브리지 네트워크 설정 (중요!)
+
+1. 생성된 VM 선택 → **설정** 클릭
+2. **네트워크** → **어댑터 1**
+3. 설정:
+   - **연결 대상**: `브리지 어댑터`
+   - **이름**: 실제 사용 중인 네트워크 어댑터 선택
+     - 유선: `Intel(R) Ethernet...` 또는 `Realtek PCIe GbE...`
+     - 무선: `Intel(R) Wi-Fi...` 또는 `Realtek...Wireless...`
+   - **무작위 모드**: 모두 허용
+4. **확인** 클릭
+
+### 1.5 Ubuntu 설치
+
+1. VM 선택 → **시작** 클릭
+2. Ubuntu ISO 선택
+3. 일반적인 Ubuntu 설치 진행
+4. 설치 완료 후 재부팅
+
+---
+
+## Part 2: VM 네트워크 설정
+
+### 2.1 IP 주소 확인
+
+```bash
+ip addr show
+```
+
+**192.168.100.x** 대역의 IP가 할당되어야 합니다.
+
+### 2.2 고정 IP 설정 (권장)
+
+```bash
+sudo nano /etc/netplan/01-netcfg.yaml
+```
+
+```yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp0s3:
+      dhcp4: no
+      addresses:
+        - 192.168.100.50/24
+      routes:
+        - to: default
+          via: 192.168.100.1
+      nameservers:
+        addresses:
+          - 8.8.8.8
+          - 8.8.4.4
+```
+
+```bash
+sudo netplan apply
+```
+
+### 2.3 VIM4와 통신 테스트
+
+```bash
+ping 192.168.100.30  # VIM4 드론1
+ping 192.168.100.31  # VIM4 드론2
+ping 192.168.100.32  # VIM4 드론3
 ```
 
 ---
 
-## Part 2: PX4 + Gazebo 설치 (WSL2)
+## Part 3: PX4 + Gazebo 설치
 
-### 2.1 시스템 업데이트 및 의존성 설치
+### 3.1 시스템 업데이트 및 의존성 설치
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -139,7 +198,7 @@ sudo apt install -y \
     gstreamer1.0-plugins-bad
 ```
 
-### 2.2 PX4 소스 다운로드
+### 3.2 PX4 소스 다운로드
 
 ```bash
 cd ~
@@ -150,12 +209,10 @@ cd PX4-Autopilot
 bash ./Tools/setup/ubuntu.sh
 ```
 
-### 2.3 첫 빌드 (필수)
+### 3.3 첫 빌드 (필수)
 
 ```bash
 cd ~/PX4-Autopilot
-
-# Gazebo Harmonic용 x500 모델 빌드
 make px4_sitl gz_x500
 ```
 
@@ -163,208 +220,240 @@ make px4_sitl gz_x500
 
 ---
 
-## Part 3: 네트워크 구조
+## Part 4: 시뮬레이션 실행
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    WSL2 Ubuntu 22.04                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐          │
-│  │ PX4 SITL #1 │  │ PX4 SITL #2 │  │ PX4 SITL #3 │          │
-│  │ Port 18001  │  │ Port 18002  │  │ Port 18003  │          │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘          │
-│         │                │                │                  │
-│         └────────────────┼────────────────┘                  │
-│                          │                                   │
-│              WSL2 IP: 172.20.65.x                            │
-└──────────────────────────┼───────────────────────────────────┘
-                           │ UDP (172.20.64.1)
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│                     Windows Host                              │
-│              IP: 172.20.64.1 (WSL Gateway)                   │
-│              IP: 192.168.100.4 (LAN)                         │
-│  ┌────────────────────────────────────┐                      │
-│  │         QGroundControl             │                      │
-│  │   UDP Listen: 18001, 18002, 18003  │                      │
-│  └────────────────────────────────────┘                      │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### 핵심 포인트
-- WSL2에서 Windows Host IP는 `172.20.64.1` (기본 게이트웨이)
-- PX4 mavlink는 이 IP로 데이터를 전송
-- QGC는 해당 포트에서 UDP 수신
-
----
-
-## Part 4: 상세 실행 가이드
-
-### 4.1 WSL2 IP 확인
+### 4.1 기존 프로세스 정리
 
 ```bash
-# WSL2 자신의 IP
-hostname -I
-# 예: 172.20.65.239
-
-# Windows Host (Gateway) IP
-ip route | grep default | awk '{print $3}'
-# 예: 172.20.64.1
-```
-
-### 4.2 단일 드론 테스트
-
-```bash
-cd ~/PX4-Autopilot
-HEADLESS=1 PX4_SYS_AUTOSTART=4001 ./build/px4_sitl_default/bin/px4
-```
-
-PX4 콘솔에서:
-```
-param set COM_RCL_EXCEPT 4
-param set NAV_RCL_ACT 0
-mavlink stop-all
-mavlink start -u 18001 -o 18001 -t 172.20.64.1 -r 4000000
-```
-
-QGC에서 UDP 18001로 연결 테스트
-
-### 4.3 프로세스 정리
-
-```bash
-# 모든 PX4 프로세스 종료
 pkill -9 px4
 pkill -9 gz
 pkill -9 ruby
 ```
 
+### 4.2 터미널 3개 열고 PX4 실행
+
+**시뮬레이션 좌표**: 위도 35.905863, 경도 128.802615
+
+**배치 구조**:
+```
+        좌측(-10m)      센터(0m)       우측(+10m)
+            ▼             ▼              ▼
+         드론 2         드론 1          드론 3
+        [-10,0,0]       [0,0,0]        [10,0,0]
+```
+
+**터미널 1 (드론 1 - 센터):**
+```bash
+cd ~/PX4-Autopilot
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 \
+HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="0,0,0,0,0,0" \
+./build/px4_sitl_default/bin/px4 -i 0
+```
+
+**터미널 2 (드론 2 - 좌측 10m):**
+```bash
+cd ~/PX4-Autopilot
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 \
+HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="-10,0,0,0,0,0" \
+./build/px4_sitl_default/bin/px4 -i 1
+```
+
+**터미널 3 (드론 3 - 우측 10m):**
+```bash
+cd ~/PX4-Autopilot
+PX4_HOME_LAT=35.905863 PX4_HOME_LON=128.802615 PX4_HOME_ALT=0 \
+HEADLESS=1 PX4_SYS_AUTOSTART=4001 PX4_GZ_MODEL_POSE="10,0,0,0,0,0" \
+./build/px4_sitl_default/bin/px4 -i 2
+```
+
+### 4.3 각 PX4 콘솔에서 mavlink 설정
+
+> **중요**: 각 SITL이 해당 VIM4로 직접 메시지를 전송합니다.
+
+**드론 1 콘솔 (pxh>) → VIM4 드론1 (192.168.100.30):**
+```
+param set COM_RCL_EXCEPT 4
+param set NAV_RCL_ACT 0
+mavlink stop-all
+mavlink start -u 14540 -o 18001 -t 192.168.100.30 -r 4000000
+```
+
+**드론 2 콘솔 → VIM4 드론2 (192.168.100.31):**
+```
+param set COM_RCL_EXCEPT 4
+param set NAV_RCL_ACT 0
+mavlink stop-all
+mavlink start -u 14541 -o 18002 -t 192.168.100.31 -r 4000000
+```
+
+**드론 3 콘솔 → VIM4 드론3 (192.168.100.32):**
+```
+param set COM_RCL_EXCEPT 4
+param set NAV_RCL_ACT 0
+mavlink stop-all
+mavlink start -u 14542 -o 18003 -t 192.168.100.32 -r 4000000
+```
+
 ---
 
-## Part 5: VIM4 연결
+## Part 5: VIM4 mavlink-router 설정
 
-### 5.1 구조
+### 5.1 설정 파일 구조
 
-```
-┌─────────────────┐     ┌─────────────────────────────────┐     ┌──────────────┐
-│  VIM4 드론들     │     │         Windows PC              │     │    WSL2      │
-│                 │     │        192.168.100.4            │     │              │
-│ .30 (드론1) ────┼─UDP─┼──► :18001 ──socat──► WSL:18001 ─┼─────┼─► SITL #1    │
-│ .31 (드론2) ────┼─UDP─┼──► :18002 ──socat──► WSL:18002 ─┼─────┼─► SITL #2    │
-│ .32 (드론3) ────┼─UDP─┼──► :18003 ──socat──► WSL:18003 ─┼─────┼─► SITL #3    │
-│                 │     │                                 │     │              │
-└─────────────────┘     └─────────────────────────────────┘     └──────────────┘
-```
-
-### 5.2 Windows UDP 포트 포워딩 (socat 사용)
-
-Windows에서 `netsh`는 TCP만 지원하므로, UDP 포워딩에는 **socat** 필요합니다.
-
-#### 방법 1: WSL2에서 socat 실행 (권장)
-
-WSL2 터미널에서 (PX4 실행 전에):
-
-```bash
-# socat 설치
-sudo apt install -y socat
-
-# WSL2 IP 확인
-WSL_IP=$(hostname -I | awk '{print $1}')
-echo "WSL2 IP: $WSL_IP"
-
-# UDP 포워딩 시작 (백그라운드)
-socat UDP4-LISTEN:18001,fork,reuseaddr UDP4:127.0.0.1:18001 &
-socat UDP4-LISTEN:18002,fork,reuseaddr UDP4:127.0.0.1:18002 &
-socat UDP4-LISTEN:18003,fork,reuseaddr UDP4:127.0.0.1:18003 &
-
-echo "UDP 포워딩 시작됨"
-```
-
-#### 방법 2: Windows에서 직접 실행
-
-1. **socat for Windows 설치**: https://github.com/tech128/socat-1.7.3.0-windows
-
-2. **PowerShell에서 실행**:
-```powershell
-# WSL2 IP 확인
-$wslIP = (wsl hostname -I).Trim().Split(" ")[0]
-Write-Host "WSL2 IP: $wslIP"
-
-# 각 포트에 대해 socat 실행
-Start-Process socat -ArgumentList "UDP4-LISTEN:18001,fork,reuseaddr UDP4:${wslIP}:18001"
-Start-Process socat -ArgumentList "UDP4-LISTEN:18002,fork,reuseaddr UDP4:${wslIP}:18002"
-Start-Process socat -ArgumentList "UDP4-LISTEN:18003,fork,reuseaddr UDP4:${wslIP}:18003"
-```
-
-### 5.3 VIM4 mavlink-router 설정
-
-각 VIM4에서 `/etc/mavlink-router/main.conf`:
+각 VIM4의 `/etc/mavlink-router/main.conf`:
 
 ```ini
+# ==============================================================================
+# MAVLink Router 설정 - FC/SITL 자동 전환 모드
+# ==============================================================================
+
 [General]
 TcpServerPort = 5790
 ReportStats = false
 MavlinkDialect = common
 
-# SITL 연결 (Windows PC)
-[UdpEndpoint SITL]
-Mode = Normal
-Address = 192.168.100.4
-Port = 18001  # 드론2는 18002, 드론3은 18003
+# FC 연결 (실제 비행용) - eth0 네트워크
+[UdpEndpoint FC]
+Mode = Server
+Address = 0.0.0.0
+Port = 14540
 
-# 로컬 GUI
-[UdpEndpoint LocalGUI]
-Mode = Eavesdropping
+# SITL 연결 (시뮬레이션용) - wlan 네트워크
+# 드론1=18001, 드론2=18002, 드론3=18003
+[UdpEndpoint SITL]
+Mode = Server
+Address = 0.0.0.0
+Port = 18001  # ← 드론별로 변경
+
+# GCS (QGroundControl)
+[UdpEndpoint GCS]
+Mode = Normal
+Address = 192.168.100.255
+Port = 14550
+
+# External (테스트/디버깅)
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = 16001
+
+# ROS2 노드
+[UdpEndpoint ROS2]
+Mode = Normal
 Address = 127.0.0.1
 Port = 14551
+
+# Application Manager
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = 15001
 ```
 
-### 5.4 Windows 방화벽 설정
+### 5.2 드론별 SITL 포트
 
-```powershell
-# UDP 인바운드 허용
-netsh advfirewall firewall add rule name="SITL UDP Inbound" dir=in action=allow protocol=UDP localport=18001-18003
+| VIM4 | IP 주소 | SITL 포트 |
+|------|---------|-----------|
+| 드론 1 | 192.168.100.30 | 18001 |
+| 드론 2 | 192.168.100.31 | 18002 |
+| 드론 3 | 192.168.100.32 | 18003 |
+
+### 5.3 mavlink-router 재시작
+
+```bash
+sudo systemctl restart mavlink-router
 ```
 
 ---
 
-## Part 6: 문제 해결
+## Part 6: QGroundControl 연결 (선택사항)
 
-### 6.1 QGC 연결 안됨
+QGC에서도 시뮬레이션 드론을 모니터링하려면:
 
-**증상**: "Could Not Read Data - No Data Available!"
+### 6.1 각 PX4 콘솔에서 QGC용 mavlink 추가
+
+```
+# 드론 1 (VIM4 + QGC 동시 연결)
+mavlink start -u 14550 -o 14550 -t 192.168.100.4 -r 4000000
+
+# 드론 2
+mavlink start -u 14551 -o 14551 -t 192.168.100.4 -r 4000000
+
+# 드론 3
+mavlink start -u 14552 -o 14552 -t 192.168.100.4 -r 4000000
+```
+
+### 6.2 QGC Comm Links 설정
+
+| Name | Type | Listening Port |
+|------|------|----------------|
+| Drone1 | UDP | 14550 |
+| Drone2 | UDP | 14551 |
+| Drone3 | UDP | 14552 |
+
+---
+
+## Part 7: 테스트
+
+### 7.1 VIM4 웹 GUI에서 확인
+
+1. 브라우저에서 `http://192.168.100.30:5000` 접속
+2. **라우터 페이지**에서 SITL 모드 확인
+3. FC 연결 상태가 "연결됨"으로 표시되면 성공
+
+### 7.2 PX4 콘솔에서 이륙 테스트
+
+```
+commander arm -f
+commander takeoff
+```
+
+### 7.3 웹 GUI에서 명령 테스트
+
+1. 대시보드에서 이륙/착륙 버튼 클릭
+2. SITL 드론이 반응하는지 확인
+
+---
+
+## Part 8: 문제 해결
+
+### 8.1 VM이 192.168.100.x IP를 받지 못함
+
+**원인**: 브리지 어댑터 설정 오류
 
 **해결**:
-1. Windows Host IP 확인: `ip route | grep default | awk '{print $3}'`
-2. mavlink 타겟 IP가 올바른지 확인
-3. Windows 방화벽에서 UDP 포트 허용 확인
+1. VM 종료
+2. 설정 → 네트워크 → 어댑터 1
+3. 연결 대상: "브리지 어댑터" 확인
+4. 이름: 실제 사용 중인 네트워크 어댑터 선택
+5. VM 재시작
 
-### 6.2 Gazebo GUI 깨짐 (WSLg)
+### 8.2 VIM4에서 SITL 연결 안됨
 
-**해결**: 헤드리스 모드 사용
+**확인사항**:
 ```bash
-HEADLESS=1 PX4_SYS_AUTOSTART=4001 ./build/px4_sitl_default/bin/px4 -i 0
+# VM에서 VIM4로 ping
+ping 192.168.100.30
+
+# VIM4에서 mavlink-router 로그 확인
+journalctl -u mavlink-router -f
 ```
 
-### 6.3 mavlink 포트 충돌
+### 8.3 웹 GUI에서 FC 연결 안됨 표시
 
-**증상**: 기존 mavlink 인스턴스가 포트 점유
+**확인사항**:
+1. SITL이 올바른 VIM4 IP로 메시지 전송 중인지 확인
+2. VIM4 방화벽 확인: `sudo ufw status`
+3. SITL 포트(18001~18003) 열려있는지 확인
 
-**해결**:
-```
-mavlink stop-all
-mavlink start -u 18001 -o 18001 -t 172.20.64.1 -r 4000000
-```
+### 8.4 여러 드론이 같은 위치에 생성됨
 
-### 6.4 WSL2 재시작 후 IP 변경
-
-WSL2는 재시작마다 IP가 변경됩니다.
-
-**확인**:
+**해결**: `PX4_GZ_MODEL_POSE` 환경변수로 위치 분리
 ```bash
-hostname -I
-ip route | grep default | awk '{print $3}'
+PX4_GZ_MODEL_POSE="0,0,0,0,0,0"    # 드론 1
+PX4_GZ_MODEL_POSE="-10,0,0,0,0,0"  # 드론 2
+PX4_GZ_MODEL_POSE="10,0,0,0,0,0"   # 드론 3
 ```
-
-mavlink 타겟 IP를 새 게이트웨이 IP로 업데이트하세요.
 
 ---
 
@@ -397,6 +486,17 @@ mavlink start -u <local_port> -o <remote_port> -t <target_ip> -r <rate>
 
 ---
 
-**작성일**: 2026-01-21
-**버전**: 2.4
-**테스트 환경**: Windows 11 + WSL2 Ubuntu 22.04 + PX4 v1.15 + QGC 4.x
+## 빠른 시작 체크리스트
+
+- [ ] VirtualBox 설치 및 Ubuntu VM 생성
+- [ ] VM 브리지 네트워크 설정 (192.168.100.50)
+- [ ] PX4 빌드 완료
+- [ ] 각 VIM4 mavlink-router에 SITL 포트 설정
+- [ ] SITL 3대 실행 및 mavlink 타겟 설정
+- [ ] 웹 GUI에서 연결 확인
+
+---
+
+**작성일**: 2026-01-22
+**버전**: 3.1
+**테스트 환경**: VirtualBox 7.x + Ubuntu 22.04 + PX4 v1.15 + VIM4

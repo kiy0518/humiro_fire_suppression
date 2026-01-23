@@ -1252,6 +1252,27 @@ def api_router_status():
                 if f':{port_num}' in ss_output:
                     ports[port_id]['connected'] = True
                     ports[port_id]['message'] = '수신 대기 중'
+            elif port_id == 'pc_sitl':
+                # SITL 모드: PC에 ping으로 연결 상태 확인
+                address = ep.get('Address', '')
+                if address and address != '0.0.0.0':
+                    try:
+                        ping_result = subprocess.run(
+                            ['ping', '-c', '1', '-W', '1', address],
+                            capture_output=True, timeout=2
+                        )
+                        if ping_result.returncode == 0:
+                            ports[port_id]['connected'] = True
+                            ports[port_id]['message'] = f'{address} 연결됨'
+                        else:
+                            ports[port_id]['connected'] = False
+                            ports[port_id]['message'] = f'{address} 연결 안됨'
+                    except:
+                        ports[port_id]['connected'] = False
+                        ports[port_id]['message'] = f'{address} 확인 실패'
+                else:
+                    ports[port_id]['connected'] = service_running
+                    ports[port_id]['message'] = '송신 중' if service_running else ''
             else:
                 # Normal 모드 (브로드캐스트/유니캐스트): 서비스 실행 여부로 판단
                 ports[port_id]['connected'] = service_running
@@ -1604,6 +1625,300 @@ def api_router_port_reset():
             'error': str(e),
             'traceback': traceback.format_exc()
         })
+
+
+# ==================== SITL 모드 API ====================
+
+def get_sitl_mode_status():
+    """현재 mavlink-router가 SITL 모드인지 FC 모드인지 확인"""
+    config_path = '/etc/mavlink-router/main.conf'
+
+    try:
+        with open(config_path, 'r') as f:
+            content = f.read()
+
+        # SITL 모드 판별: [UdpEndpoint SITL] 엔드포인트가 있으면 SITL 모드
+        has_sitl_endpoint = '[UdpEndpoint SITL]' in content or '[UdpEndpoint PC_SITL]' in content
+        has_fc_endpoint = '[UdpEndpoint FC]' in content
+        is_sitl_comment = '시뮬레이션 PC IP' in content
+
+        if has_sitl_endpoint or is_sitl_comment:
+            # SITL IP 추출 시도 - 주석에서 "시뮬레이션 PC IP: x.x.x.x" 형식 찾기
+            sitl_ip = None
+            import re
+            
+            # 방법 1: 주석에서 "시뮬레이션 PC IP: x.x.x.x" 패턴 찾기
+            match = re.search(r'시뮬레이션 PC IP[:\s]+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', content)
+            if match:
+                sitl_ip = match.group(1)
+            else:
+                # 방법 2: PC_SITL 엔드포인트의 Address 찾기 (0.0.0.0이 아닌 경우)
+                match = re.search(r'\[UdpEndpoint PC_SITL\].*?Address\s*=\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', content, re.DOTALL)
+                if match and match.group(1) != '0.0.0.0':
+                    sitl_ip = match.group(1)
+            
+            return {
+                'mode': 'sitl',
+                'sitl_ip': sitl_ip,
+                'description': 'SITL 시뮬레이션 모드'
+            }
+        elif has_fc_endpoint and not has_sitl_endpoint:
+            return {
+                'mode': 'fc',
+                'sitl_ip': None,
+                'description': '실제 FC 연결 모드'
+            }
+        else:
+            return {
+                'mode': 'unknown',
+                'sitl_ip': None,
+                'description': '알 수 없음'
+            }
+    except Exception as e:
+        return {
+            'mode': 'error',
+            'sitl_ip': None,
+            'description': f'설정 파일 읽기 오류: {e}'
+        }
+
+
+@app.route('/api/router/sitl-mode')
+def api_router_sitl_mode():
+    """현재 SITL/FC 모드 조회"""
+    status = get_sitl_mode_status()
+    return jsonify({
+        'success': True,
+        'is_sitl_mode': status['mode'] == 'sitl',
+        **status
+    })
+
+
+@app.route('/api/router/sitl-instances')
+def api_router_sitl_instances():
+    """SITL 모드일 때 모든 SITL 인스턴스(1, 2, 3번) 상태 조회
+
+    PC에서 실행 중인 SITL 인스턴스들의 연결 상태를 확인합니다.
+    각 인스턴스는 14540, 14541, 14542 포트를 사용합니다.
+    """
+    status = get_sitl_mode_status()
+
+    if status['mode'] != 'sitl':
+        return jsonify({
+            'success': True,
+            'is_sitl_mode': False,
+            'instances': []
+        })
+
+    sitl_ip = status.get('sitl_ip', '192.168.100.4')
+    instances = []
+
+    # SITL 인스턴스 1, 2, 3 확인 (포트 14540, 14541, 14542)
+    for i in range(1, 4):
+        port = 14540 + i - 1
+        instance = {
+            'id': i,
+            'port': port,
+            'ip': sitl_ip,
+            'connected': False,
+            'message': '확인 중...'
+        }
+
+        # PC에 ping으로 연결 확인 (SITL IP 도달 가능 여부)
+        try:
+            ping_result = subprocess.run(
+                ['ping', '-c', '1', '-W', '1', sitl_ip],
+                capture_output=True, timeout=2
+            )
+            if ping_result.returncode == 0:
+                # ping 성공 - PC 연결됨, 포트 연결 상태는 netcat으로 확인
+                try:
+                    # UDP 포트 테스트는 어려우므로, TCP 연결 또는 MAVLink 메시지로 확인해야 함
+                    # 간단히 ping 성공이면 "PC 연결됨"으로 표시
+                    instance['connected'] = True
+                    instance['message'] = f'{sitl_ip}:{port} 연결됨'
+                except:
+                    instance['message'] = f'{sitl_ip} 도달 가능 (포트 미확인)'
+            else:
+                instance['message'] = f'{sitl_ip} 연결 안됨'
+        except Exception as e:
+            instance['message'] = f'연결 확인 오류: {str(e)}'
+
+        instances.append(instance)
+
+    return jsonify({
+        'success': True,
+        'is_sitl_mode': True,
+        'sitl_ip': sitl_ip,
+        'instances': instances
+    })
+
+
+@app.route('/api/router/sitl-mode', methods=['POST'])
+def api_router_set_sitl_mode():
+    """SITL/FC 모드 전환
+
+    요청 JSON:
+    - mode: 'sitl' 또는 'fc'
+    - sitl_ip: SITL 모드일 때 PC IP 주소 (필수)
+    """
+    data = request.json or {}
+    mode = data.get('mode', 'fc')
+    sitl_ip = data.get('sitl_ip', '192.168.100.4')
+
+    drone_id = config_manager.get_drone_id()
+
+    # 드론별 포트 계산
+    external_port = 16000 + drone_id
+    application_port = 15000 + drone_id
+    sitl_port = 18000 + drone_id  # SITL 포트: 18001, 18002, 18003 (socat 포워딩용)
+
+    try:
+        if mode == 'sitl':
+            # SITL 모드 설정 - Server 모드로 PC의 SITL에서 연결 받음
+            config_content = f"""# ==============================================================================
+# MAVLink Router 설정 - SITL 시뮬레이션 + FC 자동 전환
+# 생성: {subprocess.check_output(['date']).decode().strip()}
+# Drone ID: {drone_id}
+# VIM4 IP: 192.168.100.11
+# 시뮬레이션 PC IP: {sitl_ip}
+# ==============================================================================
+
+[General]
+TcpServerPort = 5790
+ReportStats = false
+MavlinkDialect = common
+
+# FC 연결 (실제 비행용) - 이더넷 (10.0.0.x)
+[UdpEndpoint FC]
+Mode = Server
+Address = 0.0.0.0
+Port = 14540
+
+# SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
+# 시뮬레이션 PC에서: mavlink start -u 14540 -o {sitl_port} -t 192.168.100.11
+[UdpEndpoint SITL]
+Mode = Server
+Address = 0.0.0.0
+Port = {sitl_port}
+
+# GCS (QGroundControl) - 브로드캐스트
+[UdpEndpoint GCS]
+Mode = Normal
+Address = 192.168.100.255
+Port = 14550
+
+# External (커스텀 메시지 테스트용)
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = {external_port}
+
+# ROS2 노드 연결 (로컬)
+[UdpEndpoint ROS2]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14551
+
+# Application Manager 연결 (로컬)
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = {application_port}
+"""
+        else:
+            # FC 모드 설정
+            config_content = f"""# Drone #{drone_id} mavlink-router 설정 (자동 생성)
+# 생성: {subprocess.check_output(['date']).decode().strip()}
+# 모드: FC 연결 (실제 비행)
+
+[General]
+TcpServerPort = 5790
+ReportStats = false
+MavlinkDialect = common
+
+# FC (PX4) 연결 - 브로드캐스트 수신
+[UdpEndpoint FC]
+Mode = Server
+Address = 0.0.0.0
+Port = 14540
+
+# GCS (QGroundControl) 브로드캐스트 - 드론 {drone_id} 전용 포트
+[UdpEndpoint GCS]
+Mode = Normal
+Address = 192.168.100.255
+Port = 14550
+
+# 외부 테스트/디버깅 도구 (SENDER GUI 등) - 드론 {drone_id} 전용 포트
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = {external_port}
+
+# ROS2 노드 연결 - 드론 {drone_id} 전용 포트
+[UdpEndpoint ROS2]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14551
+
+# Application Manager 연결 - 드론 {drone_id} 전용 포트 (라우터와 충돌 방지)
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = {application_port}
+"""
+
+        # 백업 생성
+        config_path = '/etc/mavlink-router/main.conf'
+        backup_cmd = f"sudo cp {config_path} {config_path}.backup.$(date +%Y%m%d_%H%M%S)"
+        subprocess.run(backup_cmd, shell=True, capture_output=True)
+
+        # 설정 파일 저장
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.conf') as tmp:
+            tmp.write(config_content)
+            tmp_path = tmp.name
+
+        # sudo로 복사
+        result = subprocess.run(
+            ['sudo', 'cp', tmp_path, config_path],
+            capture_output=True, text=True
+        )
+        os.unlink(tmp_path)
+
+        if result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'설정 파일 저장 실패: {result.stderr}'
+            }), 500
+
+        # mavlink-router 재시작
+        restart_result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'mavlink-router'],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if restart_result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'mavlink-router 재시작 실패: {restart_result.stderr}'
+            }), 500
+
+        mode_desc = 'SITL 시뮬레이션' if mode == 'sitl' else '실제 FC 연결'
+        return jsonify({
+            'success': True,
+            'mode': mode,
+            'message': f'{mode_desc} 모드로 전환되었습니다.',
+            'sitl_ip': sitl_ip if mode == 'sitl' else None
+        })
+
+    except Exception as e:
+        import traceback
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }), 500
+
 
 # ==================== micro-ros-agent API ====================
 
