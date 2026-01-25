@@ -42,6 +42,63 @@ fi
 echo "=========================================="
 echo "device_config.env 설정 적용"
 echo "=========================================="
+
+# -----------------------------------------------------------------------------
+# 0. DRONE_ID 기반 자동 설정 생성 (옵션)
+# -----------------------------------------------------------------------------
+# --auto-generate 옵션이 있거나, DRONE_ID만 있고 다른 설정이 없는 경우 자동 생성
+echo ""
+echo "[0/10] DRONE_ID 기반 자동 설정 확인..."
+
+# device_config.env에서 DRONE_ID만 읽기
+if [ -f "$DEVICE_CONFIG" ]; then
+    CURRENT_DRONE_ID=$(grep "^DRONE_ID=" "$DEVICE_CONFIG" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+    CURRENT_ETH0_IP=$(grep "^ETH0_IP=" "$DEVICE_CONFIG" 2>/dev/null | cut -d= -f2 | tr -d ' ')
+
+    # DRONE_ID가 있으면 자동 설정 생성 여부 확인
+    if [ -n "$CURRENT_DRONE_ID" ]; then
+        # DRONE_ID 기반 예상 ETH0_IP 계산
+        EXPECTED_ETH0_IP="10.0.0.$((CURRENT_DRONE_ID * 10 + 1))"
+
+        # --auto-generate 옵션이거나 ETH0_IP가 DRONE_ID와 맞지 않으면 자동 생성
+        if [ "$1" = "--auto-generate" ] || [ "$2" = "--auto-generate" ] || [ "$CURRENT_ETH0_IP" != "$EXPECTED_ETH0_IP" ]; then
+            echo "  DRONE_ID=$CURRENT_DRONE_ID 기반으로 설정 자동 생성 중..."
+
+            # Python으로 ConfigManager 호출하여 설정 재생성
+            python3 << PYTHON_EOF
+import sys
+sys.path.insert(0, "$PROJECT_ROOT/gui")
+from utils.config_manager import ConfigManager
+
+cm = ConfigManager("$PROJECT_ROOT")
+drone_id = $CURRENT_DRONE_ID
+
+# 현재 GCS_PORT_MODE 유지
+gcs_mode = cm.get("GCS_PORT_MODE", "separate")
+
+# DRONE_ID 기반 설정 재생성 (WiFi 설정은 유지)
+if cm.regenerate_config_from_drone_id(drone_id, preserve_wifi=True, gcs_port_mode=gcs_mode):
+    print(f"  ✓ DRONE_ID={drone_id} 기반 설정 자동 생성 완료")
+    config = cm.get_all_config()
+    print(f"    - ETH0_IP: {config.get('ETH0_IP')}")
+    print(f"    - FC_IP: {config.get('FC_IP')}")
+    print(f"    - WIFI_IP: {config.get('WIFI_IP')}")
+    print(f"    - ROS_NAMESPACE: {config.get('ROS_NAMESPACE')}")
+    print(f"    - ROLE: {config.get('ROLE')}")
+else:
+    print("  ⚠ 설정 자동 생성 실패")
+    sys.exit(1)
+PYTHON_EOF
+
+            if [ $? -ne 0 ]; then
+                echo "  ⚠ 자동 설정 생성 실패, 기존 설정 사용"
+            fi
+        else
+            echo "  ✓ 설정이 DRONE_ID와 일치함, 자동 생성 건너뜀"
+        fi
+    fi
+fi
+echo ""
 echo ""
 echo "사용자: $REAL_USER"
 echo "홈 디렉토리: $REAL_HOME"
