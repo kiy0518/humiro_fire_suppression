@@ -1357,9 +1357,13 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             std::cout << "[미션 완료]" << std::endl;
         } else {
             std::cerr << "\n[미션 실패]" << std::endl;
+            // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
+            std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
+            offboard_manager_->disableOffboardMode();
+            offboard_manager_->resetToIdle();
         }
     });
-    
+
     // 스레드 분리 (백그라운드 실행)
     mission_thread.detach();
 #else
@@ -1396,6 +1400,10 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
                 std::cout << "\n[ApplicationManager] ✓ 테스트 미션 성공" << std::endl;
             } else {
                 std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 실패" << std::endl;
+                // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
+                std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
+                offboard_manager_->disableOffboardMode();
+                offboard_manager_->resetToIdle();
             }
 
         } catch (const std::exception& e) {
@@ -1403,6 +1411,7 @@ void ApplicationManager::testExeMission(const custom_message::FireMissionStart& 
             try {
                 std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
                 offboard_manager_->disableOffboardMode();
+                offboard_manager_->resetToIdle();
             } catch (...) {
                 std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
             }
@@ -1489,6 +1498,10 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
                 std::cout << "\n[ApplicationManager] ✓ 테스트 미션 3 성공" << std::endl;
             } else {
                 std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 3 실패" << std::endl;
+                // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
+                std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
+                offboard_manager_->disableOffboardMode();
+                offboard_manager_->resetToIdle();
             }
 
         } catch (const std::exception& e) {
@@ -1496,6 +1509,7 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
             try {
                 std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
                 offboard_manager_->disableOffboardMode();
+                offboard_manager_->resetToIdle();
             } catch (...) {
                 std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
             }
