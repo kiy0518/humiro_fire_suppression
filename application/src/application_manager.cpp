@@ -431,13 +431,30 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[DEBUG] ==============================================" << std::endl;
 
                 if (status_overlay_) {
-                    status_overlay_->setCustomMessage("Return Command Received", 3.0);
+                    status_overlay_->setCustomMessage("Return Command Received - Landing!", 3.0);
                 }
 
-                // TODO: 복귀(RTL) 로직 구현
+                // 즉시 미션 중단 및 착륙 실행
+#ifdef ENABLE_ROS2
+                if (offboard_manager_) {
+                    std::cout << "[FIRE_RETURN] ★ 즉시 미션 중단 및 착륙 명령" << std::endl;
+
+                    // abortMission()은 즉시 중단 플래그를 설정하고 LAND 명령 전송
+                    // 현재 실행 중인 모든 루프(거리 제어 등)가 즉시 종료됨
+                    offboard_manager_->abortMission();
+                    std::cout << "[FIRE_RETURN] ✓ abortMission() 호출 완료" << std::endl;
+
+                    // 미션 플래그 리셋
+                    mission_running_.store(false);
+                } else {
+                    std::cerr << "[FIRE_RETURN] Error: OffboardManager 미초기화" << std::endl;
+                }
+#else
+                std::cerr << "[FIRE_RETURN] ROS2가 비활성화되어 착륙 불가" << std::endl;
+#endif
             }
         );
-        
+
         // COMMAND_LONG 콜백 설정 (ARM/DISARM 명령용)
         custom_message_handler_->setCommandLongCallback(
             [this](uint8_t target_system, uint8_t target_component, uint16_t command, 
@@ -768,19 +785,33 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
 
-        // FIRE_RETURN (60003) 콜백 설정 - 복귀
+        // FIRE_RETURN (60003) 콜백 설정 - 복귀/착륙
         test_message_handler_->setFireReturnCallback(
             [this](const custom_message::FireReturn& ret) {
-                std::cout << "\n[TEST PORT] FIRE_RETURN (60003) 수신 - 복귀" << std::endl;
+                std::cout << "\n[TEST PORT] FIRE_RETURN (60003) 수신 - 즉시 착륙" << std::endl;
                 std::cout << "[TEST PORT]   target_system: " << static_cast<int>(ret.target_system) << std::endl;
                 std::cout << "[TEST PORT]   target_component: " << static_cast<int>(ret.target_component) << std::endl;
 
                 if (status_overlay_) {
-                    status_overlay_->setCustomMessage("[TEST] Return", 3.0);
+                    status_overlay_->setCustomMessage("[TEST] Landing!", 3.0);
                 }
+
+                // 즉시 착륙 실행 (테스트용)
+#ifdef ENABLE_ROS2
+                if (offboard_manager_) {
+                    std::cout << "[TEST PORT] ★ 즉시 미션 중단 및 착륙 명령" << std::endl;
+                    offboard_manager_->abortMission();
+                    std::cout << "[TEST PORT] ✓ abortMission() 호출 완료" << std::endl;
+                    mission_running_.store(false);
+                } else {
+                    std::cerr << "[TEST PORT] Error: OffboardManager 미초기화" << std::endl;
+                }
+#else
+                std::cerr << "[TEST PORT] ROS2가 비활성화되어 착륙 불가" << std::endl;
+#endif
             }
         );
-        
+
         // 테스트 메시지 송수신 시작
         if (test_message_handler_->start()) {
             std::cout << "  ✓ 테스트 메시지 송수신 시작 (포트 15000)" << std::endl;
@@ -1433,6 +1464,17 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
         return;
     }
 
+    // ★★★ 비동기 미션 루프가 실행 중이면 중복 요청 무시 ★★★
+    // ARMING/TAKEOFF 단계에서는 FC가 아직 OFFBOARD 모드가 아니므로
+    // mission_loop_running_을 먼저 확인해야 함
+    if (offboard_manager_->isMissionRunning()) {
+        MissionState current_state = offboard_manager_->getCurrentState();
+        std::cout << "[TestMission3] 비동기 미션 실행 중 (상태: "
+                  << OffboardManager::getStateName(current_state)
+                  << ") - 중복 요청 무시" << std::endl;
+        return;
+    }
+
     // 중복 실행 방지 (FC가 OFFBOARD 모드가 아니면 리셋 후 재시도 허용)
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
@@ -1442,7 +1484,7 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
         std::cout << "[TestMission3] 미션 중복 체크: 상태=" << OffboardManager::getStateName(current_state)
                   << ", FC=" << (is_offboard ? "OFFBOARD" : "다른 모드") << std::endl;
 
-        // FC가 OFFBOARD 모드가 아니면 이전 미션 실패로 간주
+        // FC가 OFFBOARD 모드가 아니고 비동기 루프도 실행 중이 아니면 이전 미션 실패로 간주
         if (!is_offboard) {
             std::cout << "[TestMission3] ★ FC가 OFFBOARD 모드가 아님 → 강제 리셋 후 재시도" << std::endl;
             mission_running_.store(false);
@@ -1484,41 +1526,40 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
     std::cout << "\n========================================" << std::endl;
     std::cout << "[ApplicationManager] 테스트 미션 3 요청 수신 (다중 드론 소방)" << std::endl;
     std::cout << "  → Vehicle ID: " << (int)vehicle_id << (vehicle_id == 1 ? " (리더)" : " (팔로워)") << std::endl;
-    std::cout << "  → OffboardManager::testMission3() 호출" << std::endl;
+    std::cout << "  → OffboardManager::startAsyncMission3() 호출 (비동기 상태 머신)" << std::endl;
     std::cout << "========================================\n" << std::endl;
 
-    // 별도 스레드에서 비동기 실행
-    std::thread mission_thread([this, vehicle_id]() {
-        try {
-            // OffboardManager의 testMission3 호출
-            // 파라미터: vehicle_id, takeoff_altitude=10.0m, target_distance=10.0m
-            bool success = offboard_manager_->testMission3(vehicle_id, 1.0f, 1.5f);
+    // ★ 비동기 상태 머신 사용 - 내부적으로 스레드 생성
+    // 파라미터: vehicle_id, takeoff_altitude=1.0m, target_distance=1.5m (실내 테스트용)
+    bool started = offboard_manager_->startAsyncMission3(vehicle_id, 1.0f, 1.5f);
 
-            if (success) {
-                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 3 성공" << std::endl;
-            } else {
-                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 3 실패" << std::endl;
-                // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
-                std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
-                offboard_manager_->disableOffboardMode();
-                offboard_manager_->resetToIdle();
-            }
+    if (!started) {
+        std::cerr << "[ApplicationManager] ✗ 비동기 미션 시작 실패" << std::endl;
+        mission_running_ = false;
+        return;
+    }
 
-        } catch (const std::exception& e) {
-            std::cerr << "[ApplicationManager] Exception: " << e.what() << std::endl;
-            try {
-                std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
-                offboard_manager_->disableOffboardMode();
-                offboard_manager_->resetToIdle();
-            } catch (...) {
-                std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
-            }
+    std::cout << "[ApplicationManager] ✓ 비동기 미션 시작됨 (상태 머신 실행 중)" << std::endl;
+    std::cout << "[ApplicationManager]   → 60003 (FIRE_RETURN) 수신 시 즉시 착륙" << std::endl;
+
+    // 미션 완료 모니터링 스레드
+    std::thread monitor_thread([this]() {
+        while (offboard_manager_->isMissionRunning()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+
+        MissionState final_state = offboard_manager_->getCurrentState();
+        if (final_state == MissionState::LANDED) {
+            std::cout << "\n[ApplicationManager] ✓ 비동기 미션 완료 (착륙됨)" << std::endl;
+        } else {
+            std::cout << "\n[ApplicationManager] 비동기 미션 종료 (상태: "
+                      << OffboardManager::getStateName(final_state) << ")" << std::endl;
         }
 
         mission_running_ = false;
     });
 
-    mission_thread.detach();
+    monitor_thread.detach();
 #else
     std::cout << "[TestMission3] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif

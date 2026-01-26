@@ -204,6 +204,20 @@ bool RTLHandler::land(int timeout_ms)
     return false;
 }
 
+void RTLHandler::sendLandCommandOnly()
+{
+    RCLCPP_WARN(node_->get_logger(),
+        "[LAND] ★ Sending LAND command (non-blocking) - switching to AUTO.LAND mode");
+
+    // LAND 명령 전송 (5회 반복으로 확실하게)
+    for (int i = 0; i < 5; i++) {
+        publishVehicleCommand(VEHICLE_CMD_NAV_LAND);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "[LAND] ✓ LAND command sent successfully");
+}
+
 double RTLHandler::getDistanceFromHome() const
 {
     if (!home_position_set_) {

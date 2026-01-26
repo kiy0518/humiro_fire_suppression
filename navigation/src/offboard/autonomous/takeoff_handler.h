@@ -64,6 +64,23 @@ public:
      */
     bool returnToTakeoffPosition(int timeout_ms = 30000);
 
+    // ========== 비동기 제어 함수 (상태 머신용) ==========
+
+    /**
+     * @brief 이륙 시작 (비블로킹) - 목표 고도 설정만
+     */
+    void startTakeoff(float altitude_m);
+
+    /**
+     * @brief 이륙 setpoint 발행 (매 틱마다 호출)
+     */
+    void publishTakeoffSetpoint();
+
+    /**
+     * @brief 착륙 setpoint 발행 (매 틱마다 호출)
+     */
+    void publishLandingSetpoint();
+
 private:
     /**
      * @brief VehicleLocalPosition 콜백

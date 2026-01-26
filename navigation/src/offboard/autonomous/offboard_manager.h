@@ -9,6 +9,8 @@
 #include "rtl_handler.h"
 #include <memory>
 #include <string>
+#include <thread>
+#include <chrono>
 #include <px4_msgs/msg/vehicle_global_position.hpp>
 #include <px4_msgs/msg/vehicle_attitude.hpp>
 
@@ -16,10 +18,16 @@ enum class MissionState {
     IDLE,
     ARMING,
     TAKEOFF,
+    HOVER,
     NAVIGATE,
     ADJUST_DISTANCE,
-    HOVER,
-    RTL,
+    WAIT_GPS,
+    WAIT_LEADER_INFO,       // 팔로워: 리더 정보 대기
+    MOVE_TO_FORMATION,      // 팔로워: 포메이션 위치 이동
+    THERMAL_AIMING,
+    RETURNING_HOME,         // OFFBOARD 내 RTL (Home으로 이동)
+    LANDING,                // OFFBOARD 내 착륙
+    RTL,                    // FC RTL 모드 (failsafe용)
     LANDED,
     ERROR
 };
@@ -124,9 +132,50 @@ public:
     void disableOffboardMode();
 
     /**
+     * @brief 미션 중단 요청 (즉시 착륙)
+     * 현재 진행 중인 미션 루프를 중단하고 LAND 모드로 전환
+     */
+    void abortMission();
+
+    /**
+     * @brief 미션 중단 요청 여부 확인
+     */
+    bool isAbortRequested() const { return abort_requested_.load(); }
+
+    /**
+     * @brief 미션 중단 플래그 리셋
+     */
+    void clearAbortFlag() { abort_requested_.store(false); }
+
+    /**
      * @brief 상태 이름 반환
      */
     static std::string getStateName(MissionState state);
+
+    // ========== 비동기 상태 머신 인터페이스 ==========
+
+    /**
+     * @brief 비동기 미션 시작 (testMission3)
+     * 미션 루프를 별도 스레드에서 시작하고 즉시 반환
+     */
+    bool startAsyncMission3(uint8_t vehicle_id,
+                            float takeoff_altitude = 10.0f,
+                            float target_distance = 10.0f);
+
+    /**
+     * @brief 미션 루프 실행 중인지 확인
+     */
+    bool isMissionRunning() const { return mission_loop_running_.load(); }
+
+    /**
+     * @brief 미션 루프 중지 요청 (LANDING 상태로 전환)
+     */
+    void requestLanding();
+
+    /**
+     * @brief 즉시 Home으로 복귀 요청 (OFFBOARD 내에서)
+     */
+    void requestReturnHome();
 
 private:
     // ========== GPS 계산 헬퍼 함수 ==========
@@ -196,6 +245,46 @@ private:
 
     // State
     MissionState current_state_{MissionState::IDLE};
+    std::atomic<bool> abort_requested_{false};  // 미션 중단 플래그
+
+    // ========== 비동기 상태 머신 관련 ==========
+    std::atomic<bool> mission_loop_running_{false};
+    std::atomic<bool> landing_requested_{false};
+    std::atomic<bool> return_home_requested_{false};
+    std::thread mission_thread_;
+
+    // 미션 파라미터 (비동기 미션용)
+    uint8_t mission_vehicle_id_{1};
+    float mission_takeoff_altitude_{10.0f};
+    float mission_target_distance_{10.0f};
+
+    // 상태별 타이머/카운터
+    std::chrono::steady_clock::time_point state_start_time_;
+    int state_step_counter_{0};
+
+    // Home 위치 (OFFBOARD 내 RTL용)
+    double home_lat_{0.0};
+    double home_lon_{0.0};
+    float home_alt_{0.0};
+    bool home_position_set_{false};
+
+    // 비동기 상태 머신 핵심 함수
+    void missionLoop();                      // 메인 루프 (별도 스레드)
+    void updateState();                      // 상태별 업데이트
+    bool checkStateTimeout(int timeout_ms);  // 상태 타임아웃 체크
+    void saveHomePosition();                 // Home 위치 저장
+
+    // 상태별 업데이트 함수
+    void updateArming();
+    void updateTakeoff();
+    void updateHover();
+    void updateAdjustDistance();
+    void updateWaitGps();
+    void updateWaitLeaderInfo();
+    void updateMoveToFormation();
+    void updateThermalAiming();
+    void updateReturningHome();
+    void updateLanding();
 
     // ========== testMission3 관련 멤버 변수 ==========
     

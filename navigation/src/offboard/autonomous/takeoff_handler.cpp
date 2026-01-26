@@ -278,8 +278,8 @@ bool TakeoffHandler::isTakeoffComplete() const
 
 void TakeoffHandler::hover()
 {
-    RCLCPP_INFO(node_->get_logger(), "Hovering at takeoff position (X=%.2f, Y=%.2f, Z=%.2f)",
-                takeoff_start_x_, takeoff_start_y_, target_altitude_);
+    // ★★★ OFFBOARD 모드 유지를 위한 heartbeat 발행 (2Hz 이상 필수) ★★★
+    publishOffboardControlMode();
 
     publishTrajectorySetpoint(
         takeoff_start_x_,      // 이륙 시작 위치 고정
@@ -366,4 +366,65 @@ void TakeoffHandler::publishVehicleCommand(
     msg.from_external = true;
 
     vehicle_command_pub_->publish(msg);
+}
+
+// ========== 비동기 제어 함수 (상태 머신용) ==========
+
+void TakeoffHandler::startTakeoff(float altitude_m)
+{
+    // 목표 고도 설정 (NED 좌표계: 아래가 양수이므로 음수로 변환)
+    target_altitude_ = -std::abs(altitude_m);
+
+    // 현재 위치를 이륙 시작점으로 저장
+    if (position_received_) {
+        takeoff_start_x_ = current_x_.load();
+        takeoff_start_y_ = current_y_.load();
+        takeoff_start_altitude_ = current_altitude_.load();
+        takeoff_start_yaw_ = current_yaw_.load();
+    }
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[TakeoffHandler] Takeoff started - target altitude: %.1fm (NED Z: %.1f)",
+                altitude_m, target_altitude_);
+}
+
+void TakeoffHandler::publishTakeoffSetpoint()
+{
+    // OFFBOARD 제어 모드 발행
+    publishOffboardControlMode();
+
+    // 이륙 시작 위치(X, Y)를 유지하면서 목표 고도로 상승
+    publishTrajectorySetpoint(
+        takeoff_start_x_,
+        takeoff_start_y_,
+        target_altitude_,
+        takeoff_start_yaw_
+    );
+}
+
+void TakeoffHandler::publishLandingSetpoint()
+{
+    // OFFBOARD 제어 모드 발행
+    publishOffboardControlMode();
+
+    // ★ 현재 위치, 현재 헤딩 유지하면서 하강
+    float current_x = current_x_.load();
+    float current_y = current_y_.load();
+    float current_z = current_altitude_.load();
+    float current_yaw = current_yaw_.load();
+
+    // 하강 속도: 0.02m/tick * 20Hz = 0.4m/s
+    float target_z = current_z + 0.02f;  // NED: 양수가 아래 방향
+
+    // 지면 아래로 가지 않도록 제한
+    if (target_z > 0.0f) {
+        target_z = 0.0f;
+    }
+
+    publishTrajectorySetpoint(
+        current_x,      // 현재 X 위치
+        current_y,      // 현재 Y 위치
+        target_z,       // 하강 목표 고도
+        current_yaw     // 현재 헤딩 유지
+    );
 }

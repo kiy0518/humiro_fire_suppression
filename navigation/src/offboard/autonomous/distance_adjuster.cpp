@@ -90,6 +90,12 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
     auto last_position_update = start_time;
 
     while (true) {
+        // 중단 플래그 확인 (즉시 종료)
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[DistanceAdjuster] ★ ABORT requested - exiting loop immediately!");
+            return false;
+        }
+
         float current_distance = front_distance_.load();
         float distance_error = current_distance - target_distance;
 
@@ -200,6 +206,9 @@ bool DistanceAdjuster::isDistanceAdjusted() const
 
 void DistanceAdjuster::hover()
 {
+    // ★★★ OFFBOARD 모드 유지를 위한 heartbeat 발행 (2Hz 이상 필수) ★★★
+    publishOffboardControlMode();
+
     publishTrajectorySetpoint(
         current_local_x_,
         current_local_y_,
@@ -299,4 +308,58 @@ void DistanceAdjuster::publishOffboardControlMode()
     msg.body_rate = false;
 
     offboard_control_mode_pub_->publish(msg);
+}
+
+// ========== 비동기 제어 함수 (상태 머신용) ==========
+
+bool DistanceAdjuster::publishDistanceSetpoint(float target_distance)
+{
+    if (!distance_received_ || !position_received_) {
+        // 데이터 없으면 현재 위치 유지
+        hover();
+        return false;
+    }
+
+    float current_distance = front_distance_.load();
+    float distance_error = current_distance - target_distance;
+
+    // 목표 도달 확인 (0.3m 이내면 완료)
+    if (std::abs(distance_error) < 0.3f) {
+        hover();  // 위치 유지
+        return true;  // 목표 도달
+    }
+
+    // ★ 부드러운 속도 제어 (낮은 비례 게인 + 속도 제한)
+    // 비례 게인: 0.05 (부드러운 접근)
+    // 최대 속도: 0.08 m/s (실내 안전 속도)
+    const float SMOOTH_GAIN = 0.05f;
+    const float MAX_SPEED = 0.08f;
+    const float DEAD_ZONE = 0.2f;  // 데드존 (이 이내면 정지)
+
+    float body_velocity_x = 0.0f;
+
+    if (std::abs(distance_error) > DEAD_ZONE) {
+        // 비례 제어로 속도 계산
+        body_velocity_x = distance_error * SMOOTH_GAIN;
+
+        // 속도 제한
+        if (body_velocity_x > MAX_SPEED) body_velocity_x = MAX_SPEED;
+        if (body_velocity_x < -MAX_SPEED) body_velocity_x = -MAX_SPEED;
+    }
+
+    // Body Frame → NED Frame 변환
+    float current_yaw = current_yaw_.load();
+    float ned_velocity_x = body_velocity_x * std::cos(current_yaw);
+    float ned_velocity_y = body_velocity_x * std::sin(current_yaw);
+
+    // 고도 유지 (현재 고도 유지 - 속도 0)
+    float ned_velocity_z = 0.0f;
+
+    // OFFBOARD 모드 발행
+    publishOffboardControlMode();
+
+    // Velocity setpoint 발행
+    publishVelocitySetpoint(ned_velocity_x, ned_velocity_y, ned_velocity_z, 0.0f);
+
+    return false;  // 아직 조절 중
 }

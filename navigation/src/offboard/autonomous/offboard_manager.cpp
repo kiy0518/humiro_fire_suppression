@@ -12,6 +12,8 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
     distance_adjuster_ = std::make_unique<DistanceAdjuster>(node);
     rtl_handler_ = std::make_unique<RTLHandler>(node);
 
+    // 중단 플래그 연결 (DistanceAdjuster가 루프 중에 확인)
+    distance_adjuster_->setAbortFlag(&abort_requested_);
 
     // testMission3용 구독자 초기화
     auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
@@ -577,6 +579,41 @@ void OffboardManager::emergencyRTL()
     }
 }
 
+void OffboardManager::abortMission()
+{
+    RCLCPP_WARN(node_->get_logger(), "\n!!! MISSION ABORT REQUESTED !!!\n");
+
+    // 중단 플래그 설정 (모든 루프가 이 플래그를 확인하고 종료)
+    abort_requested_.store(true);
+
+    // ★ 비동기 미션이 실행 중이면 requestLanding() 사용
+    if (mission_loop_running_.load()) {
+        RCLCPP_INFO(node_->get_logger(), "[ABORT] Async mission running - requesting landing via state machine");
+        requestLanding();
+        return;
+    }
+
+    // ★ 동기식 미션인 경우 기존 방식 사용
+    // OFFBOARD 모드가 활성 상태에서 먼저 LAND 명령 전송
+    RCLCPP_INFO(node_->get_logger(), "[ABORT] Sending LAND command while in OFFBOARD mode...");
+    if (rtl_handler_) {
+        rtl_handler_->sendLandCommandOnly();
+    }
+
+    // 모드 전환 시간 대기 (PX4가 AUTO.LAND로 전환할 시간)
+    RCLCPP_INFO(node_->get_logger(), "[ABORT] Waiting for mode transition...");
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // OFFBOARD 모드 비활성화 (heartbeat 중단)
+    RCLCPP_INFO(node_->get_logger(), "[ABORT] Disabling OFFBOARD heartbeat...");
+    disableOffboardMode();
+
+    // 상태를 IDLE로 리셋
+    transitionToState(MissionState::IDLE);
+
+    RCLCPP_INFO(node_->get_logger(), "[ABORT] ✓ Mission abort complete - aircraft will land");
+}
+
 bool OffboardManager::transitionToState(MissionState new_state)
 {
     std::string old_state_name = getStateName(current_state_);
@@ -648,16 +685,22 @@ void OffboardManager::disableOffboardMode()
 std::string OffboardManager::getStateName(MissionState state)
 {
     switch (state) {
-        case MissionState::IDLE:            return "IDLE";
-        case MissionState::ARMING:          return "ARMING";
-        case MissionState::TAKEOFF:         return "TAKEOFF";
-        case MissionState::NAVIGATE:        return "NAVIGATE";
-        case MissionState::ADJUST_DISTANCE: return "ADJUST_DISTANCE";
-        case MissionState::HOVER:           return "HOVER";
-        case MissionState::RTL:             return "RTL";
-        case MissionState::LANDED:          return "LANDED";
-        case MissionState::ERROR:           return "ERROR";
-        default:                            return "UNKNOWN";
+        case MissionState::IDLE:              return "IDLE";
+        case MissionState::ARMING:            return "ARMING";
+        case MissionState::TAKEOFF:           return "TAKEOFF";
+        case MissionState::HOVER:             return "HOVER";
+        case MissionState::NAVIGATE:          return "NAVIGATE";
+        case MissionState::ADJUST_DISTANCE:   return "ADJUST_DISTANCE";
+        case MissionState::WAIT_GPS:          return "WAIT_GPS";
+        case MissionState::WAIT_LEADER_INFO:  return "WAIT_LEADER_INFO";
+        case MissionState::MOVE_TO_FORMATION: return "MOVE_TO_FORMATION";
+        case MissionState::THERMAL_AIMING:    return "THERMAL_AIMING";
+        case MissionState::RETURNING_HOME:    return "RETURNING_HOME";
+        case MissionState::LANDING:           return "LANDING";
+        case MissionState::RTL:               return "RTL";
+        case MissionState::LANDED:            return "LANDED";
+        case MissionState::ERROR:             return "ERROR";
+        default:                              return "UNKNOWN";
     }
 }
 // ========== GPS 계산 헬퍼 함수 구현 ==========
@@ -763,6 +806,9 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
             return false;
         }
 
+        // 중단 플래그 리셋 (새 미션 시작)
+        clearAbortFlag();
+
         RCLCPP_INFO(node_->get_logger(), "======================================");
         RCLCPP_INFO(node_->get_logger(), "  테스트 미션 3 - 삼각 포메이션 자동 조준");
         RCLCPP_INFO(node_->get_logger(), "======================================");
@@ -859,9 +905,14 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
             RCLCPP_INFO(node_->get_logger(), "[testMission3] Step 6: GPS/Attitude 데이터 확인");
             int wait_count = 0;
             while ((!gps_valid_ || !attitude_valid_) && wait_count < 50) {
+                // 중단 플래그 확인
+                if (abort_requested_.load()) {
+                    RCLCPP_WARN(node_->get_logger(), "[testMission3] ★ ABORT requested during GPS wait");
+                    return false;
+                }
                 RCLCPP_WARN(node_->get_logger(), "Waiting for GPS/Attitude data... (%d/50)", wait_count);
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                rclcpp::spin_some(node_);
+                // 참고: spin_some은 메인 스레드에서 호출됨 (여기서 호출하면 executor 충돌)
                 wait_count++;
             }
             
@@ -940,9 +991,14 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
             RCLCPP_INFO(node_->get_logger(), "[testMission3] Step 6: GPS 데이터 확인");
             int wait_count = 0;
             while (!gps_valid_ && wait_count < 50) {
+                // 중단 플래그 확인
+                if (abort_requested_.load()) {
+                    RCLCPP_WARN(node_->get_logger(), "[testMission3] ★ ABORT requested during GPS wait");
+                    return false;
+                }
                 RCLCPP_WARN(node_->get_logger(), "Waiting for GPS data... (%d/50)", wait_count);
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                rclcpp::spin_some(node_);
+                // 참고: spin_some은 메인 스레드에서 호출됨 (여기서 호출하면 executor 충돌)
                 wait_count++;
             }
             
@@ -1272,15 +1328,529 @@ bool OffboardManager::moveToPosition(double target_lat, double target_lon,
 bool OffboardManager::followerDistanceControl(float target_distance, float tolerance)
 {
     RCLCPP_INFO(node_->get_logger(), "[Follower] Distance control (optional): target %.1fm", target_distance);
-    
+
     // 팔로워도 LiDAR 거리 제어 수행 (옵션)
     // 리더와 동일한 로직 사용
     if (!distance_adjuster_->adjustDistance(target_distance, tolerance, 30000)) {
         RCLCPP_WARN(node_->get_logger(), "[Follower] Distance control failed (continuing anyway)");
         return false;
     }
-    
+
     RCLCPP_INFO(node_->get_logger(), "[Follower] Distance control OK: %.2fm",
                 distance_adjuster_->getFrontDistance());
     return true;
+}
+
+// ========== 비동기 상태 머신 구현 ==========
+
+bool OffboardManager::startAsyncMission3(uint8_t vehicle_id,
+                                          float takeoff_altitude,
+                                          float target_distance)
+{
+    // 이미 미션이 실행 중이면 거부
+    if (mission_loop_running_.load()) {
+        RCLCPP_WARN(node_->get_logger(), "[AsyncMission] Mission already running!");
+        return false;
+    }
+
+    if (current_state_ != MissionState::IDLE) {
+        RCLCPP_WARN(node_->get_logger(), "[AsyncMission] Not in IDLE state (current: %s)",
+                    getStateName(current_state_).c_str());
+        return false;
+    }
+
+    // 미션 파라미터 저장
+    mission_vehicle_id_ = vehicle_id;
+    mission_takeoff_altitude_ = takeoff_altitude;
+    mission_target_distance_ = target_distance;
+
+    // 플래그 리셋
+    clearAbortFlag();
+    landing_requested_.store(false);
+    return_home_requested_.store(false);
+
+    RCLCPP_INFO(node_->get_logger(), "======================================");
+    RCLCPP_INFO(node_->get_logger(), "  비동기 미션 3 시작");
+    RCLCPP_INFO(node_->get_logger(), "======================================");
+    RCLCPP_INFO(node_->get_logger(), "  기체 번호: %d", vehicle_id);
+    RCLCPP_INFO(node_->get_logger(), "  이륙 고도: %.1fm", takeoff_altitude);
+    RCLCPP_INFO(node_->get_logger(), "  목표 거리: %.1fm", target_distance);
+    RCLCPP_INFO(node_->get_logger(), "======================================\n");
+
+    // 기존 스레드 정리
+    if (mission_thread_.joinable()) {
+        mission_thread_.join();
+    }
+
+    // 미션 루프 시작 (별도 스레드)
+    mission_loop_running_.store(true);
+    mission_thread_ = std::thread(&OffboardManager::missionLoop, this);
+
+    return true;
+}
+
+void OffboardManager::requestLanding()
+{
+    RCLCPP_WARN(node_->get_logger(), "\n★★★ LANDING REQUESTED ★★★\n");
+    landing_requested_.store(true);
+}
+
+void OffboardManager::requestReturnHome()
+{
+    RCLCPP_WARN(node_->get_logger(), "\n★★★ RETURN HOME REQUESTED ★★★\n");
+    return_home_requested_.store(true);
+}
+
+void OffboardManager::saveHomePosition()
+{
+    if (gps_valid_) {
+        home_lat_ = current_lat_;
+        home_lon_ = current_lon_;
+        home_alt_ = current_alt_;
+        home_position_set_ = true;
+        RCLCPP_INFO(node_->get_logger(), "[Home] Saved: (%.7f, %.7f, %.1fm)",
+                    home_lat_, home_lon_, home_alt_);
+    }
+}
+
+bool OffboardManager::checkStateTimeout(int timeout_ms)
+{
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - state_start_time_).count();
+    return elapsed > timeout_ms;
+}
+
+void OffboardManager::missionLoop()
+{
+    RCLCPP_INFO(node_->get_logger(), "[MissionLoop] Started");
+
+    const int LOOP_RATE_HZ = 20;  // 20Hz = 50ms
+    const auto loop_duration = std::chrono::milliseconds(1000 / LOOP_RATE_HZ);
+
+    // 초기 상태: ARMING
+    transitionToState(MissionState::ARMING);
+    state_start_time_ = std::chrono::steady_clock::now();
+    state_step_counter_ = 0;
+
+    while (mission_loop_running_.load() && rclcpp::ok()) {
+        auto loop_start = std::chrono::steady_clock::now();
+
+        // ★ 즉시 착륙 요청 체크 (최우선)
+        if (landing_requested_.load()) {
+            RCLCPP_WARN(node_->get_logger(), "[MissionLoop] ★ Landing requested - transitioning to LANDING");
+            landing_requested_.store(false);
+            transitionToState(MissionState::LANDING);
+            state_start_time_ = std::chrono::steady_clock::now();
+            state_step_counter_ = 0;
+        }
+
+        // ★ Home 복귀 요청 체크
+        if (return_home_requested_.load()) {
+            RCLCPP_WARN(node_->get_logger(), "[MissionLoop] ★ Return home requested - transitioning to RETURNING_HOME");
+            return_home_requested_.store(false);
+            transitionToState(MissionState::RETURNING_HOME);
+            state_start_time_ = std::chrono::steady_clock::now();
+            state_step_counter_ = 0;
+        }
+
+        // 상태 업데이트
+        updateState();
+
+        // 종료 조건 체크
+        if (current_state_ == MissionState::IDLE ||
+            current_state_ == MissionState::LANDED ||
+            current_state_ == MissionState::ERROR) {
+            RCLCPP_INFO(node_->get_logger(), "[MissionLoop] Mission ended (state: %s)",
+                        getStateName(current_state_).c_str());
+            break;
+        }
+
+        // 루프 주기 유지
+        auto elapsed = std::chrono::steady_clock::now() - loop_start;
+        if (elapsed < loop_duration) {
+            std::this_thread::sleep_for(loop_duration - elapsed);
+        }
+    }
+
+    mission_loop_running_.store(false);
+    RCLCPP_INFO(node_->get_logger(), "[MissionLoop] Ended");
+}
+
+void OffboardManager::updateState()
+{
+    switch (current_state_) {
+        case MissionState::ARMING:
+            updateArming();
+            break;
+        case MissionState::TAKEOFF:
+            updateTakeoff();
+            break;
+        case MissionState::HOVER:
+            updateHover();
+            break;
+        case MissionState::ADJUST_DISTANCE:
+            updateAdjustDistance();
+            break;
+        case MissionState::WAIT_GPS:
+            updateWaitGps();
+            break;
+        case MissionState::WAIT_LEADER_INFO:
+            updateWaitLeaderInfo();
+            break;
+        case MissionState::MOVE_TO_FORMATION:
+            updateMoveToFormation();
+            break;
+        case MissionState::THERMAL_AIMING:
+            updateThermalAiming();
+            break;
+        case MissionState::RETURNING_HOME:
+            updateReturningHome();
+            break;
+        case MissionState::LANDING:
+            updateLanding();
+            break;
+        default:
+            break;
+    }
+}
+
+void OffboardManager::updateArming()
+{
+    // ★★★ 매 틱마다 heartbeat (setpoint) 발행 ★★★
+    // OFFBOARD 모드 유지를 위해 필수 (2Hz 이상 필요, 우리는 20Hz)
+    if (state_step_counter_ > 0) {
+        takeoff_handler_->publishTakeoffSetpoint();
+    }
+
+    // Step 0: Hold position setpoint 시작 (초기 위치 캡처)
+    if (state_step_counter_ == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[ARMING] Step 0: Starting hold-position setpoint");
+        takeoff_handler_->startHoldPositionSetpoint();
+        state_step_counter_ = 1;
+        return;
+    }
+
+    // Step 1: OFFBOARD 모드 활성화
+    if (state_step_counter_ == 1) {
+        static bool logged = false;
+        if (!logged) {
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] Step 1: Enabling OFFBOARD mode");
+            logged = true;
+        }
+        if (arm_handler_->enableOffboardMode()) {
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] ✓ OFFBOARD mode enabled");
+            state_step_counter_ = 2;
+            state_start_time_ = std::chrono::steady_clock::now();  // 대기 시간 리셋
+            logged = false;
+        } else if (checkStateTimeout(10000)) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] OFFBOARD mode timeout");
+            transitionToState(MissionState::ERROR);
+            logged = false;
+        }
+        return;
+    }
+
+    // Step 2: 2초 대기 (heartbeat 유지하면서)
+    if (state_step_counter_ == 2) {
+        if (checkStateTimeout(2000)) {
+            state_step_counter_ = 3;
+        }
+        return;
+    }
+
+    // Step 3: ARM
+    if (state_step_counter_ == 3) {
+        static bool logged = false;
+        if (!logged) {
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] Step 3: Arming vehicle");
+            logged = true;
+        }
+        if (arm_handler_->arm()) {
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] ✓ Vehicle armed");
+
+            // Home 위치 저장
+            saveHomePosition();
+
+            // 다음 상태: TAKEOFF
+            transitionToState(MissionState::TAKEOFF);
+            state_start_time_ = std::chrono::steady_clock::now();
+            state_step_counter_ = 0;
+            logged = false;
+        } else if (checkStateTimeout(10000)) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] ARM timeout");
+            transitionToState(MissionState::ERROR);
+            logged = false;
+        }
+        return;
+    }
+}
+
+void OffboardManager::updateTakeoff()
+{
+    // Step 0: 이륙 시작
+    if (state_step_counter_ == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Starting takeoff to %.1fm", mission_takeoff_altitude_);
+        takeoff_handler_->startTakeoff(mission_takeoff_altitude_);
+        state_step_counter_ = 1;
+        return;
+    }
+
+    // Step 1: 이륙 진행 중 - setpoint 발행 & 고도 체크
+    if (state_step_counter_ == 1) {
+        takeoff_handler_->publishTakeoffSetpoint();
+
+        float current_alt = takeoff_handler_->getCurrentAltitude();
+        float target_alt = mission_takeoff_altitude_;
+
+        // 10초마다 로그
+        static int log_counter = 0;
+        if (++log_counter % 200 == 0) {  // 20Hz * 10초 = 200
+            RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Current altitude: %.2fm / %.2fm",
+                        current_alt, target_alt);
+        }
+
+        // 목표 고도 도달 확인 (90%)
+        if (current_alt >= target_alt * 0.9f) {
+            RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] ✓ Takeoff complete at %.2fm", current_alt);
+            transitionToState(MissionState::HOVER);
+            state_start_time_ = std::chrono::steady_clock::now();
+            state_step_counter_ = 0;
+        } else if (checkStateTimeout(30000)) {
+            RCLCPP_ERROR(node_->get_logger(), "[TAKEOFF] Timeout!");
+            transitionToState(MissionState::LANDING);
+            state_step_counter_ = 0;
+        }
+    }
+}
+
+void OffboardManager::updateHover()
+{
+    // 호버링 setpoint 발행
+    takeoff_handler_->hover();
+
+    // 5초 호버링 후 다음 상태
+    if (checkStateTimeout(5000)) {
+        RCLCPP_INFO(node_->get_logger(), "[HOVER] ✓ Hover complete (5 sec)");
+
+        // 리더/팔로워 분기
+        if (mission_vehicle_id_ == 1) {
+            // 리더: 거리 조절
+            transitionToState(MissionState::ADJUST_DISTANCE);
+        } else {
+            // 팔로워: 리더 정보 대기
+            transitionToState(MissionState::WAIT_LEADER_INFO);
+        }
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateAdjustDistance()
+{
+    // 비동기 거리 조절
+    // Step 0: 시작
+    if (state_step_counter_ == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[ADJUST_DISTANCE] Starting distance control (target: %.1fm)",
+                    mission_target_distance_);
+        state_step_counter_ = 1;
+        return;
+    }
+
+    // Step 1: 거리 조절 진행
+    float current_dist = distance_adjuster_->getFrontDistance();
+    float error = current_dist - mission_target_distance_;
+
+    // 거리 조절 setpoint 발행
+    distance_adjuster_->publishDistanceSetpoint(mission_target_distance_);
+
+    // 5초마다 로그
+    static int log_counter = 0;
+    if (++log_counter % 100 == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[ADJUST_DISTANCE] Current: %.2fm, Target: %.1fm, Error: %.2fm",
+                    current_dist, mission_target_distance_, error);
+    }
+
+    // 목표 거리 도달 확인
+    if (std::abs(error) < 0.5f) {
+        RCLCPP_INFO(node_->get_logger(), "[ADJUST_DISTANCE] ✓ Distance OK: %.2fm", current_dist);
+        transitionToState(MissionState::WAIT_GPS);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    } else if (checkStateTimeout(30000)) {
+        RCLCPP_WARN(node_->get_logger(), "[ADJUST_DISTANCE] Timeout - continuing anyway");
+        transitionToState(MissionState::WAIT_GPS);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateWaitGps()
+{
+    // 호버링 유지
+    takeoff_handler_->hover();
+
+    // GPS/Attitude 데이터 확인
+    if (gps_valid_ && attitude_valid_) {
+        RCLCPP_INFO(node_->get_logger(), "[WAIT_GPS] ✓ GPS/Attitude valid");
+        RCLCPP_INFO(node_->get_logger(), "  Position: (%.7f, %.7f), Heading: %.1f deg",
+                    current_lat_, current_lon_, current_heading_);
+
+        // 목표물 좌표 계산
+        float lidar_distance = distance_adjuster_->getFrontDistance();
+        auto [target_lat, target_lon] = calculateTargetPosition(
+            current_lat_, current_lon_, lidar_distance, current_heading_);
+        RCLCPP_INFO(node_->get_logger(), "  Target: (%.7f, %.7f)", target_lat, target_lon);
+
+        // 리더 정보 발행
+        publishLeaderAimPose(target_lat, target_lon);
+
+        // ★ 현재 위치에서 바로 착륙 (RETURNING_HOME 생략)
+        RCLCPP_INFO(node_->get_logger(), "[WAIT_GPS] → LANDING (현재 위치에서 착륙)");
+        transitionToState(MissionState::LANDING);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    } else if (checkStateTimeout(10000)) {
+        RCLCPP_WARN(node_->get_logger(), "[WAIT_GPS] Timeout waiting for GPS/Attitude");
+        transitionToState(MissionState::LANDING);
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateWaitLeaderInfo()
+{
+    // 호버링 유지
+    takeoff_handler_->hover();
+
+    // 팔로워: 리더 정보 대기 (시뮬레이션)
+    if (checkStateTimeout(5000)) {
+        RCLCPP_INFO(node_->get_logger(), "[WAIT_LEADER_INFO] ✓ Leader info received (simulated)");
+        transitionToState(MissionState::MOVE_TO_FORMATION);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateMoveToFormation()
+{
+    // 호버링 유지 (실제로는 GPS 이동)
+    takeoff_handler_->hover();
+
+    // 포메이션 위치 이동 (시뮬레이션)
+    if (checkStateTimeout(5000)) {
+        RCLCPP_INFO(node_->get_logger(), "[MOVE_TO_FORMATION] ✓ Formation position reached (simulated)");
+        transitionToState(MissionState::ADJUST_DISTANCE);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateThermalAiming()
+{
+    // 호버링 유지
+    takeoff_handler_->hover();
+
+    // 열화상 조준 (시뮬레이션)
+    if (state_step_counter_ == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[THERMAL_AIMING] Starting thermal aiming...");
+        state_step_counter_ = 1;
+    }
+
+    // 5초 후 완료
+    if (checkStateTimeout(5000)) {
+        RCLCPP_INFO(node_->get_logger(), "[THERMAL_AIMING] ✓ Aiming complete");
+
+        // ★ 현재 위치에서 바로 착륙
+        RCLCPP_INFO(node_->get_logger(), "[THERMAL_AIMING] → LANDING (현재 위치에서 착륙)");
+        transitionToState(MissionState::LANDING);
+        state_start_time_ = std::chrono::steady_clock::now();
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateReturningHome()
+{
+    // Step 0: Home 위치 확인 및 이동 시작
+    if (state_step_counter_ == 0) {
+        if (!home_position_set_) {
+            RCLCPP_WARN(node_->get_logger(), "[RETURNING_HOME] Home position not set - landing in place");
+            transitionToState(MissionState::LANDING);
+            state_step_counter_ = 0;
+            return;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[RETURNING_HOME] Returning to home (%.7f, %.7f)",
+                    home_lat_, home_lon_);
+        state_step_counter_ = 1;
+        return;
+    }
+
+    // Step 1: Home으로 이동 (TakeoffHandler의 returnToTakeoffPosition 사용)
+    // 현재는 간단히 호버링
+    takeoff_handler_->hover();
+
+    // 거리 체크
+    if (gps_valid_) {
+        float distance = calculateDistance(current_lat_, current_lon_, home_lat_, home_lon_);
+
+        static int log_counter = 0;
+        if (++log_counter % 100 == 0) {
+            RCLCPP_INFO(node_->get_logger(), "[RETURNING_HOME] Distance to home: %.1fm", distance);
+        }
+
+        if (distance < 2.0f) {
+            RCLCPP_INFO(node_->get_logger(), "[RETURNING_HOME] ✓ Home reached");
+            transitionToState(MissionState::LANDING);
+            state_start_time_ = std::chrono::steady_clock::now();
+            state_step_counter_ = 0;
+        }
+    }
+
+    // 타임아웃
+    if (checkStateTimeout(60000)) {
+        RCLCPP_WARN(node_->get_logger(), "[RETURNING_HOME] Timeout - landing in place");
+        transitionToState(MissionState::LANDING);
+        state_step_counter_ = 0;
+    }
+}
+
+void OffboardManager::updateLanding()
+{
+    // ★★★ 즉시 NAV_LAND 착륙 ★★★
+    // OFFBOARD 해제 없이 바로 NAV_LAND 명령 전송
+    // → 현재 위치/헤딩 유지, Failsafe 없음
+
+    // Step 0: NAV_LAND 명령 전송
+    if (state_step_counter_ == 0) {
+        float current_alt = takeoff_handler_->getCurrentAltitude();
+        RCLCPP_INFO(node_->get_logger(), "[LANDING] ★ 즉시 NAV_LAND 착륙 시작 (현재 고도: %.2fm)", current_alt);
+        RCLCPP_INFO(node_->get_logger(), "[LANDING]   → 현재 위치/헤딩 유지 (파라미터 0)");
+        RCLCPP_INFO(node_->get_logger(), "[LANDING]   → FC MPC_LAND_SPEED 파라미터로 착륙 속도 제어");
+        RCLCPP_INFO(node_->get_logger(), "[LANDING]   ※ 착륙 속도 변경: QGC에서 MPC_LAND_SPEED 설정 (기본 0.7m/s → 0.35m/s 권장)");
+
+        // NAV_LAND 명령 전송 (OFFBOARD 해제 안 함)
+        rtl_handler_->sendLandCommandOnly();
+
+        state_step_counter_ = 1;
+        state_start_time_ = std::chrono::steady_clock::now();
+        return;
+    }
+
+    // Step 1: NAV_LAND 완료 대기 (FC가 접지 감지 및 DISARM 처리)
+    float current_alt = takeoff_handler_->getCurrentAltitude();
+
+    static int log_counter = 0;
+    if (++log_counter % 100 == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[LANDING] AUTO.LAND 진행 중... 고도: %.2fm", current_alt);
+    }
+
+    // 착륙 완료 확인 (FC의 Land Detector가 판단)
+    if (rtl_handler_->isLanded() || current_alt < 0.1f) {
+        RCLCPP_INFO(node_->get_logger(), "[LANDING] ✓ Landed! (FC Land Detector)");
+        transitionToState(MissionState::LANDED);
+        state_step_counter_ = 0;
+    } else if (checkStateTimeout(60000)) {
+        RCLCPP_WARN(node_->get_logger(), "[LANDING] Timeout (60s) - FC가 착륙 처리 중으로 간주");
+        transitionToState(MissionState::LANDED);
+    }
 }

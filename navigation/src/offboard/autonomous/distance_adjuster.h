@@ -42,6 +42,21 @@ public:
      */
     void hover();
 
+    /**
+     * @brief 외부 중단 플래그 설정 (OffboardManager에서 사용)
+     * @param abort_flag 중단 플래그 포인터
+     */
+    void setAbortFlag(std::atomic<bool>* abort_flag) { abort_flag_ = abort_flag; }
+
+    // ========== 비동기 제어 함수 (상태 머신용) ==========
+
+    /**
+     * @brief 거리 조절 setpoint 발행 (매 틱마다 호출)
+     * @param target_distance 목표 거리 (미터)
+     * @return true: 목표 도달, false: 아직 조절 중
+     */
+    bool publishDistanceSetpoint(float target_distance);
+
 private:
     /**
      * @brief LiDAR 전방 거리 콜백
@@ -91,6 +106,9 @@ private:
 
     std::atomic<bool> distance_received_{false};
     std::atomic<bool> position_received_{false};
+
+    // 외부 중단 플래그 (OffboardManager에서 설정)
+    std::atomic<bool>* abort_flag_{nullptr};
 
     // Target parameters
     float target_distance_{10.0f};

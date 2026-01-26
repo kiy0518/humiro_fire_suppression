@@ -114,6 +114,42 @@ struct __attribute__((packed)) FireReturn {
 };
 
 /**
+ * @brief 미션 상태 메시지 (FIRE_MISSION_STATUS) - 미사용 stub
+ *
+ * NOTE: 현재 구현되지 않음. MissionOverlay 빌드를 위한 stub 구조체
+ */
+struct __attribute__((packed)) FireMissionStatus {
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
+    uint8_t phase;                // Current mission phase
+    uint8_t progress;             // Progress percentage (0-100)
+    int32_t target_lat;           // Target latitude * 1e7
+    int32_t target_lon;           // Target longitude * 1e7
+    float target_alt;             // Target altitude MSL (m)
+    uint8_t projectiles_used;     // Projectiles used
+    uint8_t remaining_projectiles;// Projectiles remaining
+    float distance_to_target;     // Distance to target (m)
+    int16_t thermal_max_temp;     // Max temperature * 10 (0.1 C)
+};
+
+/**
+ * @brief 진압 결과 메시지 (FIRE_SUPPRESSION_RESULT) - 미사용 stub
+ *
+ * NOTE: 현재 구현되지 않음. MissionOverlay 빌드를 위한 stub 구조체
+ */
+struct __attribute__((packed)) FireSuppressionResult {
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
+    uint8_t shot_number;          // Shot number
+    uint8_t success;              // 0=failed, 1=success
+    int16_t temp_before;          // Temperature before * 10 (0.1 C)
+    int16_t temp_after;           // Temperature after * 10 (0.1 C)
+    int32_t impact_lat;           // Impact latitude * 1e7
+    int32_t impact_lon;           // Impact longitude * 1e7
+    float thermal_reduction;      // Thermal signature reduction (%)
+};
+
+/**
  * @brief 메시지 타입 열거형
  *
  * NOTE: 60000번대 사용 (50001/50002는 CUBEPILOT_RAW_RC, HERELINK_VIDEO_STREAM_INFORMATION과 충돌)

@@ -30,6 +30,14 @@ public:
     bool land(int timeout_ms = 30000);
 
     /**
+     * @brief LAND 명령만 전송 (블로킹 없음)
+     * OFFBOARD 모드에서 호출하면 AUTO.LAND로 전환
+     * abortMission()에서 사용 - OFFBOARD 비활성화 전에 호출해야 함
+     */
+    void sendLandCommandOnly();
+
+
+    /**
      * @brief Home으로부터의 거리 반환
      * @return 거리 (미터)
      */
