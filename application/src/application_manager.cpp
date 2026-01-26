@@ -248,12 +248,12 @@ void ApplicationManager::initializeCustomMessage() {
         }
 
         // 드론 ID 기반 포트 계산 (10씩 증가)
-        // 드론 1: 14550, 15001
-        // 드론 2: 14560, 15011
-        // 드론 3: 14570, 15021
+        // 드론 1: mavlink=14550, app=15001
+        // 드론 2: mavlink=14560, app=15011
+        // 드론 3: mavlink=14570, app=15021
         int port_offset = (drone_id - 1) * 10;
         uint16_t mavlink_port = 14550 + port_offset;
-        uint16_t app_port = 15001 + port_offset;
+        uint16_t app_port = 15001 + port_offset;  // mavlink-router에서 라우팅 받음
 
         std::cout << "  → 포트 자동 계산 (DRONE_ID=" << drone_id << "):" << std::endl;
         std::cout << "    - QGC 송신 포트: " << mavlink_port << std::endl;

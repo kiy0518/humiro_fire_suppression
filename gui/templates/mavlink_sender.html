@@ -48,7 +48,7 @@
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">Target Port</label>
-                        <input type="number" class="form-control" id="targetPort" value="16001">
+                        <input type="number" class="form-control" id="targetPort" value="15001">
                     </div>
                     <div class="col-md-2">
                         <label class="form-label">System ID</label>
@@ -156,9 +156,9 @@
                 <div class="mb-3">
                     <label class="form-label">메시지 타입</label>
                     <select class="form-select" id="fireMessageType" onchange="updateFireParams()">
-                        <option value="FIRE_MISSION_START">FIRE_MISSION_START (50000)</option>
-                        <option value="FIRE_LAUNCH_CONTROL">FIRE_LAUNCH_CONTROL (50002)</option>
-                        <option value="FIRE_SET_MODE">FIRE_SET_MODE (50004)</option>
+                        <option value="FIRE_MISSION_START">미션 스타트 (50000)</option>
+                        <option value="FIRE_AUTO_AIM">자동 조준 (50001)</option>
+                        <option value="FIRE_LAUNCH">발사 (50002)</option>
                     </select>
                 </div>
                 <div id="fireParamsContainer">
@@ -248,25 +248,24 @@
     };
 
     // 화재 진압 메시지 파라미터 정의
+    // 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
     const fireMessageParams = {
         'FIRE_MISSION_START': [
             {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
-            {name: 'target_component', label: 'Target Component ID', value: 1, type: 'number'},
+            {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'},
             {name: 'target_lat', label: 'Target Latitude (deg * 1e7)', value: 0, type: 'number'},
             {name: 'target_lon', label: 'Target Longitude (deg * 1e7)', value: 0, type: 'number'},
             {name: 'target_alt', label: 'Target Altitude MSL (m)', value: 10.0, type: 'number'},
             {name: 'auto_fire', label: 'Auto Fire (0=manual, 1=auto)', value: 0, type: 'number'},
             {name: 'max_projectiles', label: 'Max Projectiles', value: 1, type: 'number'}
         ],
-        'FIRE_LAUNCH_CONTROL': [
+        'FIRE_AUTO_AIM': [
             {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
-            {name: 'target_component', label: 'Target Component ID', value: 1, type: 'number'},
-            {name: 'command', label: 'Command (0=confirm, 1=abort, 2=status)', value: 0, type: 'number'}
+            {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'}
         ],
-        'FIRE_SET_MODE': [
-            {name: 'target_system', label: 'Target System ID (FC)', value: 1, type: 'number'},
-            {name: 'target_component', label: 'Target Component ID (FC)', value: 1, type: 'number'},
-            {name: 'px4_mode', label: 'PX4 Mode (1-8)', value: 4, type: 'number', help: '1=Manual, 2=AltCtl, 3=PosCtl, 4=Auto, 5=Acro, 6=Offboard, 7=Stabilized, 8=Rattitude'}
+        'FIRE_LAUNCH': [
+            {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
+            {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'}
         ]
     };
 

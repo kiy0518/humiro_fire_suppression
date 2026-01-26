@@ -3023,10 +3023,11 @@ def api_mavlink_send_custom():
         message = header + msgid_bytes + payload_bytes
 
         # CRC_EXTRA 값 (메시지 ID별 고유값)
+        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
         crc_extra_map = {
-            50000: 100,  # FIRE_MISSION_START
-            50002: 102,  # FIRE_LAUNCH_CONTROL
-            50004: 104,  # FIRE_SET_MODE
+            50000: 100,  # 미션 스타트
+            50001: 101,  # 자동 조준
+            50002: 102,  # 발사
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 
@@ -3060,10 +3061,11 @@ def api_mavlink_send_fire():
         params = data.get('params', {})
 
         # 메시지 ID 매핑
+        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
         message_ids = {
             'FIRE_MISSION_START': 50000,
-            'FIRE_LAUNCH_CONTROL': 50002,
-            'FIRE_SET_MODE': 50004
+            'FIRE_AUTO_AIM': 50001,
+            'FIRE_LAUNCH': 50002
         }
 
         message_id = message_ids.get(message_type, 0)
@@ -3082,34 +3084,24 @@ def api_mavlink_send_fire():
             # };
             payload = struct.pack('<BBiifBB',
                 int(params.get('target_system', 1)),
-                int(params.get('target_component', 1)),
+                int(params.get('target_component', 191)),
                 int(params.get('target_lat', 0)),
                 int(params.get('target_lon', 0)),
                 float(params.get('target_alt', 10.0)),
                 int(params.get('auto_fire', 0)),
                 int(params.get('max_projectiles', 1))
             )
-        elif message_type == 'FIRE_LAUNCH_CONTROL':
-            # struct __attribute__((packed)) FireLaunchControl {
-            #     uint8_t target_system;        // System ID
-            #     uint8_t target_component;     // Component ID
-            #     uint8_t command;              // 0=confirm, 1=abort, 2=request_status
-            # };
-            payload = struct.pack('<BBB',
+        elif message_type == 'FIRE_AUTO_AIM':
+            # 50001 자동 조준 - target_system, target_component만 포함
+            payload = struct.pack('<BB',
                 int(params.get('target_system', 1)),
-                int(params.get('target_component', 1)),
-                int(params.get('command', 0))
+                int(params.get('target_component', 191))
             )
-        elif message_type == 'FIRE_SET_MODE':
-            # struct __attribute__((packed)) FireSetMode {
-            #     uint8_t target_system;        // System ID (FC)
-            #     uint8_t target_component;     // Component ID (FC)
-            #     uint8_t px4_mode;             // PX4 mode (1-8)
-            # };
-            payload = struct.pack('<BBB',
+        elif message_type == 'FIRE_LAUNCH':
+            # 50002 발사 - target_system, target_component만 포함
+            payload = struct.pack('<BB',
                 int(params.get('target_system', 1)),
-                int(params.get('target_component', 1)),
-                int(params.get('px4_mode', 4))
+                int(params.get('target_component', 191))
             )
 
         # MAVLink v2 헤더 생성
@@ -3127,10 +3119,11 @@ def api_mavlink_send_fire():
         message = header + msgid_bytes + payload
 
         # CRC_EXTRA 값 (메시지 ID별 고유값)
+        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
         crc_extra_map = {
-            50000: 100,  # FIRE_MISSION_START
-            50002: 102,  # FIRE_LAUNCH_CONTROL
-            50004: 104,  # FIRE_SET_MODE
+            50000: 100,  # 미션 스타트
+            50001: 101,  # 자동 조준
+            50002: 102,  # 발사
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 

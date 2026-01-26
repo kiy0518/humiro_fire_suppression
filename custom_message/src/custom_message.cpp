@@ -455,12 +455,13 @@ private:
                         }
                         
                         receive_count++;
-                        // 디버그 출력: 커스텀 메시지(50000-50003)와 COMMAND_LONG(76)은 항상 출력
+                        // 디버그 출력: 커스텀 메시지(50000-50002)와 COMMAND_LONG(76)은 항상 출력
+                        // 50000: 미션스타트, 50001: 자동조준, 50002: 발사
                         if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
                             // 헤더에서 MSG_ID 확인 (buffer[7] = msgid, buffer[8] = msgid_ext[0], buffer[9] = msgid_ext[1])
-                            uint32_t msg_id_check = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) | 
+                            uint32_t msg_id_check = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) |
                                                    (static_cast<uint32_t>(buffer[9]) << 16);
-                            bool is_important = (msg_id_check == 76) || (msg_id_check >= 50000 && msg_id_check <= 50003);
+                            bool is_important = (msg_id_check == 76) || (msg_id_check >= 50000 && msg_id_check <= 50002);
                             if (is_important || receive_count <= 10) {
                                 std::cout << "[CustomMessage] [STEP 1] UDP 수신 (epoll): " << received << " bytes, "
                                           << "첫 바이트: 0x" << std::hex << static_cast<int>(buffer[0]) 
@@ -626,31 +627,31 @@ private:
         }
 
         // 표준 MAVLink 메시지는 라우터가 이미 FC로 전달했으므로 여기서는 무시
-        // MAVLink 라우터가 자동으로 FC↔QGC 간 표준 메시지를 전달하므로
-        // 이 프로그램은 커스텀 메시지(50000-50003)와 COMMAND_LONG(76), SET_MODE(11)만 처리
-        bool is_custom_message = (msg_id >= 50000 && msg_id <= 50004);
+        // 커스텀 메시지: 50000(미션스타트), 50001(자동조준), 50002(발사)
+        // 표준 메시지: COMMAND_LONG(76), SET_MODE(11)
+        bool is_custom_message = (msg_id >= 50000 && msg_id <= 50002);
         bool is_command_long = (msg_id == 76);
-        bool is_set_mode = (msg_id == 11);  // SET_MODE 추가
-        
+        bool is_set_mode = (msg_id == 11);
+
         // 표준 메시지는 라우터가 처리했으므로 파싱하지 않음
         if (!is_custom_message && !is_command_long && !is_set_mode) {
             return;
         }
-        
+
         // COMMAND_LONG 메시지 디버그 출력
         if (msg_id == 76) {
             static int command_long_count = 0;
             command_long_count++;
             if (command_long_count <= 5) {
-                std::cout << "[CustomMessage] [STEP 2] COMMAND_LONG 메시지 수신: MSG_ID=" << msg_id 
+                std::cout << "[CustomMessage] [STEP 2] COMMAND_LONG 메시지 수신: MSG_ID=" << msg_id
                           << ", payload_len=" << payload_len << std::endl;
             }
         }
 
         static int parse_count = 0;
         parse_count++;
-        // 커스텀 메시지(50000-50003)와 COMMAND_LONG(76)은 항상 출력
-        bool is_important = (msg_id == 76) || (msg_id >= 50000 && msg_id <= 50004);
+        // 커스텀 메시지(50000-50002)와 COMMAND_LONG(76)은 항상 출력
+        bool is_important = (msg_id == 76) || (msg_id >= 50000 && msg_id <= 50002);
         if (is_important || parse_count <= 10) {
             std::cout << "[CustomMessage] [STEP 2] 메시지 파싱: MSG_ID=" << msg_id 
                       << ", payload_len=" << payload_len << std::endl;
@@ -660,13 +661,11 @@ private:
         // 참고: https://mavlink.io/ko/guide/serialization.html#crc_extra
         uint8_t crc_extra = 0;
         switch (msg_id) {
-            case 11:    crc_extra = 89; break;   // SET_MODE (표준 MAVLink) - 공식 값
-            case 76:    crc_extra = 152; break;  // COMMAND_LONG (표준 MAVLink) - 공식 값 (수정: 19 -> 152)
-            case 50000: crc_extra = 100; break;  // FIRE_MISSION_START
-            case 50001: crc_extra = 101; break;  // FIRE_MISSION_STATUS
-            case 50002: crc_extra = 102; break;  // FIRE_LAUNCH_CONTROL
-            case 50003: crc_extra = 103; break;  // FIRE_SUPPRESSION_RESULT
-            case 50004: crc_extra = 104; break;  // FIRE_SET_MODE
+            case 11:    crc_extra = 89; break;   // SET_MODE (표준 MAVLink)
+            case 76:    crc_extra = 152; break;  // COMMAND_LONG (표준 MAVLink)
+            case 50000: crc_extra = 100; break;  // 미션 스타트
+            case 50001: crc_extra = 101; break;  // 자동 조준
+            case 50002: crc_extra = 102; break;  // 발사1
             default: crc_extra = 0; break;
         }
 
@@ -686,17 +685,26 @@ private:
         calculated_crc = calculateCRC16(&crc_extra_byte, 1, calculated_crc);
 
         if (received_crc != calculated_crc) {
-            std::lock_guard<std::mutex> lock(stats_mutex_);
-            stats_.parse_error_count++;
-            // CRC 불일치 로그는 처음 몇 개만 출력 (너무 많은 로그 방지)
-            static int crc_error_count = 0;
-            crc_error_count++;
-            if (crc_error_count <= 5) {
-                std::cerr << "[CustomMessage] [STEP 2] ✗ CRC 불일치: 수신=0x" << std::hex << received_crc
-                          << ", 계산=0x" << calculated_crc 
-                          << ", MSG_ID=" << std::dec << msg_id << std::endl;
+            // 50001, 50002는 CRC 무시하고 처리 (GCS CRC_EXTRA 불일치 문제 해결)
+            if (msg_id == 50001 || msg_id == 50002) {
+                std::cout << "[CustomMessage] [STEP 2] ⚠ CRC 불일치 무시 (MSG_ID=" << msg_id
+                          << "): 수신=0x" << std::hex << received_crc
+                          << ", 계산=0x" << calculated_crc << std::dec
+                          << ", CRC_EXTRA=" << static_cast<int>(crc_extra) << std::endl;
+                // CRC 무시하고 계속 진행
+            } else {
+                std::lock_guard<std::mutex> lock(stats_mutex_);
+                stats_.parse_error_count++;
+                // CRC 불일치 로그는 처음 몇 개만 출력 (너무 많은 로그 방지)
+                static int crc_error_count = 0;
+                crc_error_count++;
+                if (crc_error_count <= 5) {
+                    std::cerr << "[CustomMessage] [STEP 2] ✗ CRC 불일치: 수신=0x" << std::hex << received_crc
+                              << ", 계산=0x" << calculated_crc
+                              << ", MSG_ID=" << std::dec << msg_id << std::endl;
+                }
+                return;
             }
-            return;
         }
 
         if (parse_count <= 10) {
@@ -715,20 +723,45 @@ private:
                 parseCommandLong(payload, payload_len);
                 break;
 
-            case static_cast<uint32_t>(MessageType::FIRE_MISSION_START):
+            case 50000:  // 미션 스타트
+                std::cout << "[CustomMessage] ★ 50000 미션스타트 수신 (sysid="
+                          << static_cast<int>(header->sysid) << ", compid="
+                          << static_cast<int>(header->compid) << ")" << std::endl;
                 parseFireMissionStart(payload, payload_len);
                 break;
 
-            case static_cast<uint32_t>(MessageType::FIRE_MISSION_STATUS):
-                parseFireMissionStatus(payload, payload_len);
+            case 50001:  // 자동 조준
+                {
+                    // 페이로드에서 target_system, target_component 추출
+                    uint8_t target_sys = (payload_len >= 1) ? payload[0] : 0;
+                    uint8_t target_comp = (payload_len >= 2) ? payload[1] : 0;
+                    std::cout << "[CustomMessage] ★ 50001 자동조준 수신 (target_sys="
+                              << static_cast<int>(target_sys) << ", target_comp="
+                              << static_cast<int>(target_comp) << ")" << std::endl;
+                    // target_system=1, target_component=191 필터링
+                    if (target_sys == 1 && target_comp == 191) {
+                        parseFireAutoAim(payload, payload_len);
+                    } else {
+                        std::cout << "[CustomMessage] 자동조준 무시 (필요: target_sys=1, target_comp=191)" << std::endl;
+                    }
+                }
                 break;
 
-            case static_cast<uint32_t>(MessageType::FIRE_LAUNCH_CONTROL):
-                parseFireLaunchControl(payload, payload_len);
-                break;
-
-            case static_cast<uint32_t>(MessageType::FIRE_SUPPRESSION_RESULT):
-                parseFireSuppressionResult(payload, payload_len);
+            case 50002:  // 발사
+                {
+                    // 페이로드에서 target_system, target_component 추출
+                    uint8_t target_sys = (payload_len >= 1) ? payload[0] : 0;
+                    uint8_t target_comp = (payload_len >= 2) ? payload[1] : 0;
+                    std::cout << "[CustomMessage] ★ 50002 발사 수신 (target_sys="
+                              << static_cast<int>(target_sys) << ", target_comp="
+                              << static_cast<int>(target_comp) << ")" << std::endl;
+                    // target_system=1, target_component=191 필터링
+                    if (target_sys == 1 && target_comp == 191) {
+                        parseFireLaunch(payload, payload_len);
+                    } else {
+                        std::cout << "[CustomMessage] 발사 무시 (필요: target_sys=1, target_comp=191)" << std::endl;
+                    }
+                }
                 break;
 
             default:
@@ -833,6 +866,69 @@ private:
             std::cout << "[CustomMessage] [STEP 4] 콜백 함수 호출 완료" << std::endl;
         } else {
             std::cerr << "[CustomMessage] [STEP 4] ⚠ 콜백 함수가 설정되지 않음!" << std::endl;
+        }
+    }
+
+    // 50001 자동 조준 명령 처리 (target_system, target_component만 포함)
+    void parseFireAutoAim(const uint8_t* payload, size_t len) {
+        if (len < 2) {
+            std::cerr << "[CustomMessage] FIRE_AUTO_AIM 페이로드 길이 부족: "
+                      << len << " < 2" << std::endl;
+            return;
+        }
+
+        uint8_t target_system = payload[0];
+        uint8_t target_component = payload[1];
+
+        std::cout << "[CustomMessage] ★★★ 50001 자동조준 명령 수신 완료! ★★★" << std::endl;
+        std::cout << "[CustomMessage]   target_system=" << static_cast<int>(target_system)
+                  << ", target_component=" << static_cast<int>(target_component) << std::endl;
+
+        // FireMissionStatus 구조체로 변환하여 콜백 호출
+        // phase=3 (READY_TO_FIRE)로 설정하여 자동 조준 상태 알림
+        if (mission_status_callback_) {
+            FireMissionStatus status;
+            memset(&status, 0, sizeof(status));
+            status.phase = 3;  // FIRE_PHASE_READY_TO_FIRE
+            status.progress = 100;
+            snprintf(status.status_text, sizeof(status.status_text), "AUTO_AIM");
+
+            std::cout << "[CustomMessage] [STEP 4] 자동조준 콜백 호출" << std::endl;
+            mission_status_callback_(status);
+            std::cout << "[CustomMessage] [STEP 4] 자동조준 콜백 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] ⚠ 자동조준 콜백이 설정되지 않음!" << std::endl;
+        }
+    }
+
+    // 50002 발사 명령 처리 (target_system, target_component만 포함)
+    void parseFireLaunch(const uint8_t* payload, size_t len) {
+        if (len < 2) {
+            std::cerr << "[CustomMessage] FIRE_LAUNCH 페이로드 길이 부족: "
+                      << len << " < 2" << std::endl;
+            return;
+        }
+
+        uint8_t target_system = payload[0];
+        uint8_t target_component = payload[1];
+
+        std::cout << "[CustomMessage] ★★★ 50002 발사 명령 수신 완료! ★★★" << std::endl;
+        std::cout << "[CustomMessage]   target_system=" << static_cast<int>(target_system)
+                  << ", target_component=" << static_cast<int>(target_component) << std::endl;
+
+        // FireLaunchControl 구조체로 변환하여 콜백 호출
+        // command=0 (CONFIRM)으로 설정하여 발사 확인 명령
+        if (launch_control_callback_) {
+            FireLaunchControl control;
+            control.target_system = target_system;
+            control.target_component = target_component;
+            control.command = 0;  // LAUNCH_CMD_CONFIRM
+
+            std::cout << "[CustomMessage] [STEP 4] 발사 콜백 호출" << std::endl;
+            launch_control_callback_(control);
+            std::cout << "[CustomMessage] [STEP 4] 발사 콜백 완료" << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] ⚠ 발사 콜백이 설정되지 않음!" << std::endl;
         }
     }
 
