@@ -44,6 +44,26 @@ public:
      */
     void stopOffboardHeartbeat();
 
+    /**
+     * @brief OFFBOARD 모드 진입 전 현재 위치 유지 setpoint 발행 시작
+     * @details OFFBOARD 모드 활성화 전에 호출하여 45도 회전 문제 방지
+     */
+    void startHoldPositionSetpoint();
+
+    /**
+     * @brief 현재 위치/yaw 값 반환 (디버깅용)
+     */
+    float getCurrentX() const { return current_x_.load(); }
+    float getCurrentY() const { return current_y_.load(); }
+    float getCurrentYaw() const { return current_yaw_.load(); }
+
+    /**
+     * @brief 이륙 시작 위치로 복귀
+     * @param timeout_ms 타임아웃 (밀리초, 기본값 30초)
+     * @return 복귀 성공 여부
+     */
+    bool returnToTakeoffPosition(int timeout_ms = 30000);
+
 private:
     /**
      * @brief VehicleLocalPosition 콜백

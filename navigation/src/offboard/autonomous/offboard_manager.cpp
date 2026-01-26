@@ -63,6 +63,11 @@ bool OffboardManager::executeMission(const MissionConfig& config)
 
         RCLCPP_INFO(node_->get_logger(), "[ARMING] Enabling OFFBOARD mode...");
         try {
+            // 중요: OFFBOARD 모드 활성화 전에 현재 위치 setpoint 발행 시작
+            // 이렇게 하지 않으면 OFFBOARD 모드 진입 시 yaw가 정의되지 않아 45도 회전 발생
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] Starting hold-position setpoint before OFFBOARD mode...");
+            takeoff_handler_->startHoldPositionSetpoint();
+
             if (!arm_handler_->enableOffboardMode()) {
                 handleError("Failed to enable OFFBOARD mode");
                 return false;
@@ -242,6 +247,11 @@ bool OffboardManager::testMission(float takeoff_altitude, float hover_duration)
         }
 
         RCLCPP_INFO(node_->get_logger(), "[testMission] Step 1: OFFBOARD 모드 활성화");
+
+        // 중요: OFFBOARD 모드 활성화 전에 현재 위치 setpoint 발행 시작 (45도 회전 방지)
+        RCLCPP_INFO(node_->get_logger(), "[testMission] Starting hold-position setpoint before OFFBOARD mode...");
+        takeoff_handler_->startHoldPositionSetpoint();
+
         if (!arm_handler_->enableOffboardMode()) {
             handleError("Failed to enable OFFBOARD mode");
             return false;
@@ -370,6 +380,11 @@ bool OffboardManager::testMission2(float takeoff_altitude, float hover_duration,
         }
 
         RCLCPP_INFO(node_->get_logger(), "[testMission2] Step 1: OFFBOARD 모드 활성화");
+
+        // 중요: OFFBOARD 모드 활성화 전에 현재 위치 setpoint 발행 시작 (45도 회전 방지)
+        RCLCPP_INFO(node_->get_logger(), "[testMission2] Starting hold-position setpoint before OFFBOARD mode...");
+        takeoff_handler_->startHoldPositionSetpoint();
+
         if (!arm_handler_->enableOffboardMode()) {
             handleError("Failed to enable OFFBOARD mode");
             return false;
@@ -769,6 +784,11 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
         }
 
         RCLCPP_INFO(node_->get_logger(), "[testMission3] Step 1: OFFBOARD 모드 활성화");
+
+        // 중요: OFFBOARD 모드 활성화 전에 현재 위치 setpoint 발행 시작 (45도 회전 방지)
+        RCLCPP_INFO(node_->get_logger(), "[testMission3] Starting hold-position setpoint before OFFBOARD mode...");
+        takeoff_handler_->startHoldPositionSetpoint();
+
         if (!arm_handler_->enableOffboardMode()) {
             handleError("Failed to enable OFFBOARD mode");
             return false;
@@ -890,8 +910,17 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             
+            // Step 11: 원래 위치로 복귀 (착륙 전)
+            RCLCPP_INFO(node_->get_logger(), "[testMission3] Step 11: 이륙 지점으로 복귀");
+            if (!takeoff_handler_->returnToTakeoffPosition()) {
+                RCLCPP_ERROR(node_->get_logger(), "[testMission3] 복귀 실패");
+                emergencyRTL();
+                return false;
+            }
+            RCLCPP_INFO(node_->get_logger(), "[testMission3] ✓ 이륙 지점 복귀 완료\n");
+
             RCLCPP_INFO(node_->get_logger(), "[testMission3] === 리더 모드 완료 ===\n");
-            
+
         } else {
             // ===== 팔로워 모드 =====
             RCLCPP_INFO(node_->get_logger(), "[testMission3] === 팔로워 모드 시작 ===");
@@ -990,7 +1019,16 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
                 takeoff_handler_->hover();
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
-            
+
+            // Step 12: 원래 위치로 복귀 (착륙 전)
+            RCLCPP_INFO(node_->get_logger(), "[testMission3] Step 12: 이륙 지점으로 복귀");
+            if (!takeoff_handler_->returnToTakeoffPosition()) {
+                RCLCPP_ERROR(node_->get_logger(), "[testMission3] 복귀 실패");
+                emergencyRTL();
+                return false;
+            }
+            RCLCPP_INFO(node_->get_logger(), "[testMission3] ✓ 이륙 지점 복귀 완료\n");
+
             RCLCPP_INFO(node_->get_logger(), "[testMission3] === 팔로워 모드 완료 ===\n");
         }
 

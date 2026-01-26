@@ -552,10 +552,15 @@ void ApplicationManager::initializeCustomMessage() {
                     const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
                     if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
                         if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
-                            std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (외부 모드 변경 요청: main_mode=" 
+                            std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (외부 모드 변경 요청: main_mode="
                                       << (int)main_mode << ")" << std::endl;
                             offboard_manager_->disableOffboardMode();
-                            
+                            offboard_manager_->resetToIdle();
+
+                            // 중요: mission_running_ 플래그 리셋하여 새 미션 수신 가능하도록 함
+                            mission_running_.store(false);
+                            std::cout << "[DEBUG] ✓ mission_running_ 플래그 리셋됨 - 새 커스텀 메시지 수신 가능" << std::endl;
+
                             // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
                             std::this_thread::sleep_for(std::chrono::milliseconds(500));
                         }
@@ -666,10 +671,15 @@ void ApplicationManager::initializeCustomMessage() {
                 const uint8_t PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6;
                 if (main_mode != PX4_CUSTOM_MAIN_MODE_OFFBOARD) {
                     if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
-                        std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (SET_MODE 수신: main_mode=" 
+                        std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (SET_MODE 수신: main_mode="
                                   << (int)main_mode << ")" << std::endl;
                         offboard_manager_->disableOffboardMode();
-                        
+                        offboard_manager_->resetToIdle();
+
+                        // 중요: mission_running_ 플래그 리셋하여 새 미션 수신 가능하도록 함
+                        mission_running_.store(false);
+                        std::cout << "[DEBUG] ✓ mission_running_ 플래그 리셋됨 - 새 커스텀 메시지 수신 가능" << std::endl;
+
                         // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
                         std::this_thread::sleep_for(std::chrono::milliseconds(500));
                     }

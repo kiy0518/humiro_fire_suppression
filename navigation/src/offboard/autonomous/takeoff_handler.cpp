@@ -1,5 +1,6 @@
 #include "takeoff_handler.h"
 #include <thread>
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdlib>
 
@@ -160,6 +161,113 @@ void TakeoffHandler::stopOffboardHeartbeat()
         offboard_timer_.reset();
         RCLCPP_INFO(node_->get_logger(), "[TakeoffHandler] OFFBOARD heartbeat stopped");
     }
+}
+
+void TakeoffHandler::startHoldPositionSetpoint()
+{
+    RCLCPP_INFO(node_->get_logger(), "[TakeoffHandler] Starting hold-position setpoint publishing...");
+
+    // 위치 정보 수신 대기 (최대 5초)
+    auto start_time = std::chrono::steady_clock::now();
+    while (!position_received_) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start_time).count();
+
+        if (elapsed > 5000) {
+            RCLCPP_WARN(node_->get_logger(), "[TakeoffHandler] Timeout waiting for position data, using default values");
+            break;
+        }
+    }
+
+    // 현재 위치를 이륙 시작 위치로 저장 (45도 회전 방지)
+    takeoff_start_x_ = current_x_.load();
+    takeoff_start_y_ = current_y_.load();
+    takeoff_start_altitude_ = current_altitude_.load();
+    takeoff_start_yaw_ = current_yaw_.load();
+    target_altitude_ = takeoff_start_altitude_;  // 현재 고도 유지
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[TakeoffHandler] Hold position captured: X=%.2f, Y=%.2f, Z=%.2f, Yaw=%.2f (%.1f deg)",
+                takeoff_start_x_, takeoff_start_y_, takeoff_start_altitude_, takeoff_start_yaw_,
+                takeoff_start_yaw_ * 180.0f / M_PI);
+
+    // 첫 번째 setpoint 즉시 발행 (OFFBOARD 모드 진입 전 필수)
+    for (int i = 0; i < 10; i++) {
+        publishTrajectorySetpoint(
+            takeoff_start_x_,
+            takeoff_start_y_,
+            takeoff_start_altitude_,
+            takeoff_start_yaw_
+        );
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "[TakeoffHandler] Hold-position setpoint publishing started");
+}
+
+bool TakeoffHandler::returnToTakeoffPosition(int timeout_ms)
+{
+    RCLCPP_INFO(node_->get_logger(), "[TakeoffHandler] Returning to takeoff position...");
+    RCLCPP_INFO(node_->get_logger(),
+                "  Target: X=%.2f, Y=%.2f, Z=%.2f, Yaw=%.2f",
+                takeoff_start_x_, takeoff_start_y_, target_altitude_, takeoff_start_yaw_);
+
+    auto start_time = std::chrono::steady_clock::now();
+    const float POSITION_THRESHOLD = 0.5f;  // 50cm 오차 허용
+    const float YAW_THRESHOLD = 0.17f;      // 약 10도 오차 허용
+
+    while (true) {
+        // 이륙 시작 위치로 setpoint 발행
+        publishTrajectorySetpoint(
+            takeoff_start_x_,
+            takeoff_start_y_,
+            target_altitude_,    // 현재 고도 유지
+            takeoff_start_yaw_
+        );
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // 현재 위치와 목표 위치 비교
+        float dx = current_x_.load() - takeoff_start_x_;
+        float dy = current_y_.load() - takeoff_start_y_;
+        float distance_error = std::sqrt(dx * dx + dy * dy);
+
+        float yaw_error = std::abs(current_yaw_.load() - takeoff_start_yaw_);
+        // Yaw는 순환 값이므로 2π를 고려
+        if (yaw_error > M_PI) {
+            yaw_error = 2.0f * M_PI - yaw_error;
+        }
+
+        // 위치 도달 확인
+        if (distance_error < POSITION_THRESHOLD && yaw_error < YAW_THRESHOLD) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "[TakeoffHandler] Returned to takeoff position! Distance error: %.2f m, Yaw error: %.1f deg",
+                        distance_error, yaw_error * 180.0f / M_PI);
+            return true;
+        }
+
+        // 타임아웃 확인
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start_time).count();
+
+        if (elapsed > timeout_ms) {
+            RCLCPP_ERROR(node_->get_logger(),
+                        "[TakeoffHandler] Return to takeoff position timeout! Distance error: %.2f m",
+                        distance_error);
+            return false;
+        }
+
+        // 진행 상황 로깅 (2초마다)
+        if (static_cast<int>(elapsed) % 2000 < 100) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "  Returning... Distance error: %.2f m, Yaw error: %.1f deg",
+                        distance_error, yaw_error * 180.0f / M_PI);
+        }
+    }
+
+    return false;
 }
 
 bool TakeoffHandler::isTakeoffComplete() const
