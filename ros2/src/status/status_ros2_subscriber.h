@@ -15,6 +15,7 @@
 #include <px4_msgs/px4_msgs/msg/vehicle_status.hpp>
 #include <px4_msgs/px4_msgs/msg/battery_status.hpp>
 #include <px4_msgs/px4_msgs/msg/sensor_gps.hpp>
+#include <functional>
 
 /**
  * StatusOverlay를 위한 ROS2 토픽 구독자
@@ -22,13 +23,21 @@
  */
 class StatusROS2Subscriber {
 public:
+    // 모드 변경 콜백 타입 (old_nav_state, new_nav_state)
+    using ModeChangeCallback = std::function<void(uint8_t, uint8_t)>;
+
     StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay);
     ~StatusROS2Subscriber();
-    
+
     /**
      * ROS2 스핀 (주기적으로 호출)
      */
     void spin();
+
+    /**
+     * 모드 변경 콜백 설정 (OFFBOARD → 다른 모드 전환 시 호출됨)
+     */
+    void setModeChangeCallback(ModeChangeCallback callback);
     
 private:
     // PX4 상태 콜백 (uXRCE-DDS)
@@ -67,6 +76,10 @@ private:
     std::chrono::steady_clock::time_point last_state_update_;
     std::chrono::steady_clock::time_point last_battery_update_;
     std::chrono::steady_clock::time_point last_gps_update_;
+
+    // 모드 변경 콜백 (OFFBOARD → 다른 모드 전환 감지용)
+    ModeChangeCallback mode_change_callback_;
+    uint8_t last_nav_state_ = 255;  // 이전 nav_state 저장
 };
 
 #endif // STATUS_ROS2_SUBSCRIBER_H

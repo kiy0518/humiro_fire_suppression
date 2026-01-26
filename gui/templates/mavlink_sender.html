@@ -156,9 +156,10 @@
                 <div class="mb-3">
                     <label class="form-label">메시지 타입</label>
                     <select class="form-select" id="fireMessageType" onchange="updateFireParams()">
-                        <option value="FIRE_MISSION_START">미션 스타트 (50000)</option>
-                        <option value="FIRE_AUTO_AIM">자동 조준 (50001)</option>
-                        <option value="FIRE_LAUNCH">발사 (50002)</option>
+                        <option value="FIRE_MISSION_START">미션 스타트 (60000)</option>
+                        <option value="FIRE_AUTO_AIM">자동조준 (60001)</option>
+                        <option value="FIRE_LAUNCH">발사 (60002)</option>
+                        <option value="FIRE_RETURN">복귀 (60003)</option>
                     </select>
                 </div>
                 <div id="fireParamsContainer">
@@ -248,7 +249,7 @@
     };
 
     // 화재 진압 메시지 파라미터 정의
-    // 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
+    // 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
     const fireMessageParams = {
         'FIRE_MISSION_START': [
             {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
@@ -264,6 +265,10 @@
             {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'}
         ],
         'FIRE_LAUNCH': [
+            {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
+            {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'}
+        ],
+        'FIRE_RETURN': [
             {name: 'target_system', label: 'Target System ID', value: 1, type: 'number'},
             {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'}
         ]

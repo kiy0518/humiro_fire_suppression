@@ -1,13 +1,18 @@
 /**
  * @file custom_message.h
- * @brief 커스텀 MAVLink 메시지 송수신 라이브러리 (XML 정의 기반)
+ * @brief 커스텀 MAVLink 메시지 송수신 라이브러리
  *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하는 라이브러리
- * XML mavlink 정의 파일과 완전 동기화
+ *
+ * 메시지 ID (60000번대 사용 - 50001/50002는 CUBEPILOT/HERELINK와 충돌):
+ * - 60000: FIRE_MISSION_START (미션 스타트)
+ * - 60001: FIRE_AUTO_AIM (자동조준)
+ * - 60002: FIRE_LAUNCH (발사)
+ * - 60003: FIRE_RETURN (복귀)
  *
  * @author Humiro Fire Suppression Team
- * @date 2026-01-04
- * @version 3.0 - XML 정의 완전 동기화
+ * @date 2026-01-26
+ * @version 4.0 - 60000번대로 MSG ID 변경
  */
 
 #ifndef CUSTOM_MESSAGE_H
@@ -26,69 +31,42 @@ namespace custom_message {
 class CustomMessageImpl;
 
 /**
- * @brief 미션 시작 콜백 함수 타입
- *
- * @param start 미션 시작 메시지
+ * @brief 미션 시작 콜백 함수 타입 (60000)
  */
 using FireMissionStartCallback = std::function<void(const FireMissionStart& start)>;
 
 /**
- * @brief 미션 상태 콜백 함수 타입
- *
- * @param status 미션 상태 메시지
+ * @brief 자동조준 콜백 함수 타입 (60001)
  */
-using FireMissionStatusCallback = std::function<void(const FireMissionStatus& status)>;
+using FireAutoAimCallback = std::function<void(const FireAutoAim& aim)>;
 
 /**
- * @brief 발사 제어 콜백 함수 타입
- *
- * @param control 발사 제어 메시지
+ * @brief 발사 콜백 함수 타입 (60002)
  */
-using FireLaunchControlCallback = std::function<void(const FireLaunchControl& control)>;
+using FireLaunchCallback = std::function<void(const FireLaunch& launch)>;
 
 /**
- * @brief 진압 결과 콜백 함수 타입
- *
- * @param result 진압 결과 메시지
+ * @brief 복귀 콜백 함수 타입 (60003)
  */
-using FireSuppressionResultCallback = std::function<void(const FireSuppressionResult& result)>;
+using FireReturnCallback = std::function<void(const FireReturn& ret)>;
 
 /**
  * @brief COMMAND_LONG 콜백 함수 타입
- *
- * @param target_system 대상 시스템 ID
- * @param target_component 대상 컴포넌트 ID
- * @param command 명령 코드 (MAV_CMD_COMPONENT_ARM_DISARM = 400)
- * @param param1 첫 번째 파라미터 (ARM: 1.0, DISARM: 0.0)
  */
 using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t target_component, uint16_t command, float param1, float param2, float param3, float param4, float param5, float param6, float param7)>;
 
 /**
  * @brief SET_MODE 콜백 함수 타입
- *
- * @param target_system 대상 시스템 ID
- * @param base_mode 기본 모드 플래그
- * @param custom_mode 커스텀 모드 (main_mode << 16 | sub_mode << 8)
  */
 using SetModeCallback = std::function<void(uint8_t target_system, uint8_t base_mode, uint32_t custom_mode)>;
 
 /**
  * @brief 커스텀 MAVLink 메시지 송수신기
- *
- * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지를 송수신하고 파싱하여
- * 등록된 콜백 함수를 호출합니다.
  */
 class CustomMessage {
 public:
     /**
      * @brief 생성자
-     *
-     * @param receive_port UDP 수신 포트 (기본값: 14550)
-     * @param send_port UDP 송신 포트 (기본값: 14550)
-     * @param bind_address 바인드 주소 (기본값: "0.0.0.0")
-     * @param target_address 송신 대상 주소 (기본값: "127.0.0.1")
-     * @param system_id MAVLink 시스템 ID (기본값: 1)
-     * @param component_id MAVLink 컴포넌트 ID (기본값: 1)
      */
     CustomMessage(
         uint16_t receive_port = 14550,
@@ -99,152 +77,50 @@ public:
         uint8_t component_id = 1
     );
 
-    /**
-     * @brief 소멸자
-     */
     ~CustomMessage();
 
-    // 복사 및 이동 생성자/연산자 삭제
     CustomMessage(const CustomMessage&) = delete;
     CustomMessage& operator=(const CustomMessage&) = delete;
     CustomMessage(CustomMessage&&) = delete;
     CustomMessage& operator=(CustomMessage&&) = delete;
 
-    /**
-     * @brief 메시지 수신 시작
-     *
-     * @return true 성공, false 실패
-     */
     bool start();
-
-    /**
-     * @brief 메시지 수신 중지
-     */
     void stop();
-
-    /**
-     * @brief 수신 중인지 확인
-     *
-     * @return true 수신 중, false 중지됨
-     */
     bool isRunning() const;
 
     // ========== 수신 콜백 등록 ==========
-
-    /**
-     * @brief 미션 시작 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
     void setFireMissionStartCallback(FireMissionStartCallback callback);
-
-    /**
-     * @brief 미션 상태 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
-    void setFireMissionStatusCallback(FireMissionStatusCallback callback);
-
-    /**
-     * @brief 발사 제어 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
-    void setFireLaunchControlCallback(FireLaunchControlCallback callback);
-
-    /**
-     * @brief 진압 결과 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
-    void setFireSuppressionResultCallback(FireSuppressionResultCallback callback);
-
-    /**
-     * @brief COMMAND_LONG 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
+    void setFireAutoAimCallback(FireAutoAimCallback callback);
+    void setFireLaunchCallback(FireLaunchCallback callback);
+    void setFireReturnCallback(FireReturnCallback callback);
     void setCommandLongCallback(CommandLongCallback callback);
-
-    /**
-     * @brief SET_MODE 콜백 등록
-     *
-     * @param callback 콜백 함수
-     */
     void setSetModeCallback(SetModeCallback callback);
 
     // ========== 송신 함수 ==========
-
-    /**
-     * @brief 미션 시작 전송
-     *
-     * @param start 미션 시작 메시지
-     * @return true 성공, false 실패
-     */
     bool sendFireMissionStart(const FireMissionStart& start);
+    bool sendFireAutoAim(const FireAutoAim& aim);
+    bool sendFireLaunch(const FireLaunch& launch);
+    bool sendFireReturn(const FireReturn& ret);
 
-    /**
-     * @brief 미션 상태 전송
-     *
-     * @param status 미션 상태 메시지
-     * @return true 성공, false 실패
-     */
-    bool sendFireMissionStatus(const FireMissionStatus& status);
-
-    /**
-     * @brief 발사 제어 전송
-     *
-     * @param control 발사 제어 메시지
-     * @return true 성공, false 실패
-     */
-    bool sendFireLaunchControl(const FireLaunchControl& control);
-
-    /**
-     * @brief 진압 결과 전송
-     *
-     * @param result 진압 결과 메시지
-     * @return true 성공, false 실패
-     */
-    bool sendFireSuppressionResult(const FireSuppressionResult& result);
-
-    /**
-     * @brief 송신 대상 주소 설정
-     *
-     * @param address 대상 IP 주소
-     * @param port 대상 포트
-     */
     void setTargetAddress(const std::string& address, uint16_t port);
 
     // ========== 통계 정보 ==========
-
-    /**
-     * @brief 수신된 메시지 통계 정보
-     */
     struct Statistics {
-        uint64_t messages_received = 0;  // 총 수신 메시지 수
+        uint64_t messages_received = 0;
         uint64_t mission_start_received = 0;
-        uint64_t mission_status_received = 0;
-        uint64_t launch_control_received = 0;
-        uint64_t suppression_result_received = 0;
+        uint64_t auto_aim_received = 0;
+        uint64_t launch_received = 0;
+        uint64_t return_received = 0;
         uint64_t mission_start_sent = 0;
-        uint64_t mission_status_sent = 0;
-        uint64_t launch_control_sent = 0;
-        uint64_t suppression_result_sent = 0;
+        uint64_t auto_aim_sent = 0;
+        uint64_t launch_sent = 0;
+        uint64_t return_sent = 0;
         uint64_t unknown_message_count = 0;
         uint64_t parse_error_count = 0;
-        uint64_t send_error_count = 0;  // 송신 오류 수
+        uint64_t send_error_count = 0;
     };
 
-    /**
-     * @brief 통계 정보 가져오기
-     *
-     * @return Statistics 통계 정보
-     */
     Statistics getStatistics() const;
-
-    /**
-     * @brief 통계 정보 리셋
-     */
     void resetStatistics();
 
 private:

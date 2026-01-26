@@ -202,16 +202,34 @@ void ApplicationManager::initializeComponents() {
         thermal_ros2_publisher_ = new ThermalROS2Publisher(ros2_node_);
         lidar_ros2_publisher_ = new LidarROS2Publisher(ros2_node_);
         std::cout << "  ✓ ROS2 토픽 발행 활성화" << std::endl;
-        
+
         if (status_overlay_) {
             std::cout << "\n[ROS2 상태 구독자 초기화]" << std::endl;
             status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_);
-        
-        // OffboardManager 생성
-        // OffboardManager 생성
-        std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
-        offboard_manager_ = new OffboardManager(ros2_node_);
-        std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
+
+            // OFFBOARD 모드 종료 시 mission_running_ 플래그 리셋 콜백 설정
+            status_ros2_subscriber_->setModeChangeCallback(
+                [this](uint8_t old_nav_state, uint8_t new_nav_state) {
+                    if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
+                        std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << std::endl;
+                        std::cout << "    → mission_running_ 플래그 리셋 (새 커스텀 메시지 수신 가능)" << std::endl;
+                        mission_running_.store(false);
+
+                        // OffboardManager 상태도 리셋
+                        if (offboard_manager_) {
+                            offboard_manager_->disableOffboardMode();
+                            offboard_manager_->resetToIdle();
+                            std::cout << "    → OffboardManager 상태 리셋 완료" << std::endl;
+                        }
+                    }
+                }
+            );
+            std::cout << "  ✓ 모드 변경 콜백 설정 완료 (OFFBOARD 종료 시 미션 플래그 리셋)" << std::endl;
+
+            // OffboardManager 생성
+            std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
+            offboard_manager_ = new OffboardManager(ros2_node_);
+            std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
             std::cout << "  ✓ ROS2 상태 구독자 활성화" << std::endl;
         }
     }
@@ -351,107 +369,72 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
         
-        // FIRE_LAUNCH_CONTROL 콜백 설정
-        custom_message_handler_->setFireLaunchControlCallback(
-            [this](const custom_message::FireLaunchControl& control) {
-                // 타임스탬프 생성
+        // FIRE_AUTO_AIM (60001) 콜백 설정 - 자동조준 명령
+        custom_message_handler_->setFireAutoAimCallback(
+            [this](const custom_message::FireAutoAim& aim) {
                 auto now = std::chrono::system_clock::now();
                 auto time_t = std::chrono::system_clock::to_time_t(now);
                 auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     now.time_since_epoch()) % 1000;
-                
-                // 명령어 이름
-                std::string cmd_name;
-                std::string cmd_desc;
-                switch (control.command) {
-                    case 0:  // CONFIRM
-                        cmd_name = "CONFIRM";
-                        cmd_desc = "발사 확인";
-                        break;
-                    case 1:  // ABORT
-                        cmd_name = "ABORT";
-                        cmd_desc = "발사 중단";
-                        break;
-                    case 2:  // REQUEST_STATUS
-                        cmd_name = "REQUEST_STATUS";
-                        cmd_desc = "상태 요청";
-                        break;
-                    default:
-                        cmd_name = "UNKNOWN";
-                        cmd_desc = "알 수 없는 명령";
-                        break;
-                }
-                
-                // 상세 디버그 출력
-                std::cout << "\n[DEBUG] ========== FIRE_LAUNCH_CONTROL 수신 ==========" << std::endl;
+
+                std::cout << "\n[DEBUG] ========== FIRE_AUTO_AIM (60001) 수신 ==========" << std::endl;
                 std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
                           << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
-                std::cout << "[DEBUG] 송신자 정보:" << std::endl;
-                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(control.target_system) << std::endl;
-                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(control.target_component) << std::endl;
-                std::cout << "[DEBUG] 명령 정보:" << std::endl;
-                std::cout << "[DEBUG]   - command: " << cmd_name << " (" << static_cast<int>(control.command) << ") - " << cmd_desc << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(aim.target_system) << std::endl;
+                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(aim.target_component) << std::endl;
                 std::cout << "[DEBUG] ==============================================" << std::endl;
-                
-                // OSD 표시
+
                 if (status_overlay_) {
-                    std::string msg;
-                    switch (control.command) {
-                        case 0:  // CONFIRM
-                            msg = "Launch Confirmed";
-                            break;
-                        case 1:  // ABORT
-                            msg = "Launch Aborted";
-                            break;
-                        case 2:  // REQUEST_STATUS
-                            msg = "Status Requested";
-                            break;
-                        default:
-                            msg = "Launch Control";
-                            break;
-                    }
-                    status_overlay_->setCustomMessage(msg, 3.0);
+                    status_overlay_->setCustomMessage("Auto Aim Activated", 3.0);
                 }
+
+                // TODO: 자동조준 로직 구현
             }
         );
-        
-        // FIRE_MISSION_STATUS 콜백 설정 (14550 포트)
-        custom_message_handler_->setFireMissionStatusCallback(
-            [this](const custom_message::FireMissionStatus& status) {
-                std::cout << "\n[DEBUG] ========== FIRE_MISSION_STATUS 수신 (14550) ==========" << std::endl;
-                std::cout << "[DEBUG] Phase: " << static_cast<int>(status.phase) << std::endl;
-                std::cout << "[DEBUG] Progress: " << static_cast<int>(status.progress) << "%" << std::endl;
-                std::cout << "[DEBUG] Distance: " << status.distance_to_target << " m" << std::endl;
-                std::cout << "[DEBUG] Status: " << status.status_text << std::endl;
-                std::cout << "[DEBUG] ==========================================" << std::endl;
-                
+
+        // FIRE_LAUNCH (60002) 콜백 설정 - 발사 명령
+        custom_message_handler_->setFireLaunchCallback(
+            [this](const custom_message::FireLaunch& launch) {
+                auto now = std::chrono::system_clock::now();
+                auto time_t = std::chrono::system_clock::to_time_t(now);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+
+                std::cout << "\n[DEBUG] ========== FIRE_LAUNCH (60002) 수신 ==========" << std::endl;
+                std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
+                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(launch.target_system) << std::endl;
+                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(launch.target_component) << std::endl;
+                std::cout << "[DEBUG] ==============================================" << std::endl;
+
                 if (status_overlay_) {
-                    std::ostringstream oss;
-                    oss << "Status: Phase=" << static_cast<int>(status.phase)
-                        << ", " << static_cast<int>(status.progress) << "%, "
-                        << status.distance_to_target << "m";
-                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                    status_overlay_->setCustomMessage("Launch Command Received", 3.0);
                 }
+
+                // TODO: 발사 로직 구현
             }
         );
-        
-        // FIRE_SUPPRESSION_RESULT 콜백 설정 (14550 포트)
-        custom_message_handler_->setFireSuppressionResultCallback(
-            [this](const custom_message::FireSuppressionResult& result) {
-                std::cout << "\n[DEBUG] ========== FIRE_SUPPRESSION_RESULT 수신 (14550) ==========" << std::endl;
-                std::cout << "[DEBUG] Shot Number: " << static_cast<int>(result.shot_number) << std::endl;
-                std::cout << "[DEBUG] Temp Before: " << (result.temp_before / 10.0) << "C" << std::endl;
-                std::cout << "[DEBUG] Temp After: " << (result.temp_after / 10.0) << "C" << std::endl;
-                std::cout << "[DEBUG] Success: " << (result.success ? "Yes" : "No") << std::endl;
-                std::cout << "[DEBUG] ==========================================" << std::endl;
-                
+
+        // FIRE_RETURN (60003) 콜백 설정 - 복귀 명령
+        custom_message_handler_->setFireReturnCallback(
+            [this](const custom_message::FireReturn& ret) {
+                auto now = std::chrono::system_clock::now();
+                auto time_t = std::chrono::system_clock::to_time_t(now);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+
+                std::cout << "\n[DEBUG] ========== FIRE_RETURN (60003) 수신 ==========" << std::endl;
+                std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
+                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(ret.target_system) << std::endl;
+                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(ret.target_component) << std::endl;
+                std::cout << "[DEBUG] ==============================================" << std::endl;
+
                 if (status_overlay_) {
-                    std::ostringstream oss;
-                    oss << "Result: Shot=" << static_cast<int>(result.shot_number)
-                        << ", " << (result.temp_before / 10.0) << "C->" << (result.temp_after / 10.0) << "C"
-                        << ", " << (result.success ? "Success" : "Failed");
-                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                    status_overlay_->setCustomMessage("Return Command Received", 3.0);
                 }
+
+                // TODO: 복귀(RTL) 로직 구현
             }
         );
         
@@ -759,61 +742,41 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
         
-        // FIRE_LAUNCH_CONTROL 콜백 설정
-        test_message_handler_->setFireLaunchControlCallback(
-            [this](const custom_message::FireLaunchControl& control) {
-                std::string cmd_name;
-                switch (control.command) {
-                    case 0: cmd_name = "CONFIRM"; break;
-                    case 1: cmd_name = "ABORT"; break;
-                    case 2: cmd_name = "REQUEST_STATUS"; break;
-                    default: cmd_name = "UNKNOWN"; break;
-                }
-                
-                std::cout << "\n[TEST PORT] FIRE_LAUNCH_CONTROL 수신 (15000): " << cmd_name << std::endl;
-                
+        // FIRE_AUTO_AIM (60001) 콜백 설정 - 자동조준
+        test_message_handler_->setFireAutoAimCallback(
+            [this](const custom_message::FireAutoAim& aim) {
+                std::cout << "\n[TEST PORT] FIRE_AUTO_AIM (60001) 수신 - 자동조준" << std::endl;
+                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(aim.target_system) << std::endl;
+                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(aim.target_component) << std::endl;
+
                 if (status_overlay_) {
-                    status_overlay_->setCustomMessage("[TEST] " + cmd_name, 3.0);
+                    status_overlay_->setCustomMessage("[TEST] Auto Aim", 3.0);
                 }
             }
         );
-        
-        // FIRE_MISSION_STATUS 콜백 설정
-        test_message_handler_->setFireMissionStatusCallback(
-            [this](const custom_message::FireMissionStatus& status) {
-                std::cout << "\n[TEST PORT] ========== FIRE_MISSION_STATUS 수신 (15000) ==========" << std::endl;
-                std::cout << "[TEST PORT] Phase: " << static_cast<int>(status.phase) << std::endl;
-                std::cout << "[TEST PORT] Progress: " << static_cast<int>(status.progress) << "%" << std::endl;
-                std::cout << "[TEST PORT] Distance: " << status.distance_to_target << " m" << std::endl;
-                std::cout << "[TEST PORT] Status: " << status.status_text << std::endl;
-                std::cout << "[TEST PORT] ==========================================" << std::endl;
-                
+
+        // FIRE_LAUNCH (60002) 콜백 설정 - 발사
+        test_message_handler_->setFireLaunchCallback(
+            [this](const custom_message::FireLaunch& launch) {
+                std::cout << "\n[TEST PORT] FIRE_LAUNCH (60002) 수신 - 발사" << std::endl;
+                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(launch.target_system) << std::endl;
+                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(launch.target_component) << std::endl;
+
                 if (status_overlay_) {
-                    std::ostringstream oss;
-                    oss << "[TEST] Status: Phase=" << static_cast<int>(status.phase)
-                        << ", " << static_cast<int>(status.progress) << "%, "
-                        << status.distance_to_target << "m";
-                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                    status_overlay_->setCustomMessage("[TEST] Launch", 3.0);
                 }
             }
         );
-        
-        // FIRE_SUPPRESSION_RESULT 콜백 설정
-        test_message_handler_->setFireSuppressionResultCallback(
-            [this](const custom_message::FireSuppressionResult& result) {
-                std::cout << "\n[TEST PORT] ========== FIRE_SUPPRESSION_RESULT 수신 (15000) ==========" << std::endl;
-                std::cout << "[TEST PORT] Shot Number: " << static_cast<int>(result.shot_number) << std::endl;
-                std::cout << "[TEST PORT] Temp Before: " << (result.temp_before / 10.0) << "°C" << std::endl;
-                std::cout << "[TEST PORT] Temp After: " << (result.temp_after / 10.0) << "°C" << std::endl;
-                std::cout << "[TEST PORT] Success: " << (result.success ? "Yes" : "No") << std::endl;
-                std::cout << "[TEST PORT] ==========================================" << std::endl;
-                
+
+        // FIRE_RETURN (60003) 콜백 설정 - 복귀
+        test_message_handler_->setFireReturnCallback(
+            [this](const custom_message::FireReturn& ret) {
+                std::cout << "\n[TEST PORT] FIRE_RETURN (60003) 수신 - 복귀" << std::endl;
+                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(ret.target_system) << std::endl;
+                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(ret.target_component) << std::endl;
+
                 if (status_overlay_) {
-                    std::ostringstream oss;
-                    oss << "[TEST] Result: Shot=" << static_cast<int>(result.shot_number)
-                        << ", " << (result.temp_before / 10.0) << "C->" << (result.temp_after / 10.0) << "C"
-                        << ", " << (result.success ? "Success" : "Failed");
-                    status_overlay_->setCustomMessage(oss.str(), 5.0);
+                    status_overlay_->setCustomMessage("[TEST] Return", 3.0);
                 }
             }
         );
@@ -970,20 +933,26 @@ void ApplicationManager::rgbCaptureLoop() {
     auto last_frame_time = std::chrono::steady_clock::now();
     int consecutive_failures = 0;
     const int max_failures = 5;
-    
+
     while (is_running_) {
+        // RGB 카메라 초기화 완료 대기 (race condition 방지)
+        if (!rgb_init_done_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
         auto current_time = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             current_time - last_frame_time).count() / 1000.0;
-        
+
         if (elapsed < frame_interval) {
             std::this_thread::sleep_for(std::chrono::milliseconds(
                 static_cast<int>((frame_interval - elapsed) * 1000)));
             continue;
         }
-        
+
         last_frame_time = std::chrono::steady_clock::now();
-        
+
         if (!camera_manager_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
@@ -1018,13 +987,19 @@ void ApplicationManager::rgbCaptureLoop() {
 void ApplicationManager::thermalCaptureLoop() {
     int consecutive_failures = 0;
     const int max_failures = 5;
-    
+
     while (is_running_) {
+        // 열화상 카메라 초기화 완료 대기 (race condition 방지)
+        if (!thermal_init_done_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
         if (!camera_manager_ || !thermal_processor_) {
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             continue;
         }
-        
+
         cv::Mat frame;
         if (camera_manager_->read_thermal_frame(frame)) {
             consecutive_failures = 0;
@@ -1252,18 +1227,23 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     }
 
     // 중복 실행 방지: 이미 미션이 실행 중이면 무시
-    // 단, ERROR 상태이고 FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도 허용
+    // 단, FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도 허용 (이전 미션 실패로 간주)
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
         // 현재 상태 확인
         MissionState current_state = offboard_manager_->getCurrentState();
         uint8_t nav_state = offboard_manager_->getCurrentNavState();
         bool is_offboard = offboard_manager_->isOffboardMode();
-        
-        // ERROR 상태이고 FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도
-        if (current_state == MissionState::ERROR && !is_offboard) {
-            std::cout << "\n[미션 실행 재시도] ERROR 상태이지만 FC가 OFFBOARD 모드가 아님: mission_running_ 플래그 리셋 후 재시도" << std::endl;
+
+        std::cout << "\n[미션 중복 체크] mission_running_=true" << std::endl;
+        std::cout << "  - OffboardManager 상태: " << OffboardManager::getStateName(current_state) << std::endl;
+        std::cout << "  - FC nav_state: " << static_cast<int>(nav_state) << (is_offboard ? " (OFFBOARD)" : " (다른 모드)") << std::endl;
+
+        // FC가 OFFBOARD 모드가 아니면 이전 미션이 실패한 것으로 간주하고 리셋
+        if (!is_offboard) {
+            std::cout << "  ★ FC가 OFFBOARD 모드가 아님 → 이전 미션 실패로 간주, 강제 리셋 후 재시도" << std::endl;
             mission_running_.store(false);
+            offboard_manager_->disableOffboardMode();
             offboard_manager_->resetToIdle();
             // 재시도
             expected = false;
@@ -1271,8 +1251,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
                 std::cout << "[미션 실행 건너뜀] 리셋 후에도 여전히 미션이 실행 중입니다" << std::endl;
                 return;
             }
+            std::cout << "  ✓ 리셋 완료, 새 미션 시작 진행" << std::endl;
         } else {
-            std::cout << "\n[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (mission_running_=true, 상태=" 
+            // FC가 실제로 OFFBOARD 모드일 때만 중복 실행 방지
+            std::cout << "  → FC가 OFFBOARD 모드이므로 중복 실행 방지" << std::endl;
+            std::cout << "[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (mission_running_=true, 상태="
                       << OffboardManager::getStateName(current_state) << ")" << std::endl;
             return;
         }
@@ -1363,62 +1346,17 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
         if (success) {
             std::cout << "\n[미션 성공] 목표 위치 도착" << std::endl;
-            
-            // 미션 상태 전송
-            if (custom_message_handler_) {
-                custom_message::FireMissionStatus status;
-                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_READY_TO_FIRE);
-                status.progress = 90;
-                status.remaining_projectiles = 10;
-                status.distance_to_target = 0.0f;
-                status.thermal_max_temp = 0;
-                std::strncpy(status.status_text, "Arrived at target", sizeof(status.status_text) - 1);
-                custom_message_handler_->sendFireMissionStatus(status);
-            }
-            
+
             // Auto fire 모드일 경우
             if (start.auto_fire) {
                 std::cout << "[자동 발사 모드] 발사 시뮬레이션 시작" << std::endl;
                 std::this_thread::sleep_for(std::chrono::seconds(2));
-                
-                // 발사 결과 전송
-                if (custom_message_handler_) {
-                    custom_message::FireSuppressionResult result;
-                    result.shot_number = 1;
-                    result.temp_before = 800;  // 80.0°C
-                    result.temp_after = 250;   // 25.0°C
-                    result.success = 1;
-                    custom_message_handler_->sendFireSuppressionResult(result);
-                    std::cout << "[발사 완료] 결과 전송 완료" << std::endl;
-                }
+                std::cout << "[발사 완료]" << std::endl;
             }
-            
-            // 완료 상태 전송
-            if (custom_message_handler_) {
-                custom_message::FireMissionStatus status;
-                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_COMPLETE);
-                status.progress = 100;
-                status.remaining_projectiles = 9;
-                status.distance_to_target = 0.0f;
-                status.thermal_max_temp = 0;
-                std::strncpy(status.status_text, "Mission complete", sizeof(status.status_text) - 1);
-                custom_message_handler_->sendFireMissionStatus(status);
-            }
-            
+
+            std::cout << "[미션 완료]" << std::endl;
         } else {
             std::cerr << "\n[미션 실패]" << std::endl;
-            
-            // 실패 상태 전송
-            if (custom_message_handler_) {
-                custom_message::FireMissionStatus status;
-                status.phase = static_cast<uint8_t>(custom_message::FireMissionPhase::FIRE_PHASE_IDLE);
-                status.progress = 0;
-                status.remaining_projectiles = 10;
-                status.distance_to_target = 0.0f;
-                status.thermal_max_temp = 0;
-                std::strncpy(status.status_text, "Mission failed", sizeof(status.status_text) - 1);
-                custom_message_handler_->sendFireMissionStatus(status);
-            }
         }
     });
     
@@ -1486,11 +1424,31 @@ void ApplicationManager::testExeMission3(const custom_message::FireMissionStart&
         return;
     }
 
-    // 중복 실행 방지
+    // 중복 실행 방지 (FC가 OFFBOARD 모드가 아니면 리셋 후 재시도 허용)
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
-        std::cout << "[TestMission3] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
-        return;
+        MissionState current_state = offboard_manager_->getCurrentState();
+        bool is_offboard = offboard_manager_->isOffboardMode();
+
+        std::cout << "[TestMission3] 미션 중복 체크: 상태=" << OffboardManager::getStateName(current_state)
+                  << ", FC=" << (is_offboard ? "OFFBOARD" : "다른 모드") << std::endl;
+
+        // FC가 OFFBOARD 모드가 아니면 이전 미션 실패로 간주
+        if (!is_offboard) {
+            std::cout << "[TestMission3] ★ FC가 OFFBOARD 모드가 아님 → 강제 리셋 후 재시도" << std::endl;
+            mission_running_.store(false);
+            offboard_manager_->disableOffboardMode();
+            offboard_manager_->resetToIdle();
+            expected = false;
+            if (!mission_running_.compare_exchange_strong(expected, true)) {
+                std::cout << "[TestMission3] 리셋 후에도 미션 실행 중. 무시합니다." << std::endl;
+                return;
+            }
+            std::cout << "[TestMission3] ✓ 리셋 완료, 새 미션 시작" << std::endl;
+        } else {
+            std::cout << "[TestMission3] FC가 OFFBOARD 모드 → 중복 실행 방지. 무시합니다." << std::endl;
+            return;
+        }
     }
 
     // device_config.env에서 DRONE_ID 읽기

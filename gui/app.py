@@ -1467,7 +1467,7 @@ def api_router_messages():
         for line in result.stdout.split('\n'):
             # CustomMessage 로그 파싱
             if '[CustomMessage]' in line and 'UDP 수신' in line:
-                # 예: [CustomMessage] [STEP 1] UDP 수신 (epoll): 28 bytes, 첫 바이트: 0xfd, MSG_ID=50000, 포트: 14551
+                # 예: [CustomMessage] [STEP 1] UDP 수신 (epoll): 28 bytes, 첫 바이트: 0xfd, MSG_ID=60000, 포트: 14551
                 parts = line.split('MSG_ID=')
                 if len(parts) > 1:
                     msg_id_part = parts[1].split(',')[0].strip()
@@ -1476,11 +1476,10 @@ def api_router_messages():
 
                     # 메시지 타입 매핑
                     msg_types = {
-                        '50000': 'FIRE_MISSION_START',
-                        '50001': 'FIRE_MISSION_STATUS',
-                        '50002': 'FIRE_LAUNCH_CONTROL',
-                        '50003': 'FIRE_SUPPRESSION_RESULT',
-                        '50004': 'FIRE_SET_MODE',
+                        '60000': 'FIRE_MISSION_START',
+                        '60001': 'FIRE_AUTO_AIM',
+                        '60002': 'FIRE_LAUNCH',
+                        '60003': 'FIRE_RETURN',
                         '76': 'COMMAND_LONG',
                         '0': 'HEARTBEAT'
                     }
@@ -3023,11 +3022,12 @@ def api_mavlink_send_custom():
         message = header + msgid_bytes + payload_bytes
 
         # CRC_EXTRA 값 (메시지 ID별 고유값)
-        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
+        # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         crc_extra_map = {
-            50000: 100,  # 미션 스타트
-            50001: 101,  # 자동 조준
-            50002: 102,  # 발사
+            60000: 100,  # 미션 스타트
+            60001: 101,  # 자동조준
+            60002: 102,  # 발사
+            60003: 103,  # 복귀
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 
@@ -3061,11 +3061,12 @@ def api_mavlink_send_fire():
         params = data.get('params', {})
 
         # 메시지 ID 매핑
-        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
+        # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         message_ids = {
-            'FIRE_MISSION_START': 50000,
-            'FIRE_AUTO_AIM': 50001,
-            'FIRE_LAUNCH': 50002
+            'FIRE_MISSION_START': 60000,
+            'FIRE_AUTO_AIM': 60001,
+            'FIRE_LAUNCH': 60002,
+            'FIRE_RETURN': 60003
         }
 
         message_id = message_ids.get(message_type, 0)
@@ -3092,13 +3093,19 @@ def api_mavlink_send_fire():
                 int(params.get('max_projectiles', 1))
             )
         elif message_type == 'FIRE_AUTO_AIM':
-            # 50001 자동 조준 - target_system, target_component만 포함
+            # 60001 자동조준 - target_system, target_component만 포함
             payload = struct.pack('<BB',
                 int(params.get('target_system', 1)),
                 int(params.get('target_component', 191))
             )
         elif message_type == 'FIRE_LAUNCH':
-            # 50002 발사 - target_system, target_component만 포함
+            # 60002 발사 - target_system, target_component만 포함
+            payload = struct.pack('<BB',
+                int(params.get('target_system', 1)),
+                int(params.get('target_component', 191))
+            )
+        elif message_type == 'FIRE_RETURN':
+            # 60003 복귀 - target_system, target_component만 포함
             payload = struct.pack('<BB',
                 int(params.get('target_system', 1)),
                 int(params.get('target_component', 191))
@@ -3119,11 +3126,12 @@ def api_mavlink_send_fire():
         message = header + msgid_bytes + payload
 
         # CRC_EXTRA 값 (메시지 ID별 고유값)
-        # 50000: 미션 스타트, 50001: 자동 조준, 50002: 발사
+        # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         crc_extra_map = {
-            50000: 100,  # 미션 스타트
-            50001: 101,  # 자동 조준
-            50002: 102,  # 발사
+            60000: 100,  # 미션 스타트
+            60001: 101,  # 자동조준
+            60002: 102,  # 발사
+            60003: 103,  # 복귀
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 

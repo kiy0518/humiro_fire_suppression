@@ -121,6 +121,10 @@ StatusROS2Subscriber::~StatusROS2Subscriber() {
     // 구독자들은 자동으로 해제됨
 }
 
+void StatusROS2Subscriber::setModeChangeCallback(ModeChangeCallback callback) {
+    mode_change_callback_ = callback;
+}
+
 void StatusROS2Subscriber::spin() {
     if (node_) {
         // rclcpp::spin_some은 같은 노드에 대해 여러 스레드에서 동시 호출 시 문제 발생
@@ -240,13 +244,23 @@ void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleSta
     
     // 상태 변경 시 즉시 출력 (QGC에서 변경 시 바로 확인 가능)
     if (mode_changed || armed_changed) {
-        std::cout << "  [비행 모드 변경] " << last_mode << " → " << mode 
+        std::cout << "  [비행 모드 변경] " << last_mode << " → " << mode
                   << " (nav_state=" << (int)msg->nav_state << ")"
-                  << ", 시동: " << (last_armed ? "ON" : "OFF") 
+                  << ", 시동: " << (last_armed ? "ON" : "OFF")
                   << " → " << (is_armed ? "ON" : "OFF") << std::endl;
         std::cout << "    → StatusOverlay::updatePx4State() 호출 완료" << std::endl;
+
+        // OFFBOARD(14)에서 다른 모드로 변경 시 콜백 호출 (mission_running_ 리셋용)
+        if (last_nav_state_ == 14 && msg->nav_state != 14) {
+            std::cout << "    ★ OFFBOARD 모드 종료 감지! (nav_state: 14 → " << (int)msg->nav_state << ")" << std::endl;
+            if (mode_change_callback_) {
+                mode_change_callback_(last_nav_state_, msg->nav_state);
+            }
+        }
+
         last_mode = mode;
         last_armed = is_armed;
+        last_nav_state_ = msg->nav_state;
         last_state_update_ = std::chrono::steady_clock::now();
     }
     // 주기적으로 출력 (10초마다, 변경이 없을 때)

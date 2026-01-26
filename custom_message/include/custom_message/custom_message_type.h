@@ -59,7 +59,7 @@ enum class PX4Mode : uint8_t {
 /**
  * @brief 화재 진압 미션 시작 메시지 (FIRE_MISSION_START)
  *
- * Message ID: 50000
+ * Message ID: 60000
  * Direction: QGC → VIM4
  *
  * GO 버튼을 누를 때 전송되는 미션 시작 명령
@@ -75,75 +75,54 @@ struct __attribute__((packed)) FireMissionStart {
 };
 
 /**
- * @brief 화재 진압 미션 상태 메시지 (FIRE_MISSION_STATUS)
+ * @brief 자동 조준 메시지 (FIRE_AUTO_AIM)
  *
- * Message ID: 50001
- * Direction: VIM4 → QGC
- *
- * 주기적으로 전송되는 미션 상태 정보
- */
-struct __attribute__((packed)) FireMissionStatus {
-    uint8_t phase;                // Current mission phase (FIRE_MISSION_PHASE)
-    uint8_t progress;             // Progress 0-100%
-    uint8_t remaining_projectiles;// Projectiles left
-    float distance_to_target;     // Distance to target (m)
-    int16_t thermal_max_temp;     // Max temp (°C * 10)
-    char status_text[50];         // Status message
-};
-
-/**
- * @brief 발사 제어 메시지 (FIRE_LAUNCH_CONTROL)
- *
- * Message ID: 50002
- * Direction: QGC ↔ VIM4 (양방향)
- *
- * 발사 확인, 중단, 상태 요청 등의 제어 명령
- */
-struct __attribute__((packed)) FireLaunchControl {
-    uint8_t target_system;        // System ID
-    uint8_t target_component;     // Component ID
-    uint8_t command;              // 0=confirm, 1=abort, 2=request_status
-};
-
-/**
- * @brief 화재 진압 결과 메시지 (FIRE_SUPPRESSION_RESULT)
- *
- * Message ID: 50003
- * Direction: VIM4 → QGC
- *
- * 발사 후 결과 정보
- */
-struct __attribute__((packed)) FireSuppressionResult {
-    uint8_t shot_number;          // Shot number
-    int16_t temp_before;          // Temp before (°C * 10)
-    int16_t temp_after;           // Temp after (°C * 10)
-    uint8_t success;              // 0=failed, 1=success
-};
-
-/**
- * @brief PX4 비행 모드 설정 메시지 (FIRE_SET_MODE)
- *
- * Message ID: 50004
+ * Message ID: 60001
  * Direction: QGC → VIM4
  *
- * PX4 비행 모드를 변경하는 명령
- * VIM4가 수신하면 ROS2를 통해 FC에 전달
+ * 자동 조준 명령
  */
-struct __attribute__((packed)) FireSetMode {
-    uint8_t target_system;        // System ID (FC)
-    uint8_t target_component;     // Component ID (FC)
-    uint8_t px4_mode;             // PX4 mode (1-8, see PX4Mode enum)
+struct __attribute__((packed)) FireAutoAim {
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
+};
+
+/**
+ * @brief 발사 메시지 (FIRE_LAUNCH)
+ *
+ * Message ID: 60002
+ * Direction: QGC → VIM4
+ *
+ * 발사 명령
+ */
+struct __attribute__((packed)) FireLaunch {
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
+};
+
+/**
+ * @brief 복귀 메시지 (FIRE_RETURN)
+ *
+ * Message ID: 60003
+ * Direction: QGC → VIM4
+ *
+ * 복귀(RTL) 명령
+ */
+struct __attribute__((packed)) FireReturn {
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
 };
 
 /**
  * @brief 메시지 타입 열거형
+ *
+ * NOTE: 60000번대 사용 (50001/50002는 CUBEPILOT_RAW_RC, HERELINK_VIDEO_STREAM_INFORMATION과 충돌)
  */
 enum class MessageType {
-    FIRE_MISSION_START = 50000,      // QGC → VIM4
-    FIRE_MISSION_STATUS = 50001,     // VIM4 → QGC
-    FIRE_LAUNCH_CONTROL = 50002,     // QGC ↔ VIM4
-    FIRE_SUPPRESSION_RESULT = 50003, // VIM4 → QGC
-    FIRE_SET_MODE = 50004,           // QGC → VIM4 (NEW)
+    FIRE_MISSION_START = 60000,      // QGC → VIM4: 미션 스타트
+    FIRE_AUTO_AIM = 60001,           // QGC → VIM4: 자동 조준
+    FIRE_LAUNCH = 60002,             // QGC → VIM4: 발사
+    FIRE_RETURN = 60003,             // QGC → VIM4: 복귀
     UNKNOWN = 0
 };
 
