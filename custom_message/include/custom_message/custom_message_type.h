@@ -1,13 +1,17 @@
 /**
  * @file custom_message_type.h
- * @brief 커스텀 MAVLink 메시지 타입 정의 (XML 정의 기반)
+ * @brief 커스텀 MAVLink 메시지 타입 정의 (Wire Format 순서)
  *
  * QGC와 VIM4 간 화재 진압 미션 전용 커스텀 MAVLink 메시지 타입 정의
- * XML mavlink 정의 파일과 완전 동기화
+ *
+ * ★ 중요: MAVLink Wire Format 순서 (타입 크기 내림차순)
+ * - 4바이트 필드 (int32_t, float) 먼저
+ * - 2바이트 필드 (int16_t) 다음
+ * - 1바이트 필드 (uint8_t) 마지막
  *
  * @author Humiro Fire Suppression Team
- * @date 2026-01-05
- * @version 3.1 - FIRE_SET_MODE 메시지 추가
+ * @date 2026-01-27
+ * @version 4.0 - Wire Format 순서로 수정
  */
 
 #ifndef CUSTOM_MESSAGE_TYPE_H
@@ -62,14 +66,16 @@ enum class PX4Mode : uint8_t {
  * Message ID: 60000
  * Direction: QGC → VIM4
  *
- * GO 버튼을 누를 때 전송되는 미션 시작 명령
+ * ★ Wire Format 순서 (타입 크기 내림차순)
  */
 struct __attribute__((packed)) FireMissionStart {
-    uint8_t target_system;        // System ID
-    uint8_t target_component;     // Component ID
+    // 4-byte fields first
     int32_t target_lat;           // Target latitude * 1e7
     int32_t target_lon;           // Target longitude * 1e7
     float target_alt;             // Target altitude MSL (m)
+    // 1-byte fields last
+    uint8_t target_system;        // System ID
+    uint8_t target_component;     // Component ID
     uint8_t auto_fire;            // 0=manual, 1=auto
     uint8_t max_projectiles;      // Max projectiles to use
 };
@@ -80,7 +86,7 @@ struct __attribute__((packed)) FireMissionStart {
  * Message ID: 60001
  * Direction: QGC → VIM4
  *
- * 자동 조준 명령
+ * 자동 조준 명령 (1바이트 필드만 있어 순서 무관)
  */
 struct __attribute__((packed)) FireAutoAim {
     uint8_t target_system;        // System ID
@@ -93,7 +99,7 @@ struct __attribute__((packed)) FireAutoAim {
  * Message ID: 60002
  * Direction: QGC → VIM4
  *
- * 발사 명령
+ * 발사 명령 (1바이트 필드만 있어 순서 무관)
  */
 struct __attribute__((packed)) FireLaunch {
     uint8_t target_system;        // System ID
@@ -106,7 +112,7 @@ struct __attribute__((packed)) FireLaunch {
  * Message ID: 60003
  * Direction: QGC → VIM4
  *
- * 복귀(RTL) 명령
+ * 복귀(RTL) 명령 (1바이트 필드만 있어 순서 무관)
  */
 struct __attribute__((packed)) FireReturn {
     uint8_t target_system;        // System ID
@@ -114,39 +120,51 @@ struct __attribute__((packed)) FireReturn {
 };
 
 /**
- * @brief 미션 상태 메시지 (FIRE_MISSION_STATUS) - 미사용 stub
+ * @brief 미션 상태 메시지 (FIRE_MISSION_STATUS)
  *
- * NOTE: 현재 구현되지 않음. MissionOverlay 빌드를 위한 stub 구조체
+ * Message ID: 60010
+ * Direction: VIM4 → QGC
+ *
+ * ★ Wire Format 순서 (타입 크기 내림차순)
  */
 struct __attribute__((packed)) FireMissionStatus {
+    // 4-byte fields first
+    int32_t target_lat;           // Target latitude * 1e7
+    int32_t target_lon;           // Target longitude * 1e7
+    float target_alt;             // Target altitude MSL (m)
+    float distance_to_target;     // Distance to target (m)
+    // 2-byte fields
+    int16_t thermal_max_temp;     // Max temperature * 10 (0.1 C)
+    // 1-byte fields last
     uint8_t target_system;        // System ID
     uint8_t target_component;     // Component ID
     uint8_t phase;                // Current mission phase
     uint8_t progress;             // Progress percentage (0-100)
-    int32_t target_lat;           // Target latitude * 1e7
-    int32_t target_lon;           // Target longitude * 1e7
-    float target_alt;             // Target altitude MSL (m)
     uint8_t projectiles_used;     // Projectiles used
     uint8_t remaining_projectiles;// Projectiles remaining
-    float distance_to_target;     // Distance to target (m)
-    int16_t thermal_max_temp;     // Max temperature * 10 (0.1 C)
 };
 
 /**
- * @brief 진압 결과 메시지 (FIRE_SUPPRESSION_RESULT) - 미사용 stub
+ * @brief 진압 결과 메시지 (FIRE_SUPPRESSION_RESULT)
  *
- * NOTE: 현재 구현되지 않음. MissionOverlay 빌드를 위한 stub 구조체
+ * Message ID: 60011
+ * Direction: VIM4 → QGC
+ *
+ * ★ Wire Format 순서 (타입 크기 내림차순)
  */
 struct __attribute__((packed)) FireSuppressionResult {
+    // 4-byte fields first
+    int32_t impact_lat;           // Impact latitude * 1e7
+    int32_t impact_lon;           // Impact longitude * 1e7
+    float thermal_reduction;      // Thermal signature reduction (%)
+    // 2-byte fields
+    int16_t temp_before;          // Temperature before * 10 (0.1 C)
+    int16_t temp_after;           // Temperature after * 10 (0.1 C)
+    // 1-byte fields last
     uint8_t target_system;        // System ID
     uint8_t target_component;     // Component ID
     uint8_t shot_number;          // Shot number
     uint8_t success;              // 0=failed, 1=success
-    int16_t temp_before;          // Temperature before * 10 (0.1 C)
-    int16_t temp_after;           // Temperature after * 10 (0.1 C)
-    int32_t impact_lat;           // Impact latitude * 1e7
-    int32_t impact_lon;           // Impact longitude * 1e7
-    float thermal_reduction;      // Thermal signature reduction (%)
 };
 
 /**
@@ -155,10 +173,14 @@ struct __attribute__((packed)) FireSuppressionResult {
  * NOTE: 60000번대 사용 (50001/50002는 CUBEPILOT_RAW_RC, HERELINK_VIDEO_STREAM_INFORMATION과 충돌)
  */
 enum class MessageType {
-    FIRE_MISSION_START = 60000,      // QGC → VIM4: 미션 스타트
-    FIRE_AUTO_AIM = 60001,           // QGC → VIM4: 자동 조준
-    FIRE_LAUNCH = 60002,             // QGC → VIM4: 발사
-    FIRE_RETURN = 60003,             // QGC → VIM4: 복귀
+    // QGC → VIM4 (명령)
+    FIRE_MISSION_START = 60000,      // 미션 스타트
+    FIRE_AUTO_AIM = 60001,           // 자동 조준
+    FIRE_LAUNCH = 60002,             // 발사
+    FIRE_RETURN = 60003,             // 복귀
+    // VIM4 → QGC (상태)
+    FIRE_MISSION_STATUS = 60010,     // 미션 상태
+    FIRE_SUPPRESSION_RESULT = 60011, // 진압 결과
     UNKNOWN = 0
 };
 

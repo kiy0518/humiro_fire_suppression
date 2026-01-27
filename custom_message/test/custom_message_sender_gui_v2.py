@@ -511,10 +511,14 @@ class CustomMessageSenderGUI:
             76: 152,     # COMMAND_LONG (표준 MAVLink 메시지) - 공식 값
             84: 143,     # SET_POSITION_TARGET_LOCAL_NED (표준 MAVLink 메시지) - 공식 값
             86: 5,       # SET_POSITION_TARGET_GLOBAL_INT (표준 MAVLink 메시지) - 공식 값
-            50000: 100,  # FIRE_MISSION_START (커스텀)
-            50001: 101,  # FIRE_MISSION_STATUS (커스텀)
-            50002: 102,  # FIRE_LAUNCH_CONTROL (커스텀)
-            50003: 103   # FIRE_SUPPRESSION_RESULT (커스텀)
+            # 60000번대 커스텀 메시지 (QGC → VIM4)
+            60000: 100,  # FIRE_MISSION_START
+            60001: 101,  # FIRE_AUTO_AIM
+            60002: 102,  # FIRE_LAUNCH
+            60003: 103,  # FIRE_RETURN
+            # 60010번대 커스텀 메시지 (VIM4 → QGC)
+            60010: 110,  # FIRE_MISSION_STATUS
+            60011: 111   # FIRE_SUPPRESSION_RESULT
         }
         crc_extra = crc_extra_map.get(msg_id, 0)
         
@@ -558,8 +562,8 @@ class CustomMessageSenderGUI:
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
 
-            # Message ID: 50000
-            msg_id = 50000
+            # Message ID: 60000 (FIRE_MISSION_START)
+            msg_id = 60000
 
             # 메시지 페이로드 (struct FireMissionStart)
             payload = struct.pack(
@@ -589,8 +593,8 @@ class CustomMessageSenderGUI:
             progress = int(self.progress_entry.get())
             distance = float(self.distance_entry.get())
 
-            # Message ID: 50001
-            msg_id = 50001
+            # Message ID: 60010 (FIRE_MISSION_STATUS)
+            msg_id = 60010
 
             # 메시지 페이로드 (struct FireMissionStatus)
             status_text = "Flying to target".encode('utf-8')
@@ -619,8 +623,8 @@ class CustomMessageSenderGUI:
             temp_after = int(float(self.temp_after_entry.get()) * 10)
             success = 1 if self.success_var.get() else 0
 
-            # Message ID: 50003
-            msg_id = 50003
+            # Message ID: 60011 (FIRE_SUPPRESSION_RESULT)
+            msg_id = 60011
 
             # 메시지 페이로드 (struct FireSuppressionResult)
             payload = struct.pack(
@@ -642,8 +646,8 @@ class CustomMessageSenderGUI:
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
 
-            # Message ID: 50002
-            msg_id = 50002
+            # Message ID: 60002 (FIRE_LAUNCH)
+            msg_id = 60002
 
             # 메시지 페이로드 (struct FireLaunchControl)
             payload = struct.pack(

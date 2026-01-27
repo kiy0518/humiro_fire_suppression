@@ -57,21 +57,9 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
                 target.latitude, target.longitude, target.altitude);
 
     // GPS 위치 정보 수신 대기
+    // 중요: spin_some을 호출하지 않음 (메인 executor에서 콜백 처리)
     auto start_time = std::chrono::steady_clock::now();
     while (!global_position_received_ || !local_position_received_) {
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
-        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -112,19 +100,7 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
         // TrajectorySetpoint 발행
         publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_);
 
-        try {
-            rclcpp::spin_some(node_);
-        } catch (const std::runtime_error& e) {
-            // executor 관련 예외는 무시 (이미 메인 executor에 추가된 경우)
-            std::string error_msg = e.what();
-            if (error_msg.find("already been added to an executor") == std::string::npos) {
-                RCLCPP_WARN(node_->get_logger(), "spin_some runtime_error (무시): %s", e.what());
-            }
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 예외 (무시): %s", e.what());
-        } catch (...) {
-            RCLCPP_WARN(node_->get_logger(), "spin_some 알 수 없는 예외 (무시)");
-        }
+        // 중요: spin_some을 호출하지 않음 (메인 executor에서 콜백 처리)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // 거리 확인
@@ -265,9 +241,17 @@ void WaypointHandler::publishOffboardControlMode()
 void WaypointHandler::gpsToLocalNED(const GPSCoordinate& target,
                                      float& local_x, float& local_y, float& local_z)
 {
+    // ★ target.altitude는 이륙 지점 기준 상대 고도로 해석
+    // 해발 고도(AMSL) = home_altitude_amsl + 상대 고도
+    float target_altitude_amsl = home_altitude_amsl_ + target.altitude;
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[GPS->NED] Target altitude: %.2fm (relative) + %.2fm (home) = %.2fm (AMSL)",
+                target.altitude, home_altitude_amsl_, target_altitude_amsl);
+
     // gps_utils 사용하여 GPS -> Local NED 변환
     gps_utils::gpsToLocalNED(home_latitude_, home_longitude_, home_altitude_amsl_,
-                             target.latitude, target.longitude, target.altitude,
+                             target.latitude, target.longitude, target_altitude_amsl,
                              local_x, local_y, local_z);
 }
 

@@ -91,9 +91,9 @@ Item {
     Connections {
         target: activeVehicle
 
-        // FIRE_MISSION_STATUS 수신 (ID: 50001)
+        // FIRE_MISSION_STATUS 수신 (ID: 60010)
         function onMessageReceived(message) {
-            if (message.id === 50001) {  // FIRE_MISSION_STATUS
+            if (message.id === 60010) {  // FIRE_MISSION_STATUS
                 var phase = message.phase  // FIRE_MISSION_PHASE (0-6)
                 var progress = message.progress  // 0-100%
                 var remaining_projectiles = message.remaining_projectiles
@@ -108,8 +108,8 @@ Item {
                 var isFiring = (phase === 4)  // FIRE_PHASE_SUPPRESSING
                 fireControlPanel.updateFireState(phase, isFiring)
             }
-            // FIRE_SUPPRESSION_RESULT 수신 (ID: 50003)
-            else if (message.id === 50003) {
+            // FIRE_SUPPRESSION_RESULT 수신 (ID: 60011)
+            else if (message.id === 60011) {
                 var shot_number = message.shot_number
                 var temp_before = message.temp_before / 10.0  // °C * 10 → °C
                 var temp_after = message.temp_after / 10.0  // °C * 10 → °C
@@ -128,14 +128,13 @@ Item {
             return
         }
 
-        // FIRE_LAUNCH_CONTROL (ID: 50002) 전송
-        var message = activeVehicle.createMAVLinkMessage(50002)
+        // FIRE_LAUNCH (ID: 60002) 전송
+        var message = activeVehicle.createMAVLinkMessage(60002)
         message.target_system = 1  // VIM4 시스템 ID
         message.target_component = 1  // VIM4 컴포넌트 ID
-        message.command = confirm ? 0 : 1  // 0=CONFIRM, 1=ABORT
 
         activeVehicle.sendMessage(message)
-        console.log("Sent FIRE_LAUNCH_CONTROL: Command=" + (confirm ? "CONFIRM" : "ABORT"))
+        console.log("Sent FIRE_LAUNCH (60002): " + (confirm ? "CONFIRM" : "ABORT"))
     }
 
     function sendMAVLinkStatusRequest() {
@@ -144,14 +143,8 @@ Item {
             return
         }
 
-        // FIRE_LAUNCH_CONTROL (ID: 50002) 전송 - REQUEST_STATUS
-        var message = activeVehicle.createMAVLinkMessage(50002)
-        message.target_system = 1  // VIM4 시스템 ID
-        message.target_component = 1  // VIM4 컴포넌트 ID
-        message.command = 2  // REQUEST_STATUS
-
-        activeVehicle.sendMessage(message)
-        console.log("Sent FIRE_LAUNCH_CONTROL: Command=REQUEST_STATUS")
+        // 상태 요청 - 현재는 별도 메시지 없음, 로그만 출력
+        console.log("Status request - not implemented yet")
     }
 
     function sendFireMissionStart(lat, lon, alt, autoFire, maxProjectiles) {
@@ -160,8 +153,8 @@ Item {
             return
         }
 
-        // FIRE_MISSION_START (ID: 50000) 전송
-        var message = activeVehicle.createMAVLinkMessage(50000)
+        // FIRE_MISSION_START (ID: 60000) 전송
+        var message = activeVehicle.createMAVLinkMessage(60000)
         message.target_system = 1  // VIM4 시스템 ID
         message.target_component = 1  // VIM4 컴포넌트 ID
         message.target_lat = lat * 1e7  // degrees * 1e7
@@ -171,23 +164,37 @@ Item {
         message.max_projectiles = maxProjectiles  // Max projectiles to use
 
         activeVehicle.sendMessage(message)
-        console.log("Sent FIRE_MISSION_START: Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt)
+        console.log("Sent FIRE_MISSION_START (60000): Lat=" + lat + ", Lon=" + lon + ", Alt=" + alt)
     }
 
-    function sendFireSetMode(px4Mode) {
+    // FIRE_AUTO_AIM (ID: 60001) - 자동 조준 명령
+    function sendFireAutoAim() {
         if (!activeVehicle) {
             console.log("No active vehicle")
             return
         }
 
-        // FIRE_SET_MODE (ID: 50004) 전송
-        var message = activeVehicle.createMAVLinkMessage(50004)
-        message.target_system = 1  // FC 시스템 ID
-        message.target_component = 1  // FC 컴포넌트 ID
-        message.px4_mode = px4Mode  // PX4 mode (1-8)
+        var message = activeVehicle.createMAVLinkMessage(60001)
+        message.target_system = 1  // VIM4 시스템 ID
+        message.target_component = 1  // VIM4 컴포넌트 ID
 
         activeVehicle.sendMessage(message)
-        console.log("Sent FIRE_SET_MODE: PX4_Mode=" + px4Mode)
+        console.log("Sent FIRE_AUTO_AIM (60001)")
+    }
+
+    // FIRE_RETURN (ID: 60003) - 복귀 명령
+    function sendFireReturn() {
+        if (!activeVehicle) {
+            console.log("No active vehicle")
+            return
+        }
+
+        var message = activeVehicle.createMAVLinkMessage(60003)
+        message.target_system = 1  // VIM4 시스템 ID
+        message.target_component = 1  // VIM4 컴포넌트 ID
+
+        activeVehicle.sendMessage(message)
+        console.log("Sent FIRE_RETURN (60003)")
     }
 
     // 테스트 데이터 (개발용)

@@ -1346,9 +1346,9 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.distance_tolerance = 1.0f;
     config.hover_duration_sec = 5.0f;
 
-    std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m" << std::endl;
+    std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m (이륙지점 기준)" << std::endl;
     std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
-              << config.target_waypoint.longitude << ", " << config.target_waypoint.altitude << ")" << std::endl;
+              << config.target_waypoint.longitude << "), 고도: " << config.target_waypoint.altitude << " m (이륙지점 기준)" << std::endl;
     std::cout << "  - 목표 거리: " << config.target_distance << " m" << std::endl;
 
     // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)

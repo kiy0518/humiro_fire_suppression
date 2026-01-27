@@ -54,10 +54,12 @@ int main() {
 
 | 메시지 ID | 메시지 이름 | 방향 | 설명 |
 |-----------|------------|------|------|
-| 50000 | FIRE_MISSION_START | QGC → VIM4 | 화재 진압 미션 시작 |
-| 50001 | FIRE_MISSION_STATUS | VIM4 → QGC | 미션 진행 상태 |
-| 50002 | FIRE_LAUNCH_CONTROL | QGC ↔ VIM4 | 발사 제어 |
-| 50003 | FIRE_SUPPRESSION_RESULT | VIM4 → QGC | 발사 결과 |
+| 60000 | FIRE_MISSION_START | QGC → VIM4 | 화재 진압 미션 시작 |
+| 60001 | FIRE_AUTO_AIM | QGC → VIM4 | 자동 조준 명령 |
+| 60002 | FIRE_LAUNCH | QGC → VIM4 | 발사 명령 |
+| 60003 | FIRE_RETURN | QGC → VIM4 | 복귀(RTL) 명령 |
+| 60010 | FIRE_MISSION_STATUS | VIM4 → QGC | 미션 진행 상태 |
+| 60011 | FIRE_SUPPRESSION_RESULT | VIM4 → QGC | 발사 결과 |
 
 ---
 
