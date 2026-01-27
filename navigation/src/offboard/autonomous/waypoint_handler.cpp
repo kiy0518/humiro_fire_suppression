@@ -168,7 +168,7 @@ GPSCoordinate WaypointHandler::getCurrentPosition() const
 
 double WaypointHandler::getDistanceToTarget(const GPSCoordinate& target) const
 {
-    double horizontal_distance = haversineDistance(
+    double horizontal_distance = gps_utils::haversineDistance(
         current_latitude_.load(), current_longitude_.load(),
         target.latitude, target.longitude
     );
@@ -265,33 +265,9 @@ void WaypointHandler::publishOffboardControlMode()
 void WaypointHandler::gpsToLocalNED(const GPSCoordinate& target,
                                      float& local_x, float& local_y, float& local_z)
 {
-    // 위도 차이 (북쪽 방향)
-    double lat_diff = target.latitude - home_latitude_;
-    local_x = lat_diff * DEG_TO_RAD * EARTH_RADIUS;
-
-    // 경도 차이 (동쪽 방향)
-    // cos(위도)로 보정 (위도가 높을수록 경도 간격이 좁아짐)
-    double lon_diff = target.longitude - home_longitude_;
-    double lat_avg = (target.latitude + home_latitude_) / 2.0;
-    local_y = lon_diff * DEG_TO_RAD * EARTH_RADIUS * std::cos(lat_avg * DEG_TO_RAD);
-
-    // 고도 차이 (NED에서는 아래 방향이 양수)
-    local_z = -(target.altitude - home_altitude_amsl_);
+    // gps_utils 사용하여 GPS -> Local NED 변환
+    gps_utils::gpsToLocalNED(home_latitude_, home_longitude_, home_altitude_amsl_,
+                             target.latitude, target.longitude, target.altitude,
+                             local_x, local_y, local_z);
 }
 
-double WaypointHandler::haversineDistance(double lat1, double lon1,
-                                          double lat2, double lon2) const
-{
-    double lat1_rad = lat1 * DEG_TO_RAD;
-    double lat2_rad = lat2 * DEG_TO_RAD;
-    double dlat = (lat2 - lat1) * DEG_TO_RAD;
-    double dlon = (lon2 - lon1) * DEG_TO_RAD;
-
-    double a = std::sin(dlat / 2.0) * std::sin(dlat / 2.0) +
-               std::cos(lat1_rad) * std::cos(lat2_rad) *
-               std::sin(dlon / 2.0) * std::sin(dlon / 2.0);
-
-    double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
-
-    return EARTH_RADIUS * c;
-}

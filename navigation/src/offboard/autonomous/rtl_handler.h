@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include "gps_utils.h"
 
 class RTLHandler {
 public:
@@ -81,12 +82,6 @@ private:
                                float param4 = 0.0f, float param5 = 0.0f,
                                float param6 = 0.0f, float param7 = 0.0f);
 
-    /**
-     * @brief Haversine 거리 계산
-     */
-    double haversineDistance(double lat1, double lon1,
-                            double lat2, double lon2) const;
-
     rclcpp::Node::SharedPtr node_;
 
     // Publishers
@@ -107,6 +102,7 @@ private:
     std::atomic<double> current_longitude_{0.0};
     std::atomic<float> current_altitude_amsl_{0.0f};
     std::atomic<float> current_local_z_{0.0f};
+    std::atomic<float> current_yaw_{0.0f};  // 현재 헤딩 (라디안)
 
     double home_latitude_{0.0};
     double home_longitude_{0.0};
@@ -123,8 +119,6 @@ private:
     static constexpr uint16_t VEHICLE_CMD_NAV_LAND = 21;
     static constexpr uint8_t NAV_STATE_AUTO_RTL = 5;  // PX4 RTL mode
     static constexpr uint8_t ARMING_STATE_STANDBY = 2;  // Disarmed
-    static constexpr double EARTH_RADIUS = 6371000.0;
-    static constexpr float DEG_TO_RAD = M_PI / 180.0;
     static constexpr float HOME_THRESHOLD = 5.0f;  // 5m 이내면 Home 도달
     static constexpr float LANDED_THRESHOLD = 0.25f;  // 지상 25cm 이내 (Optical Flow 센서 오프셋 고려)
 };

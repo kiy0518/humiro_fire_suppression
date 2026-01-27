@@ -11,6 +11,7 @@
 #include <chrono>
 #include <memory>
 #include <cmath>
+#include "gps_utils.h"
 
 struct GPSCoordinate {
     double latitude;   // 위도 (degrees)
@@ -82,12 +83,6 @@ private:
     void gpsToLocalNED(const GPSCoordinate& target,
                        float& local_x, float& local_y, float& local_z);
 
-    /**
-     * @brief Haversine 거리 계산
-     */
-    double haversineDistance(double lat1, double lon1,
-                            double lat2, double lon2) const;
-
     rclcpp::Node::SharedPtr node_;
 
     // Publishers
@@ -124,9 +119,7 @@ private:
     GPSCoordinate target_waypoint_{0.0, 0.0, 0.0f};
 
     // Constants
-    static constexpr double EARTH_RADIUS = 6371000.0;  // 지구 반지름 (미터)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f;   // 2m 오차 허용
-    static constexpr float DEG_TO_RAD = M_PI / 180.0;
 };
 
 #endif // WAYPOINT_HANDLER_H

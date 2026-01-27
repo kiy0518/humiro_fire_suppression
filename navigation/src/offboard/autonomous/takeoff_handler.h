@@ -58,6 +58,11 @@ public:
     float getCurrentYaw() const { return current_yaw_.load(); }
 
     /**
+     * @brief 이륙 시작 시 캡처된 yaw 반환 (비행 중 고정 헤딩 유지용)
+     */
+    float getTakeoffStartYaw() const { return takeoff_start_yaw_; }
+
+    /**
      * @brief 이륙 시작 위치로 복귀
      * @param timeout_ms 타임아웃 (밀리초, 기본값 30초)
      * @return 복귀 성공 여부

@@ -1,6 +1,8 @@
 #include "offboard_manager.h"
 #include <thread>
 #include <chrono>
+#define _USE_MATH_DEFINES
+#include <cmath>
 
 OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
     : node_(node)
@@ -1294,10 +1296,10 @@ bool OffboardManager::calculateFormationPosition(uint8_t vehicle_id,
 
 bool OffboardManager::moveToPosition(double target_lat, double target_lon,
                                      float target_alt, float target_heading,
-                                     float tolerance_m)
+                                     [[maybe_unused]] float tolerance_m)
 {
-    RCLCPP_INFO(node_->get_logger(), "[Follower] Moving to position (%.7f, %.7f), alt: %.1fm",
-                target_lat, target_lon, target_alt);
+    RCLCPP_INFO(node_->get_logger(), "[Follower] Moving to position (%.7f, %.7f), alt: %.1fm, heading: %.1f",
+                target_lat, target_lon, target_alt, target_heading);
     
     // WaypointHandler 사용하여 GPS 이동
     // 현재는 간단히 시뮬레이션
@@ -1588,17 +1590,20 @@ void OffboardManager::updateArming()
 
 void OffboardManager::updateTakeoff()
 {
+    // ★ 매 틱마다 OFFBOARD 신호 유지
+    takeoff_handler_->publishTakeoffSetpoint();
+
     // Step 0: 이륙 시작
     if (state_step_counter_ == 0) {
         RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Starting takeoff to %.1fm", mission_takeoff_altitude_);
         takeoff_handler_->startTakeoff(mission_takeoff_altitude_);
         state_step_counter_ = 1;
-        return;
+        return;  // setpoint는 이미 위에서 발행됨
     }
 
-    // Step 1: 이륙 진행 중 - setpoint 발행 & 고도 체크
+    // Step 1: 이륙 진행 중 - 고도 체크
     if (state_step_counter_ == 1) {
-        takeoff_handler_->publishTakeoffSetpoint();
+        // setpoint는 이미 위에서 발행됨
 
         float current_alt = takeoff_handler_->getCurrentAltitude();
         float target_alt = mission_takeoff_altitude_;
@@ -1613,6 +1618,13 @@ void OffboardManager::updateTakeoff()
         // 목표 고도 도달 확인 (90%)
         if (current_alt >= target_alt * 0.9f) {
             RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] ✓ Takeoff complete at %.2fm", current_alt);
+
+            // ★ 이륙 시 캡처된 yaw를 DistanceAdjuster에 설정 (비행 중 헤딩 유지)
+            float takeoff_yaw = takeoff_handler_->getTakeoffStartYaw();
+            distance_adjuster_->setFixedYaw(takeoff_yaw);
+            RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Fixed yaw set: %.1f deg",
+                        takeoff_yaw * 180.0f / M_PI);
+
             transitionToState(MissionState::HOVER);
             state_start_time_ = std::chrono::steady_clock::now();
             state_step_counter_ = 0;
@@ -1648,12 +1660,17 @@ void OffboardManager::updateHover()
 
 void OffboardManager::updateAdjustDistance()
 {
+    // ★ Velocity setpoint 사용 - hover() 호출 제거 (Position/Velocity 충돌 방지)
+    // publishDistanceSetpoint()가 자체적으로 OffboardControlMode와 VelocitySetpoint 발행
+
     // 비동기 거리 조절
     // Step 0: 시작
     if (state_step_counter_ == 0) {
         RCLCPP_INFO(node_->get_logger(), "[ADJUST_DISTANCE] Starting distance control (target: %.1fm)",
                     mission_target_distance_);
         state_step_counter_ = 1;
+        // 첫 프레임에서도 setpoint 발행 필요
+        distance_adjuster_->publishDistanceSetpoint(mission_target_distance_);
         return;
     }
 
@@ -1770,24 +1787,26 @@ void OffboardManager::updateThermalAiming()
 
 void OffboardManager::updateReturningHome()
 {
+    // ★ 매 틱마다 OFFBOARD 신호 유지
+    takeoff_handler_->hover();
+
     // Step 0: Home 위치 확인 및 이동 시작
     if (state_step_counter_ == 0) {
         if (!home_position_set_) {
             RCLCPP_WARN(node_->get_logger(), "[RETURNING_HOME] Home position not set - landing in place");
             transitionToState(MissionState::LANDING);
             state_step_counter_ = 0;
-            return;
+            return;  // hover()는 이미 위에서 호출됨
         }
 
         RCLCPP_INFO(node_->get_logger(), "[RETURNING_HOME] Returning to home (%.7f, %.7f)",
                     home_lat_, home_lon_);
         state_step_counter_ = 1;
-        return;
+        return;  // hover()는 이미 위에서 호출됨
     }
 
-    // Step 1: Home으로 이동 (TakeoffHandler의 returnToTakeoffPosition 사용)
-    // 현재는 간단히 호버링
-    takeoff_handler_->hover();
+    // Step 1: Home으로 이동
+    // hover()는 이미 위에서 호출됨
 
     // 거리 체크
     if (gps_valid_) {

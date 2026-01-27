@@ -1,13 +1,14 @@
 #include "outdoor_mission_manager.h"
+#include "../gps_utils.h"
 #include <cmath>
 #include <chrono>
 
 namespace outdoor_mission {
 
-// 상수 정의
-constexpr double EARTH_RADIUS = 6371000.0;  // 지구 반지름 (m)
-constexpr double DEG_TO_RAD = M_PI / 180.0;
-constexpr double RAD_TO_DEG = 180.0 / M_PI;
+// gps_utils 상수 사용
+using gps_utils::EARTH_RADIUS;
+using gps_utils::DEG_TO_RAD;
+using gps_utils::RAD_TO_DEG;
 
 // ============================================================================
 // 생성자/소멸자
@@ -990,15 +991,12 @@ GpsPosition OutdoorMissionManager::calculateOffsetPosition(
 }
 
 float OutdoorMissionManager::calculateBearing(const GpsPosition& from, const GpsPosition& to) {
-    double lat1 = from.latitude * DEG_TO_RAD;
-    double lat2 = to.latitude * DEG_TO_RAD;
-    double dlon = (to.longitude - from.longitude) * DEG_TO_RAD;
+    // gps_utils의 표준 bearing 함수 사용 (radians 반환)
+    double bearing_rad = gps_utils::calculateBearing(
+        from.latitude, from.longitude,
+        to.latitude, to.longitude);
 
-    double x = std::sin(dlon) * std::cos(lat2);
-    double y = std::cos(lat1) * std::sin(lat2) -
-               std::sin(lat1) * std::cos(lat2) * std::cos(dlon);
-
-    double bearing = std::atan2(x, y) * RAD_TO_DEG;
+    double bearing = bearing_rad * RAD_TO_DEG;
 
     // 0~360 범위로 정규화
     while (bearing < 0) bearing += 360.0;
@@ -1008,17 +1006,10 @@ float OutdoorMissionManager::calculateBearing(const GpsPosition& from, const Gps
 }
 
 float OutdoorMissionManager::calculateDistance(const GpsPosition& from, const GpsPosition& to) {
-    double lat1 = from.latitude * DEG_TO_RAD;
-    double lat2 = to.latitude * DEG_TO_RAD;
-    double dlat = lat2 - lat1;
-    double dlon = (to.longitude - from.longitude) * DEG_TO_RAD;
-
-    double a = std::sin(dlat/2) * std::sin(dlat/2) +
-               std::cos(lat1) * std::cos(lat2) *
-               std::sin(dlon/2) * std::sin(dlon/2);
-    double c = 2 * std::atan2(std::sqrt(a), std::sqrt(1-a));
-
-    return static_cast<float>(EARTH_RADIUS * c);
+    // gps_utils의 표준 haversine 함수 사용
+    return static_cast<float>(gps_utils::haversineDistance(
+        from.latitude, from.longitude,
+        to.latitude, to.longitude));
 }
 
 NedPosition OutdoorMissionManager::gpsToNed(const GpsPosition& gps, const GpsPosition& origin) {

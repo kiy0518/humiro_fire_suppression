@@ -48,6 +48,20 @@ public:
      */
     void setAbortFlag(std::atomic<bool>* abort_flag) { abort_flag_ = abort_flag; }
 
+    /**
+     * @brief 고정 헤딩(yaw) 설정 (이륙 시 캡처된 값)
+     * @param yaw 고정할 헤딩 값 (라디안)
+     */
+    void setFixedYaw(float yaw) {
+        fixed_yaw_ = yaw;
+        use_fixed_yaw_ = true;
+    }
+
+    /**
+     * @brief 고정 헤딩 사용 해제 (현재 헤딩 사용)
+     */
+    void clearFixedYaw() { use_fixed_yaw_ = false; }
+
     // ========== 비동기 제어 함수 (상태 머신용) ==========
 
     /**
@@ -109,6 +123,10 @@ private:
 
     // 외부 중단 플래그 (OffboardManager에서 설정)
     std::atomic<bool>* abort_flag_{nullptr};
+
+    // 고정 헤딩 (이륙 시 캡처, 비행 중 유지)
+    float fixed_yaw_{0.0f};
+    bool use_fixed_yaw_{false};
 
     // Target parameters
     float target_distance_{10.0f};

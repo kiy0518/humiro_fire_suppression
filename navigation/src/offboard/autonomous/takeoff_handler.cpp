@@ -194,7 +194,9 @@ void TakeoffHandler::startHoldPositionSetpoint()
                 takeoff_start_yaw_ * 180.0f / M_PI);
 
     // 첫 번째 setpoint 즉시 발행 (OFFBOARD 모드 진입 전 필수)
+    // ★ OffboardControlMode + TrajectorySetpoint 둘 다 발행해야 함
     for (int i = 0; i < 10; i++) {
+        publishOffboardControlMode();  // ★ 추가: OFFBOARD heartbeat
         publishTrajectorySetpoint(
             takeoff_start_x_,
             takeoff_start_y_,

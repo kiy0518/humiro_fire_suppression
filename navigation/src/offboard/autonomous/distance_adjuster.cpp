@@ -209,11 +209,14 @@ void DistanceAdjuster::hover()
     // ★★★ OFFBOARD 모드 유지를 위한 heartbeat 발행 (2Hz 이상 필수) ★★★
     publishOffboardControlMode();
 
+    // 이륙 시 캡처된 고정 yaw 사용 (설정된 경우)
+    float yaw = use_fixed_yaw_ ? fixed_yaw_ : current_yaw_.load();
+
     publishTrajectorySetpoint(
         current_local_x_,
         current_local_y_,
         current_local_z_,
-        current_yaw_
+        yaw
     );
 }
 
@@ -282,7 +285,10 @@ void DistanceAdjuster::publishVelocitySetpoint(float vx, float vy, float vz, flo
     msg.position[1] = std::nanf("");
     msg.position[2] = std::nanf("");
 
-    msg.yaw = std::nanf("");
+    // ★ 수정: Yaw를 고정 헤딩 또는 현재 헤딩으로 설정하여 방향 유지
+    // NaN으로 설정하면 PX4가 yaw를 제어하지 않아 회전 발생
+    // 이륙 시 캡처된 고정 yaw 사용 (설정된 경우)
+    msg.yaw = use_fixed_yaw_ ? fixed_yaw_ : current_yaw_.load();
 
     // Acceleration, Jerk도 NaN
     msg.acceleration[0] = std::nanf("");
@@ -347,10 +353,10 @@ bool DistanceAdjuster::publishDistanceSetpoint(float target_distance)
         if (body_velocity_x < -MAX_SPEED) body_velocity_x = -MAX_SPEED;
     }
 
-    // Body Frame → NED Frame 변환
-    float current_yaw = current_yaw_.load();
-    float ned_velocity_x = body_velocity_x * std::cos(current_yaw);
-    float ned_velocity_y = body_velocity_x * std::sin(current_yaw);
+    // Body Frame → NED Frame 변환 (고정 헤딩 사용하여 일관된 방향 유지)
+    float yaw_for_transform = use_fixed_yaw_ ? fixed_yaw_ : current_yaw_.load();
+    float ned_velocity_x = body_velocity_x * std::cos(yaw_for_transform);
+    float ned_velocity_y = body_velocity_x * std::sin(yaw_for_transform);
 
     // 고도 유지 (현재 고도 유지 - 속도 0)
     float ned_velocity_z = 0.0f;

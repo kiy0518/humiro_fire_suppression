@@ -1,5 +1,6 @@
 #include "rtl_handler.h"
 #include <thread>
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdlib>
 
@@ -166,13 +167,26 @@ bool RTLHandler::land(int timeout_ms)
 {
     RCLCPP_INFO(node_->get_logger(), "Executing LAND...");
 
+    // 착륙 전 현재 헤딩 캡처 (라디안 → 도 변환)
+    float captured_yaw_deg = current_yaw_.load() * 180.0f / M_PI;
+
+    RCLCPP_INFO(node_->get_logger(), "Captured yaw for landing: %.1f degrees", captured_yaw_deg);
+
     // LAND 명령 전송
+    // param4 = 명시적 yaw 값 (도): 착륙 중 현재 헤딩 유지
     for (int i = 0; i < 5; i++) {
-        publishVehicleCommand(VEHICLE_CMD_NAV_LAND);
+        publishVehicleCommand(VEHICLE_CMD_NAV_LAND,
+                              0.0f,                    // param1: abort altitude
+                              0.0f,                    // param2: precision land mode
+                              0.0f,                    // param3: empty
+                              captured_yaw_deg,        // param4: yaw (명시적 값, 도)
+                              0.0f,                    // param5: latitude (0 = current)
+                              0.0f,                    // param6: longitude (0 = current)
+                              0.0f);                   // param7: altitude
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
 
-    RCLCPP_INFO(node_->get_logger(), "LAND command sent");
+    RCLCPP_INFO(node_->get_logger(), "LAND command sent (yaw=%.1f deg)", captured_yaw_deg);
 
     // 착륙 대기
     auto start_time = std::chrono::steady_clock::now();
@@ -206,16 +220,28 @@ bool RTLHandler::land(int timeout_ms)
 
 void RTLHandler::sendLandCommandOnly()
 {
+    // 착륙 전 현재 헤딩 캡처 (라디안 → 도 변환)
+    float captured_yaw_deg = current_yaw_.load() * 180.0f / M_PI;
+
     RCLCPP_WARN(node_->get_logger(),
-        "[LAND] ★ Sending LAND command (non-blocking) - switching to AUTO.LAND mode");
+        "[LAND] ★ Sending LAND command (non-blocking) - yaw=%.1f deg", captured_yaw_deg);
 
     // LAND 명령 전송 (5회 반복으로 확실하게)
+    // param4 = 명시적 yaw 값 (도): 착륙 중 현재 헤딩 유지
+    // param5,6 = 0: 현재 위치에서 착륙
     for (int i = 0; i < 5; i++) {
-        publishVehicleCommand(VEHICLE_CMD_NAV_LAND);
+        publishVehicleCommand(VEHICLE_CMD_NAV_LAND,
+                              0.0f,                    // param1: abort altitude (unused)
+                              0.0f,                    // param2: precision land mode
+                              0.0f,                    // param3: empty
+                              captured_yaw_deg,        // param4: yaw (명시적 값, 도)
+                              0.0f,                    // param5: latitude (0 = current)
+                              0.0f,                    // param6: longitude (0 = current)
+                              0.0f);                   // param7: altitude (ignored)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    RCLCPP_INFO(node_->get_logger(), "[LAND] ✓ LAND command sent successfully");
+    RCLCPP_INFO(node_->get_logger(), "[LAND] ✓ LAND command sent (yaw=%.1f deg)", captured_yaw_deg);
 }
 
 double RTLHandler::getDistanceFromHome() const
@@ -224,7 +250,7 @@ double RTLHandler::getDistanceFromHome() const
         return 0.0;
     }
 
-    double horizontal_distance = haversineDistance(
+    double horizontal_distance = gps_utils::haversineDistance(
         current_latitude_.load(), current_longitude_.load(),
         home_latitude_, home_longitude_
     );
@@ -289,6 +315,7 @@ void RTLHandler::vehicleLocalPositionCallback(
     const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg)
 {
     current_local_z_ = msg->z;
+    current_yaw_ = msg->heading;  // 현재 헤딩 저장 (라디안)
 }
 
 void RTLHandler::publishVehicleCommand(
@@ -315,19 +342,3 @@ void RTLHandler::publishVehicleCommand(
     vehicle_command_pub_->publish(msg);
 }
 
-double RTLHandler::haversineDistance(double lat1, double lon1,
-                                     double lat2, double lon2) const
-{
-    double lat1_rad = lat1 * DEG_TO_RAD;
-    double lat2_rad = lat2 * DEG_TO_RAD;
-    double dlat = (lat2 - lat1) * DEG_TO_RAD;
-    double dlon = (lon2 - lon1) * DEG_TO_RAD;
-
-    double a = std::sin(dlat / 2.0) * std::sin(dlat / 2.0) +
-               std::cos(lat1_rad) * std::cos(lat2_rad) *
-               std::sin(dlon / 2.0) * std::sin(dlon / 2.0);
-
-    double c = 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
-
-    return EARTH_RADIUS * c;
-}
