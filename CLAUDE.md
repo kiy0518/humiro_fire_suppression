@@ -89,10 +89,10 @@ git tag --sort=-v:refname | grep "^v0" | head -1  # 최신 태그 확인
 **커밋 메시지와 태그 메시지는 동일한 전체 내용을 포함** (한 줄 요약 금지)
 
 ```
-v0.x.x: 제목
-
 ## 날짜
-- YYYY. MM. DD. HH:MM:SS
+YYYY. MM. DD. HH:MM:SS
+
+v0.x.x: 제목
 
 ## 테스트 메모
 - 기체: X번 기체
