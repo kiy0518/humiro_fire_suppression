@@ -311,15 +311,11 @@
                             <i class="bi bi-robot"></i> <span id="currentDroneText">기체 -</span>
                         </button>
                         <ul class="dropdown-menu text-start" id="droneDropdown">
-                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="1" data-ip="192.168.100.11">
-                                <i class="bi bi-1-circle"></i> 1번 (Leader)
+                            {% for did, cfg in drone_configs.items() %}
+                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="{{ did }}" data-ip="{{ cfg.ip }}">
+                                <i class="bi bi-{{ did }}-circle"></i> {{ did }}번 ({{ cfg.name }})
                             </a></li>
-                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="2" data-ip="192.168.100.21">
-                                <i class="bi bi-2-circle"></i> 2번 (Follower L)
-                            </a></li>
-                            <li><a class="dropdown-item drone-option text-start" href="#" data-drone="3" data-ip="192.168.100.31">
-                                <i class="bi bi-3-circle"></i> 3번 (Follower R)
-                            </a></li>
+                            {% endfor %}
                         </ul>
                     </div>
                     <span id="fcStatus" class="status-badge bg-secondary">
@@ -356,11 +352,11 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // 드론 네트워크 정보
+        // 드론 네트워크 정보 (device_config.env 기반)
         const droneNetworks = {
-            1: { ip: '192.168.100.11', name: 'Leader', port: 5000 },
-            2: { ip: '192.168.100.21', name: 'Follower L', port: 5000 },
-            3: { ip: '192.168.100.31', name: 'Follower R', port: 5000 }
+            {% for did, cfg in drone_configs.items() %}
+            {{ did }}: { ip: '{{ cfg.ip }}', name: '{{ cfg.name }}', port: 5000 }{{ "," if not loop.last }}
+            {% endfor %}
         };
 
         // 현재 접속한 기체 ID 추적

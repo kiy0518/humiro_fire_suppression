@@ -12,7 +12,7 @@ from pymavlink import mavutil
 class MAVLinkManager:
     """MAVLink 통신 관리자"""
 
-    def __init__(self, connection_string: str = "udp:10.0.0.12:14550"):
+    def __init__(self, connection_string: str):
         self.connection_string = connection_string
         self.connection = None
         self.connected = False
@@ -251,11 +251,17 @@ _mavlink_manager: Optional[MAVLinkManager] = None
 
 
 def get_mavlink_manager(connection_string: str = None) -> MAVLinkManager:
-    """MAVLinkManager 싱글톤 인스턴스 반환"""
+    """MAVLinkManager 싱글톤 인스턴스 반환
+
+    Args:
+        connection_string: MAVLink 연결 문자열 (예: "udp:10.0.0.12:14550")
+                          호출처에서 config_manager 기반으로 전달해야 함
+    """
     global _mavlink_manager
 
     if _mavlink_manager is None:
-        conn_str = connection_string or "udp:10.0.0.12:14550"
-        _mavlink_manager = MAVLinkManager(conn_str)
+        if connection_string is None:
+            raise ValueError("첫 호출 시 connection_string 필수 (device_config.env 기반 값 전달)")
+        _mavlink_manager = MAVLinkManager(connection_string)
 
     return _mavlink_manager

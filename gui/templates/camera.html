@@ -28,7 +28,7 @@
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <span><i class="bi bi-1-circle"></i> 1번 기체 (Leader)</span>
+                    <span><i class="bi bi-1-circle"></i> 1번 기체 ({{ drone_configs[1].name }})</span>
                     <span id="multi1Status" class="badge bg-secondary">-</span>
                 </div>
                 <div class="card-body p-0">
@@ -46,7 +46,7 @@
                     </div>
                 </div>
                 <div class="card-footer py-1 text-center">
-                    <small class="text-muted">192.168.100.11:8080</small>
+                    <small class="text-muted">{{ drone_configs[1].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(1)">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
@@ -59,7 +59,7 @@
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <span><i class="bi bi-2-circle"></i> 2번 기체 (Follower L)</span>
+                    <span><i class="bi bi-2-circle"></i> 2번 기체 ({{ drone_configs[2].name }})</span>
                     <span id="multi2Status" class="badge bg-secondary">-</span>
                 </div>
                 <div class="card-body p-0">
@@ -77,7 +77,7 @@
                     </div>
                 </div>
                 <div class="card-footer py-1 text-center">
-                    <small class="text-muted">192.168.100.21:8080</small>
+                    <small class="text-muted">{{ drone_configs[2].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(2)">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
@@ -90,7 +90,7 @@
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center py-2">
-                    <span><i class="bi bi-3-circle"></i> 3번 기체 (Follower R)</span>
+                    <span><i class="bi bi-3-circle"></i> 3번 기체 ({{ drone_configs[3].name }})</span>
                     <span id="multi3Status" class="badge bg-secondary">-</span>
                 </div>
                 <div class="card-body p-0">
@@ -108,7 +108,7 @@
                     </div>
                 </div>
                 <div class="card-footer py-1 text-center">
-                    <small class="text-muted">192.168.100.31:8080</small>
+                    <small class="text-muted">{{ drone_configs[3].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(3)">
                         <i class="bi bi-arrow-clockwise"></i>
                     </button>
@@ -196,21 +196,13 @@
                             </tr>
                         </thead>
                         <tbody>
+                            {% for did, cfg in drone_configs.items() %}
                             <tr>
-                                <td>1번</td>
-                                <td><code>rtsp://192.168.100.11:8554/thermal</code></td>
+                                <td>{{ did }}번</td>
+                                <td><code>rtsp://{{ cfg.ip }}:8554/thermal</code></td>
                                 <td><code>:8080/video_feed</code></td>
                             </tr>
-                            <tr>
-                                <td>2번</td>
-                                <td><code>rtsp://192.168.100.21:8554/thermal</code></td>
-                                <td><code>:8080/video_feed</code></td>
-                            </tr>
-                            <tr>
-                                <td>3번</td>
-                                <td><code>rtsp://192.168.100.31:8554/thermal</code></td>
-                                <td><code>:8080/video_feed</code></td>
-                            </tr>
+                            {% endfor %}
                         </tbody>
                     </table>
                 </div>
@@ -220,16 +212,17 @@
 </div>
 
 <script>
+    // device_config.env 기반 동적 생성
     const droneIPs = {
-        1: '192.168.100.11',
-        2: '192.168.100.21',
-        3: '192.168.100.31'
+        {% for did, cfg in drone_configs.items() %}
+        {{ did }}: '{{ cfg.ip }}'{{ "," if not loop.last }}
+        {% endfor %}
     };
 
     const droneLabels = {
-        1: '1번 (Leader)',
-        2: '2번 (Follower L)',
-        3: '3번 (Follower R)'
+        {% for did, cfg in drone_configs.items() %}
+        {{ did }}: '{{ did }}번 ({{ cfg.name }})'{{ "," if not loop.last }}
+        {% endfor %}
     };
 
     let currentViewMode = 'multi';

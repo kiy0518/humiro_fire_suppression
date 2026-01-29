@@ -255,6 +255,44 @@ class ConfigManager:
             gcs_port_mode = self.get_gcs_port_mode()
         return self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
 
+    # === 드론 네트워크 헬퍼 ===
+
+    @staticmethod
+    def ip_to_decimal(ip: str) -> int:
+        """IP 주소를 decimal 정수로 변환 (UXRCE_DDS_AG_IP용)"""
+        parts = ip.split('.')
+        return (int(parts[0]) << 24) + (int(parts[1]) << 16) + (int(parts[2]) << 8) + int(parts[3])
+
+    def get_broadcast_ip(self) -> str:
+        """WiFi 브로드캐스트 주소 계산"""
+        wifi_ip = self.get_wifi_ip()
+        parts = wifi_ip.rsplit('.', 1)
+        return f"{parts[0]}.255"
+
+    def get_all_drone_configs(self, max_drones: int = 3) -> Dict[str, Any]:
+        """전체 드론(1~max_drones) 네트워크 설정을 동적 생성
+
+        Returns:
+            {1: {'ip': '192.168.100.11', 'eth0_ip': '10.0.0.11', 'fc_ip': '10.0.0.12',
+                 'name': 'Leader', 'gcs_port': 14550}, ...}
+        """
+        gcs_mode = self.get_gcs_port_mode()
+        # Follower 구분용 라벨
+        follower_labels = {2: 'Follower L', 3: 'Follower R'}
+        result = {}
+        for did in range(1, max_drones + 1):
+            cfg = self.calculate_config_from_drone_id(did, gcs_mode)
+            name = 'Leader' if did == 1 else follower_labels.get(did, f'Follower {did}')
+            result[did] = {
+                'ip': cfg['WIFI_IP'],
+                'eth0_ip': cfg['ETH0_IP'],
+                'fc_ip': cfg['FC_IP'],
+                'name': name,
+                'gcs_port': int(cfg['QGC_UDP_PORT']),
+                'mav_sys_id': int(cfg['MAV_SYS_ID']),
+            }
+        return result
+
     # === 비행 모드 파라미터 프리셋 ===
 
     def get_indoor_params(self) -> Dict[str, Any]:

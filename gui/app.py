@@ -35,9 +35,14 @@ def inject_drone_info():
     """모든 템플릿에 기체 정보 주입"""
     drone_id = config_manager.get_drone_id()
     role = config_manager.get('ROLE', 'Leader' if drone_id == 1 else 'Follower')
+    drone_configs = config_manager.get_all_drone_configs()
     return {
         'drone_id': drone_id,
-        'drone_role': role
+        'drone_role': role,
+        'wifi_ip': config_manager.get_wifi_ip(),
+        'fc_ip': config_manager.get_fc_ip(),
+        'eth0_ip': config_manager.get_eth0_ip(),
+        'drone_configs': drone_configs,
     }
 
 # MAVLink CRC 계산 함수
@@ -965,8 +970,9 @@ def api_drone_ping(ip):
     """
     import socket
 
-    # IP 주소 유효성 검증 (보안)
-    allowed_ips = ['192.168.100.11', '192.168.100.21', '192.168.100.31']
+    # IP 주소 유효성 검증 (보안) - device_config.env 기반 동적 생성
+    drone_configs = config_manager.get_all_drone_configs()
+    allowed_ips = [d['ip'] for d in drone_configs.values()]
     if ip not in allowed_ips:
         return jsonify({
             "success": False,
@@ -1016,19 +1022,11 @@ def api_router_network_drones():
     # GCS 포트 모드 확인
     gcs_port_mode = config_manager.get('GCS_PORT_MODE', 'separate')
 
-    # 드론 네트워크 정보 - GCS_PORT_MODE에 따라 포트 결정
-    # separate: 각 기체별 포트 (14550, 14560, 14570)
-    # unified: 모든 기체 14550
-    def get_gcs_port(drone_id):
-        if gcs_port_mode == 'unified':
-            return 14550
-        else:  # separate
-            return 14550 + (drone_id - 1) * 10
-
+    # 드론 네트워크 정보 - device_config.env 기반 동적 생성
+    all_drone_configs = config_manager.get_all_drone_configs()
     drones = {
-        1: {'ip': '192.168.100.11', 'name': 'Leader', 'gcs_port': get_gcs_port(1)},
-        2: {'ip': '192.168.100.21', 'name': 'Follower L', 'gcs_port': get_gcs_port(2)},
-        3: {'ip': '192.168.100.31', 'name': 'Follower R', 'gcs_port': get_gcs_port(3)}
+        did: {'ip': cfg['ip'], 'name': cfg['name'], 'gcs_port': cfg['gcs_port']}
+        for did, cfg in all_drone_configs.items()
     }
 
     results = []
@@ -1087,15 +1085,15 @@ def api_router_network_drones():
     online_drones = [d for d in results if d['online']]
 
     # GCS 포트 모드에 따른 상태 결정
+    current_drone_cfg = all_drone_configs.get(current_drone_id, {})
     if gcs_port_mode == 'unified':
-        # 통합 모드: 모든 기체가 14550 공유
         gcs_shared = len(online_drones) > 1
-        current_gcs_port = 14550
+        current_gcs_port = ConfigManager.get_gcs_port_for_drone(current_drone_id, 'unified')
     else:
-        # 분리 모드: 각 기체별 포트 사용
         gcs_shared = False
-        current_gcs_port = get_gcs_port(current_drone_id)
+        current_gcs_port = current_drone_cfg.get('gcs_port', ConfigManager.get_gcs_port_for_drone(current_drone_id))
 
+    broadcast_ip = config_manager.get_broadcast_ip()
     return jsonify({
         'success': True,
         'current_drone_id': current_drone_id,
@@ -1105,7 +1103,7 @@ def api_router_network_drones():
         'gcs_shared': gcs_shared,
         'conflict_details': [],
         'gcs_port': current_gcs_port,
-        'gcs_broadcast': f'192.168.100.255:{current_gcs_port}'
+        'gcs_broadcast': f'{broadcast_ip}:{current_gcs_port}'
     })
 
 
@@ -1765,6 +1763,7 @@ def api_router_set_sitl_mode():
     sitl_ip = data.get('sitl_ip', '192.168.100.4')
 
     drone_id = config_manager.get_drone_id()
+    qgc_port = int(config_manager.get('QGC_UDP_PORT', str(ConfigManager.get_gcs_port_for_drone(drone_id))))
 
     # 드론별 포트 계산
     external_port = 16000 + drone_id
@@ -1778,7 +1777,7 @@ def api_router_set_sitl_mode():
 # MAVLink Router 설정 - SITL 시뮬레이션 + FC 자동 전환
 # 생성: {subprocess.check_output(['date']).decode().strip()}
 # Drone ID: {drone_id}
-# VIM4 IP: 192.168.100.11
+# VIM4 IP: {config_manager.get_wifi_ip()}
 # 시뮬레이션 PC IP: {sitl_ip}
 # ==============================================================================
 
@@ -1794,7 +1793,7 @@ Address = 0.0.0.0
 Port = 14540
 
 # SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
-# 시뮬레이션 PC에서: mavlink start -u 14540 -o {sitl_port} -t 192.168.100.11
+# 시뮬레이션 PC에서: mavlink start -u 14540 -o {sitl_port} -t {config_manager.get_wifi_ip()}
 [UdpEndpoint SITL]
 Mode = Server
 Address = 0.0.0.0
@@ -1803,8 +1802,8 @@ Port = {sitl_port}
 # GCS (QGroundControl) - 브로드캐스트
 [UdpEndpoint GCS]
 Mode = Normal
-Address = 192.168.100.255
-Port = 14550
+Address = {config_manager.get_broadcast_ip()}
+Port = {qgc_port}
 
 # External (커스텀 메시지 테스트용)
 [UdpEndpoint External]
@@ -1844,8 +1843,8 @@ Port = 14540
 # GCS (QGroundControl) 브로드캐스트 - 드론 {drone_id} 전용 포트
 [UdpEndpoint GCS]
 Mode = Normal
-Address = 192.168.100.255
-Port = 14550
+Address = {config_manager.get_broadcast_ip()}
+Port = {qgc_port}
 
 # 외부 테스트/디버깅 도구 (SENDER GUI 등) - 드론 {drone_id} 전용 포트
 [UdpEndpoint External]
@@ -2506,36 +2505,21 @@ def run_build(targets: list, clean_build: bool):
 
 def get_vehicle_params_checklist(drone_id: int):
     """기체별 FC 파라미터 체크리스트 (uXRCE-DDS, MAVLink 설정)"""
-    # 기체별 설정값
-    presets = {
-        1: {  # Leader
-            "UXRCE_DDS_AG_IP": 167772171,  # 10.0.0.11 → decimal
-            "ETH0_IP": "10.0.0.11",
-            "MAV_SYS_ID": 1,
-        },
-        2: {  # Follower Left
-            "UXRCE_DDS_AG_IP": 167772181,  # 10.0.0.21 → decimal
-            "ETH0_IP": "10.0.0.21",
-            "MAV_SYS_ID": 2,
-        },
-        3: {  # Follower Right
-            "UXRCE_DDS_AG_IP": 167772191,  # 10.0.0.31 → decimal
-            "ETH0_IP": "10.0.0.31",
-            "MAV_SYS_ID": 3,
-        },
-    }
-
-    preset = presets.get(drone_id, presets[1])
-    role = "Leader" if drone_id == 1 else "Follower"
+    # device_config.env 기반 동적 생성
+    cfg = ConfigManager.calculate_config_from_drone_id(drone_id)
+    eth0_ip = cfg['ETH0_IP']
+    uxrce_ip_decimal = ConfigManager.ip_to_decimal(eth0_ip)
+    mav_sys_id = int(cfg['MAV_SYS_ID'])
+    role = cfg['ROLE']
 
     return [
         {"id": "vp0", "text": f"[기체 {drone_id}번 - {role}]", "auto": False},
-        {"id": "vp1", "text": f"UXRCE_DDS_AG_IP = {preset['UXRCE_DDS_AG_IP']} (Agent IP: {preset['ETH0_IP']})", "auto": True, "check": f"fc-param/UXRCE_DDS_AG_IP?expected={preset['UXRCE_DDS_AG_IP']}"},
+        {"id": "vp1", "text": f"UXRCE_DDS_AG_IP = {uxrce_ip_decimal} (Agent IP: {eth0_ip})", "auto": True, "check": f"fc-param/UXRCE_DDS_AG_IP?expected={uxrce_ip_decimal}"},
         {"id": "vp2", "text": "UXRCE_DDS_CFG = 1000 (Ethernet)", "auto": True, "check": "fc-param/UXRCE_DDS_CFG?expected=1000"},
         {"id": "vp3", "text": "UXRCE_DDS_DOM_ID = 0 (Domain ID)", "auto": True, "check": "fc-param/UXRCE_DDS_DOM_ID?expected=0"},
         {"id": "vp4", "text": f"UXRCE_DDS_KEY = {drone_id} (Session Key)", "auto": True, "check": f"fc-param/UXRCE_DDS_KEY?expected={drone_id}"},
         {"id": "vp5", "text": "UXRCE_DDS_PRT = 8888 (UDP Port)", "auto": True, "check": "fc-param/UXRCE_DDS_PRT?expected=8888"},
-        {"id": "vp6", "text": f"MAV_SYS_ID = {preset['MAV_SYS_ID']} (MAVLink System ID)", "auto": True, "check": f"fc-param/MAV_SYS_ID?expected={preset['MAV_SYS_ID']}"},
+        {"id": "vp6", "text": f"MAV_SYS_ID = {mav_sys_id} (MAVLink System ID)", "auto": True, "check": f"fc-param/MAV_SYS_ID?expected={mav_sys_id}"},
         {"id": "vp7", "text": "MAV_2_BROADCAST = 1 (Always broadcast)", "auto": True, "check": "fc-param/MAV_2_BROADCAST?expected=1"},
         {"id": "vp8", "text": "MAV_2_CONFIG = 1000 (Ethernet)", "auto": True, "check": "fc-param/MAV_2_CONFIG?expected=1000"},
         {"id": "vp9", "text": "MAV_2_MODE = 0 (Normal)", "auto": True, "check": "fc-param/MAV_2_MODE?expected=0"},
@@ -2552,7 +2536,7 @@ def get_failsafe_params_checklist(indoor=True):
     Args:
         indoor: True=실내 모드 (Land 권장), False=야외 모드 (RTL 권장)
     """
-    # 실내/야외별 권장 값 (PX4 v1.15.0)
+    # 실내/야외별 권장 값 (PX4 v1.16.0)
     # NAV_RCL_ACT: 2=RTL, 3=Land
     # COM_OBL_RC_ACT: 3=RTL, 4=Land
     # NAV_DLL_ACT: 2=RTL, 3=Land
@@ -2813,8 +2797,8 @@ def api_mavlink_test_connection():
     """MAVLink 연결 테스트"""
     try:
         data = request.json
-        target_ip = data.get('target_ip', '10.0.0.12')
-        target_port = int(data.get('target_port', 16001))
+        target_ip = data.get('target_ip', config_manager.get_fc_ip())
+        target_port = int(data.get('target_port', config_manager.get('EXTERNAL_UDP_PORT', '16001')))
 
         # UDP 소켓으로 간단한 연결 테스트
         import socket
@@ -2841,8 +2825,8 @@ def api_mavlink_send_standard():
         data = request.json
         target_ip = data.get('target_ip')
         target_port = int(data.get('target_port'))
-        system_id = int(data.get('system_id', 1))
-        component_id = int(data.get('component_id', 191))
+        system_id = int(data.get('system_id', config_manager.get('MAV_SYS_ID', '1')))
+        component_id = int(data.get('component_id', config_manager.get('MAV_COMP_ID', '191')))
         message_type = data.get('message_type')
         params = data.get('params', {})
 
@@ -2998,8 +2982,8 @@ def api_mavlink_send_custom():
         data = request.json
         target_ip = data.get('target_ip')
         target_port = int(data.get('target_port'))
-        system_id = int(data.get('system_id', 1))
-        component_id = int(data.get('component_id', 191))
+        system_id = int(data.get('system_id', config_manager.get('MAV_SYS_ID', '1')))
+        component_id = int(data.get('component_id', config_manager.get('MAV_COMP_ID', '191')))
         message_id = int(data.get('message_id'))
         payload_hex = data.get('payload_hex', '').strip()
 
@@ -3055,8 +3039,8 @@ def api_mavlink_send_fire():
         data = request.json
         target_ip = data.get('target_ip')
         target_port = int(data.get('target_port'))
-        system_id = int(data.get('system_id', 1))
-        component_id = int(data.get('component_id', 191))
+        system_id = int(data.get('system_id', config_manager.get('MAV_SYS_ID', '1')))
+        component_id = int(data.get('component_id', config_manager.get('MAV_COMP_ID', '191')))
         message_type = data.get('message_type')
         params = data.get('params', {})
 
