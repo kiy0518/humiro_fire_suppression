@@ -145,6 +145,8 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
         ros2_node_ = rclcpp::Node::make_shared(node_name);
+        vehicle_command_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+            "/fmu/in/vehicle_command", 10);
         std::cout << "  ✓ ROS2 노드 생성: " << node_name << std::endl;
         std::cout << "  → uXRCE-DDS 토픽 구독 준비 완료" << std::endl;
     } catch (const std::exception& e) {
@@ -475,13 +477,7 @@ void ApplicationManager::initializeCustomMessage() {
                     std::cout << "[DEBUG] ARM/DISARM 명령 판단: " << (arm ? "ARM" : "DISARM") << " (param1 >= 0.5f = " << arm << ")" << std::endl;
                     
 #ifdef ENABLE_ROS2
-                    if (offboard_manager_ && ros2_node_) {
-                        // OffboardManager를 통해 ARM/DISARM 처리
-                        // OffboardManager는 arm_handler_를 가지고 있지만, 직접 접근이 어려움
-                        // 대신 ROS2 토픽으로 직접 전송
-                        auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-                            "/fmu/in/vehicle_command", 10);
-                        
+                    if (offboard_manager_ && vehicle_command_pub_) {
                         px4_msgs::msg::VehicleCommand cmd;
                         cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -494,7 +490,7 @@ void ApplicationManager::initializeCustomMessage() {
                         cmd.source_component = 1;
                         cmd.from_external = true;
                         
-                        vehicle_command_pub->publish(cmd);
+                        vehicle_command_pub_->publish(cmd);
                         std::cout << "[DEBUG] ✓ ARM/DISARM 명령 ROS2로 전송 완료 (param1=" << param1 << ")" << std::endl;
                         
                         if (status_overlay_) {
@@ -568,10 +564,7 @@ void ApplicationManager::initializeCustomMessage() {
                     #endif
                     
                 #ifdef ENABLE_ROS2
-                    if (ros2_node_) {
-                        auto vehicle_command_pub = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-                            "/fmu/in/vehicle_command", 10);
-                        
+                    if (vehicle_command_pub_) {
                         // 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
                         // ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
                         std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -592,7 +585,7 @@ void ApplicationManager::initializeCustomMessage() {
                             cmd.source_component = 1;
                             cmd.from_external = true;
                             
-                            vehicle_command_pub->publish(cmd);
+                            vehicle_command_pub_->publish(cmd);
                             
                             if (i == 0) {
                                 std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 시작 (main_mode=" << (int)main_mode 
@@ -952,7 +945,8 @@ void ApplicationManager::cleanupROS2() {
     status_ros2_subscriber_ = nullptr;
     thermal_ros2_publisher_ = nullptr;
     lidar_ros2_publisher_ = nullptr;
-    
+    vehicle_command_pub_.reset();
+
     if (rclcpp::ok()) {
         rclcpp::shutdown();
     }

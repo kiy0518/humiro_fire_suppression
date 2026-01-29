@@ -25,6 +25,7 @@ class CustomMessage;
 
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
+#include <px4_msgs/msg/vehicle_command.hpp>
 class ThermalROS2Publisher;
 class LidarROS2Publisher;
 class StatusROS2Subscriber;
@@ -85,6 +86,7 @@ private:
     
 #ifdef ENABLE_ROS2
     rclcpp::Node::SharedPtr ros2_node_;
+    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
     ThermalROS2Publisher* thermal_ros2_publisher_;
     LidarROS2Publisher* lidar_ros2_publisher_;
     StatusROS2Subscriber* status_ros2_subscriber_;
