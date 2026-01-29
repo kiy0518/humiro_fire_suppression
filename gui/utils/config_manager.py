@@ -258,7 +258,7 @@ class ConfigManager:
     # === 비행 모드 파라미터 프리셋 ===
 
     def get_indoor_params(self) -> Dict[str, Any]:
-        """실내 테스트 모드 파라미터 (PX4 v1.15.0)
+        """실내 테스트 모드 파라미터 (PX4 v1.16.0)
         MTF-01 옵티컬플로 센서 설정 포함
 
         v1.14 이후 변경사항:
@@ -267,7 +267,7 @@ class ConfigManager:
         - EKF2_RNG_AID 삭제됨 → EKF2_RNG_CTRL로 통합
         """
         return {
-            # === EKF2 센서 융합 제어 (v1.15.0) ===
+            # === EKF2 센서 융합 제어 (v1.16.0) ===
             "EKF2_GPS_CTRL": 0,  # GPS 융합 비활성화
             "EKF2_HGT_REF": "Range sensor",  # 고도 기준: Range sensor
             "EKF2_OF_CTRL": "Enabled",  # Optical Flow 융합 활성화
@@ -285,7 +285,7 @@ class ConfigManager:
         }
 
     def get_outdoor_gps_params(self) -> Dict[str, Any]:
-        """야외 GPS 모드 파라미터 (PX4 v1.15.0)
+        """야외 GPS 모드 파라미터 (PX4 v1.16.0)
 
         EKF2_GPS_CTRL 비트마스크:
         - bit 0 (1): Horizontal position (Lon/Lat)
@@ -299,7 +299,7 @@ class ConfigManager:
         - EKF2_RNG_AID 삭제됨 → EKF2_RNG_CTRL 사용
         """
         return {
-            # === EKF2 센서 융합 제어 (v1.15.0) ===
+            # === EKF2 센서 융합 제어 (v1.16.0) ===
             "EKF2_BARO_CTRL": 1,  # Barometer 융합 활성화
             "EKF2_GPS_CTRL": 7,  # GPS 위치/고도/속도 융합 (1+2+4)
             "EKF2_HGT_REF": "GPS",  # 고도 기준: GPS (Range sensor도 가능)
@@ -311,7 +311,7 @@ class ConfigManager:
         }
 
     def get_outdoor_rtk_params(self) -> Dict[str, Any]:
-        """야외 RTK-GPS 모드 파라미터 (PX4 v1.15.0)
+        """야외 RTK-GPS 모드 파라미터 (PX4 v1.16.0)
 
         야외 GPS 기반 + RTK 프로토콜 설정 추가
 
@@ -327,7 +327,7 @@ class ConfigManager:
         return params
 
     def get_offboard_norc_params(self) -> Dict[str, Any]:
-        """RC 없이 OFFBOARD 모드 파라미터 (PX4 v1.15.0)
+        """RC 없이 OFFBOARD 모드 파라미터 (PX4 v1.16.0)
 
         조종기 없이 OFFBOARD 모드로만 비행할 때 사용
 
@@ -539,7 +539,7 @@ class ConfigManager:
     # === 페일세이프 설정 ===
 
     def get_failsafe_params(self) -> Dict[str, Any]:
-        """페일세이프 권장 설정 파라미터 (PX4 v1.15.0)
+        """페일세이프 권장 설정 파라미터 (PX4 v1.16.0)
 
         실내/야외 공통 권장 설정
 

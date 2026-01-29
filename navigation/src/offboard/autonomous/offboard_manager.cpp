@@ -226,6 +226,7 @@ bool OffboardManager::executeMission(const MissionConfig& config)
     }
 }
 
+/* ========== testMission 함수들 주석 처리 (2026-01-28) ==========
 bool OffboardManager::testMission(float takeoff_altitude, float hover_duration)
 {
     try {
@@ -559,6 +560,7 @@ bool OffboardManager::testMission2(float takeoff_altitude, float hover_duration,
         return false;
     }
 }
+========== testMission, testMission2 주석 처리 끝 ========== */
 
 void OffboardManager::emergencyRTL()
 {
@@ -793,8 +795,7 @@ std::pair<double, double> OffboardManager::calculateTargetPosition(
     // 리더의 헤딩 방향으로 distance만큼 떨어진 목표물 좌표 계산
     return calculateOffsetPosition(leader_lat, leader_lon, distance, heading);
 }
-// ========== testMission3 구현 (1단계: 기본 골격) ==========
-
+/* ========== testMission3 주석 처리 (2026-01-28) ==========
 bool OffboardManager::testMission3(uint8_t vehicle_id,
                                     float takeoff_altitude,
                                     float target_distance)
@@ -1141,6 +1142,8 @@ bool OffboardManager::testMission3(uint8_t vehicle_id,
         return false;
     }
 }
+========== testMission3 주석 처리 끝 ========== */
+
 // ========== testMission3 콜백 함수 구현 ==========
 
 void OffboardManager::onGpsPosition(const px4_msgs::msg::VehicleGlobalPosition::SharedPtr msg)

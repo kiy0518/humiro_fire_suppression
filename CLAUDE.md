@@ -57,109 +57,90 @@
 
 ---
 
-## 버전 관리 원칙
+## 버전 관리 및 Git 규칙
+
+### 새 세션 시작 시 (필수)
+
+**커밋/태그 작업 전 반드시 최신 버전 확인**:
+```bash
+cd /home/khadas/humiro_fire_suppression
+git fetch origin
+git log -1 --oneline                    # 최신 커밋 확인
+git tag --sort=-v:refname | grep "^v0" | head -1  # 최신 태그 확인
+```
+
+- 현재 버전을 파악한 후 다음 버전 번호 결정
+- 예: 현재 v0.11.8이면 → PATCH는 v0.11.9, MINOR는 v0.12.0
 
 ### 버전 체계: Semantic Versioning
 
 **형식**: `vMAJOR.MINOR.PATCH`
 
-### 개발 단계 (v0.x.x) - 현재
+| 단계 | 버전 변경 | 조건 |
+|------|-----------|------|
+| **개발 단계** | MINOR (v0.11.x → v0.12.x) | Phase 완료, 주요 기능 추가, 새 모듈 통합 |
+| **개발 단계** | PATCH (v0.11.7 → v0.11.8) | 버그 수정, 성능 개선, 작은 개선사항 |
+| **정식 출시 후** | MAJOR (v1.x → v2.x) | 하위 호환성이 깨지는 변경, 아키텍처 전면 개편 |
+| **정식 출시 후** | MINOR (v1.0.x → v1.1.x) | 새 기능 추가 (하위 호환 유지) |
+| **정식 출시 후** | PATCH (v1.0.0 → v1.0.1) | 버그 수정, 문서 업데이트 |
 
-프로젝트 정식 출시 전까지는 **v0.x.x** 형태로 관리합니다.
+### Git 커밋/태그 메시지 형식
 
-**MINOR** (v0.1.x → v0.2.x):
-- Phase 완료
-- 주요 기능 추가
-- 새로운 모듈 통합
-- 예: Phase 1 완료, 자동 미션 추가, 편대 통신 추가
-
-**PATCH** (v0.1.0 → v0.1.1):
-- 버그 수정
-- 성능 개선
-- 문서 업데이트
-- 작은 개선사항
-
-### 정식 출시 (v1.x.x) - 미래
-
-모든 Phase 완료 후 첫 정식 출시 시 **v1.0.0**부터 시작합니다.
-
-**MAJOR** (v1.x.x → v2.x.x):
-- 하위 호환성이 깨지는 변경
-- 아키텍처 전면 개편
-- 예: 프로토콜 변경, API 재설계
-
-**MINOR** (v1.0.x → v1.1.x):
-- 새 기능 추가 (하위 호환 유지)
-- 예: 새로운 센서 추가, 기능 확장
-
-**PATCH** (v1.0.0 → v1.0.1):
-- 버그 수정
-- 문서 업데이트
-
-### 특수 태그 (선택적)
+**커밋 메시지와 태그 메시지는 동일한 전체 내용을 포함** (한 줄 요약 금지)
 
 ```
-v0.3.0-rc1    # Release Candidate (배포 전 테스트)
-v0.3.0-beta   # 베타 버전 (기능 테스트)
-v0.3.0-alpha  # 알파 버전 (초기 개발)
+v0.x.x: 제목
+
+## 날짜
+- YYYY. MM. DD
+
+## 테스트 메모
+- 기체: X번 기체
+- 테스트 내용
+  - 항목 1
+  - 항목 2
+
+## 변경 사항
+- 변경 내용 1
+- 변경 내용 2
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+```
+
+### Git 명령어
+
+**날짜 지정 커밋/태그** (사용자가 날짜 지정 시):
+```bash
+# 커밋
+GIT_AUTHOR_DATE="YYYY-MM-DDTHH:MM:SS" GIT_COMMITTER_DATE="YYYY-MM-DDTHH:MM:SS" git commit -m "전체 메시지"
+
+# 태그 (커밋 메시지와 동일한 전체 내용)
+GIT_COMMITTER_DATE="YYYY-MM-DDTHH:MM:SS" git tag -a v0.x.x -m "전체 메시지"
+
+# 푸시
+git push origin main
+git push origin v0.x.x
 ```
 
 ### 버전 히스토리 예시
 
 ```
+# 개발 단계
 v0.1.0 - Phase 1 기본 완료 (Arming, Takeoff, RTL)
 v0.2.0 - Waypoint + LiDAR 통합
 v0.3.0 - 자동 미션 실행 추가
-v0.4.0 - Phase 2 편대 통신 완료
-v0.5.0 - Phase 3 리더 조율 완료
-v0.6.0 - Phase 5 발사 메커니즘 완료
-v0.9.0 - 통합 테스트 완료
+v0.11.8 - MAVLink Wire Format 정렬 및 메시지 ID 통일
 v1.0.0 - 첫 정식 출시!
 
 # 정식 출시 후
 v1.1.0 - 성능 개선 및 새 기능
-v1.2.0 - 추가 센서 지원
 v2.0.0 - 차세대 시스템
-```
-
-### Git 태그 생성 규칙
-
-**태그 생성 시기**:
-- MINOR 버전 변경: Phase 완료, 주요 기능 추가
-- PATCH 버전 변경: 중요한 버그 수정, 문서 업데이트
-
-**태그 메시지 형식**:
-```bash
-git tag -a v0.3.0 -m "Release v0.3.0 - [간단한 제목]
-
-주요 기능
-- 기능 1
-- 기능 2
-
-새로운 기능
-- 상세 내용
-
-기술 개선
-- 개선 내용
-
-프로젝트 현황
-- 진행률: XX%
-- 총 코드: X,XXX LOC
-
-Date: YYYY-MM-DD
-Authored-by: Humiro Fire Suppression Team
-Co-Authored-By: Claude Sonnet 4.5"
-```
-
-**태그 푸시**:
-```bash
-git push origin v0.3.0
 ```
 
 ### 기존 태그 처리
 
 기존 v1.x 태그들 (v1.0-px4-msgs-fix, v1.1-autonomous-phase1 등)은 **히스토리 보존**을 위해 그대로 유지합니다.
-새로운 태그부터 v0.x.x 형태를 따릅니다.
+
 
 ## 프로젝트 구조
 
