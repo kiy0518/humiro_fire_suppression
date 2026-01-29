@@ -92,7 +92,7 @@ git tag --sort=-v:refname | grep "^v0" | head -1  # 최신 태그 확인
 v0.x.x: 제목
 
 ## 날짜
-- YYYY. MM. DD
+- YYYY. MM. DD. HH:MM:SS
 
 ## 테스트 메모
 - 기체: X번 기체
