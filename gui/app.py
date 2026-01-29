@@ -2844,8 +2844,8 @@ def api_mavlink_send_standard():
 
         print(f"[DEBUG] Sending {message_type} to {target_ip}:{target_port}, sys={system_id}, comp={component_id}")
 
-        # Target은 항상 FC (system_id=1, component_id=1)
-        target_system = 1
+        # Target FC: MAV_SYS_ID는 DRONE_ID와 동일
+        target_system = int(config_manager.get('MAV_SYS_ID', '1'))
         target_component = 1
 
         if message_type == 'ARM':
