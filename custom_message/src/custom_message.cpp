@@ -353,9 +353,9 @@ private:
         uint8_t crc_extra = 0;
         switch (msg_id) {
             case 60000: crc_extra = 100; break;  // FIRE_MISSION_START (미션 스타트)
-            case 60001: crc_extra = 101; break;  // FIRE_AUTO_AIM (자동조준)
-            case 60002: crc_extra = 102; break;  // FIRE_LAUNCH (발사)
-            case 60003: crc_extra = 103; break;  // FIRE_RETURN (복귀)
+            case 60001: crc_extra = 101; break;  // AUTO_AIM (자동조준)
+            case 60002: crc_extra = 102; break;  // FIRE_COMMAND (발사)
+            case 60003: crc_extra = 103; break;  // RETURN_TO_LAUNCH (복귀)
             default: crc_extra = 0; break;
         }
 
@@ -664,10 +664,10 @@ private:
         switch (msg_id) {
             case 11:    crc_extra = 89; break;   // SET_MODE (표준 MAVLink)
             case 76:    crc_extra = 152; break;  // COMMAND_LONG (표준 MAVLink)
-            case 60000: crc_extra = 100; break;  // 미션 스타트
-            case 60001: crc_extra = 101; break;  // 자동조준
-            case 60002: crc_extra = 102; break;  // 발사
-            case 60003: crc_extra = 103; break;  // 복귀
+            case 60000: crc_extra = 100; break;  // FIRE_MISSION_START (미션 스타트)
+            case 60001: crc_extra = 101; break;  // AUTO_AIM (자동조준)
+            case 60002: crc_extra = 102; break;  // FIRE_COMMAND (발사)
+            case 60003: crc_extra = 103; break;  // RETURN_TO_LAUNCH (복귀)
             default: crc_extra = 0; break;
         }
 

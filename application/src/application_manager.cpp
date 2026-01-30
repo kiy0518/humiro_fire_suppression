@@ -332,12 +332,14 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[DEBUG]   - 경도 (lon): " << std::fixed << std::setprecision(7) 
                           << (start.target_lon / 1e7) << "° (" << start.target_lon << " * 1e7)" << std::endl;
                 std::cout << "[DEBUG]   - 고도 (alt): " << std::fixed << std::setprecision(2) 
-                          << start.target_alt << " m (MSL)" << std::endl;
+                          << start.target_alt << " m" << std::endl;
                 std::cout << "[DEBUG] 미션 설정:" << std::endl;
                 std::cout << "[DEBUG]   - 자동 발사 (auto_fire): " << (start.auto_fire ? "예" : "아니오") 
                           << " (" << static_cast<int>(start.auto_fire) << ")" << std::endl;
                 std::cout << "[DEBUG]   - 최대 발사 횟수 (max_projectiles): "
                           << static_cast<int>(start.max_projectiles) << std::endl;
+                std::cout << "[DEBUG]   - 이륙 속도 (takeoff_speed): " << start.takeoff_speed << " m/s" << std::endl;
+                std::cout << "[DEBUG]   - 비행 속도 (flight_speed): " << start.flight_speed << " m/s" << std::endl;
                 std::cout << "[DEBUG] ==============================================" << std::endl;
 
                 // OSD 표시
@@ -351,19 +353,9 @@ void ApplicationManager::initializeCustomMessage() {
 
                 // 좌표 체크: lat=0, lon=0이면 실내 테스트 미션
                 if (start.target_lat == 0 && start.target_lon == 0) {
-                    // target_alt 값으로 testMission 구분
-                    // target_alt = 1 → testMission (기존: ARM->TAKEOFF->HOVER->LAND)
-                    // target_alt = 3 → testMission3 (다중 드론 소방 미션: 리더/팔로워 포메이션)
-                    if (start.target_alt == 3) {
-                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt=3)" << std::endl;
-                        std::cout << "[INFO]   → 다중 드론 소방 미션 (리더/팔로워 포메이션)" << std::endl;
-                        testExeMission3(start);
-                    } else {
-                        std::cout << "[INFO] 실내 테스트 미션 3 모드 감지 (lat=0, lon=0, alt="
-                                  << start.target_alt << ")" << std::endl;
-                        std::cout << "[INFO]   → 다중 드론 소방 미션 (기본 모드)" << std::endl;
-                        testExeMission3(start);
-                    }
+                    // std::cout << "[INFO] 실내 테스트 미션 모드 (lat=0, lon=0, alt=" << start.target_alt << ")" << std::endl;
+                    // testExeMission3(start);
+                    std::cout << "[INFO] 실내 테스트 미션은 비활성화되었습니다" << std::endl;
                 } else {
                     std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
                     executeMission(start);
@@ -737,6 +729,8 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "[TEST PORT]   - 고도: " << std::fixed << std::setprecision(2) 
                           << start.target_alt << " m" << std::endl;
                 std::cout << "[TEST PORT] Auto Fire: " << (start.auto_fire ? "예" : "아니오") << std::endl;
+                std::cout << "[TEST PORT]   - 이륙 속도: " << start.takeoff_speed << " m/s" << std::endl;
+                std::cout << "[TEST PORT]   - 비행 속도: " << start.flight_speed << " m/s" << std::endl;
                 std::cout << "[TEST PORT] ==========================================" << std::endl;
                 
                 if (status_overlay_) {
@@ -1396,165 +1390,10 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 #endif
 }
 
-void ApplicationManager::testExeMission(const custom_message::FireMissionStart& start) {
-#ifdef ENABLE_ROS2
-    if (!offboard_manager_) {
-        std::cerr << "[TestMission] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
-        return;
-    }
+// void ApplicationManager::testExeMission(const custom_message::FireMissionStart& start) {
+// — 주석처리됨 (실내 테스트 전용, 비활성화)
+// }
 
-    // 중복 실행 방지
-    bool expected = false;
-    if (!mission_running_.compare_exchange_strong(expected, true)) {
-        std::cout << "[TestMission] 이미 미션이 실행 중입니다. 무시합니다." << std::endl;
-        return;
-    }
-
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "[ApplicationManager] 실내 테스트 미션 요청 수신" << std::endl;
-    std::cout << "  → OffboardManager::testMission() 호출" << std::endl;
-    std::cout << "========================================\n" << std::endl;
-
-    // 별도 스레드에서 비동기 실행
-    std::thread mission_thread([this]() {
-        try {
-            // OffboardManager의 testMission 호출
-            bool success = offboard_manager_->testMission(1.0f, 5.0f);
-
-            if (success) {
-                std::cout << "\n[ApplicationManager] ✓ 테스트 미션 성공" << std::endl;
-            } else {
-                std::cerr << "\n[ApplicationManager] ✗ 테스트 미션 실패" << std::endl;
-                // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
-                std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
-                offboard_manager_->disableOffboardMode();
-                offboard_manager_->resetToIdle();
-            }
-
-        } catch (const std::exception& e) {
-            std::cerr << "[ApplicationManager] Exception: " << e.what() << std::endl;
-            try {
-                std::cout << "[ApplicationManager] 긴급 복구 시도..." << std::endl;
-                offboard_manager_->disableOffboardMode();
-                offboard_manager_->resetToIdle();
-            } catch (...) {
-                std::cerr << "[ApplicationManager] Error: 복구 실패" << std::endl;
-            }
-        }
-
-        mission_running_ = false;
-    });
-
-    mission_thread.detach();
-#else
-    std::cout << "[TestMission] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
-#endif
-}
-
-void ApplicationManager::testExeMission3(const custom_message::FireMissionStart& start) {
-#ifdef ENABLE_ROS2
-    if (!offboard_manager_) {
-        std::cerr << "[TestMission3] Error: OffboardManager가 초기화되지 않았습니다" << std::endl;
-        return;
-    }
-
-    // ★★★ 비동기 미션 루프가 실행 중이면 중복 요청 무시 ★★★
-    // ARMING/TAKEOFF 단계에서는 FC가 아직 OFFBOARD 모드가 아니므로
-    // mission_loop_running_을 먼저 확인해야 함
-    if (offboard_manager_->isMissionRunning()) {
-        MissionState current_state = offboard_manager_->getCurrentState();
-        std::cout << "[TestMission3] 비동기 미션 실행 중 (상태: "
-                  << OffboardManager::getStateName(current_state)
-                  << ") - 중복 요청 무시" << std::endl;
-        return;
-    }
-
-    // 중복 실행 방지 (FC가 OFFBOARD 모드가 아니면 리셋 후 재시도 허용)
-    bool expected = false;
-    if (!mission_running_.compare_exchange_strong(expected, true)) {
-        MissionState current_state = offboard_manager_->getCurrentState();
-        bool is_offboard = offboard_manager_->isOffboardMode();
-
-        std::cout << "[TestMission3] 미션 중복 체크: 상태=" << OffboardManager::getStateName(current_state)
-                  << ", FC=" << (is_offboard ? "OFFBOARD" : "다른 모드") << std::endl;
-
-        // FC가 OFFBOARD 모드가 아니고 비동기 루프도 실행 중이 아니면 이전 미션 실패로 간주
-        if (!is_offboard) {
-            std::cout << "[TestMission3] ★ FC가 OFFBOARD 모드가 아님 → 강제 리셋 후 재시도" << std::endl;
-            mission_running_.store(false);
-            offboard_manager_->disableOffboardMode();
-            offboard_manager_->resetToIdle();
-            expected = false;
-            if (!mission_running_.compare_exchange_strong(expected, true)) {
-                std::cout << "[TestMission3] 리셋 후에도 미션 실행 중. 무시합니다." << std::endl;
-                return;
-            }
-            std::cout << "[TestMission3] ✓ 리셋 완료, 새 미션 시작" << std::endl;
-        } else {
-            std::cout << "[TestMission3] FC가 OFFBOARD 모드 → 중복 실행 방지. 무시합니다." << std::endl;
-            return;
-        }
-    }
-
-    // device_config.env에서 DRONE_ID 읽기
-    uint8_t vehicle_id = 1;  // 기본값: 리더
-    std::ifstream config_file("/home/khadas/humiro_fire_suppression/config/device_config.env");
-    if (config_file.is_open()) {
-        std::string line;
-        while (std::getline(config_file, line)) {
-            if (line.find("DRONE_ID=") == 0) {
-                try {
-                    vehicle_id = std::stoi(line.substr(9));
-                    std::cout << "[TestMission3] DRONE_ID 읽기 성공: " << (int)vehicle_id << std::endl;
-                } catch (...) {
-                    std::cerr << "[TestMission3] Warning: DRONE_ID 파싱 실패, 기본값(1) 사용" << std::endl;
-                }
-                break;
-            }
-        }
-        config_file.close();
-    } else {
-        std::cerr << "[TestMission3] Warning: device_config.env 읽기 실패, 기본값(1) 사용" << std::endl;
-    }
-
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "[ApplicationManager] 테스트 미션 3 요청 수신 (다중 드론 소방)" << std::endl;
-    std::cout << "  → Vehicle ID: " << (int)vehicle_id << (vehicle_id == 1 ? " (리더)" : " (팔로워)") << std::endl;
-    std::cout << "  → OffboardManager::startAsyncMission3() 호출 (비동기 상태 머신)" << std::endl;
-    std::cout << "========================================\n" << std::endl;
-
-    // ★ 비동기 상태 머신 사용 - 내부적으로 스레드 생성
-    // 파라미터: vehicle_id, takeoff_altitude=1.0m, target_distance=1.5m (실내 테스트용)
-    bool started = offboard_manager_->startAsyncMission3(vehicle_id, 1.0f, 1.5f);
-
-    if (!started) {
-        std::cerr << "[ApplicationManager] ✗ 비동기 미션 시작 실패" << std::endl;
-        mission_running_ = false;
-        return;
-    }
-
-    std::cout << "[ApplicationManager] ✓ 비동기 미션 시작됨 (상태 머신 실행 중)" << std::endl;
-    std::cout << "[ApplicationManager]   → 60003 (FIRE_RETURN) 수신 시 즉시 착륙" << std::endl;
-
-    // 미션 완료 모니터링 스레드
-    std::thread monitor_thread([this]() {
-        while (offboard_manager_->isMissionRunning()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
-
-        MissionState final_state = offboard_manager_->getCurrentState();
-        if (final_state == MissionState::LANDED) {
-            std::cout << "\n[ApplicationManager] ✓ 비동기 미션 완료 (착륙됨)" << std::endl;
-        } else {
-            std::cout << "\n[ApplicationManager] 비동기 미션 종료 (상태: "
-                      << OffboardManager::getStateName(final_state) << ")" << std::endl;
-        }
-
-        mission_running_ = false;
-    });
-
-    monitor_thread.detach();
-#else
-    std::cout << "[TestMission3] Warning: ROS2가 비활성화되어 미션 실행 불가" << std::endl;
-#endif
-}
+// void ApplicationManager::testExeMission3(const custom_message::FireMissionStart& start) {
+// — 주석처리됨 (실내 테스트 전용, 비활성화)
+// }

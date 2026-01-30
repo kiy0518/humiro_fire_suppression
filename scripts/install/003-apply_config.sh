@@ -225,6 +225,24 @@ EOF
         echo "  - SSID 3: $WIFI_SSID_3_CLEAN"
     fi
 
+    # SSID 4 추가 (선택)
+    if [ -n "$WIFI_SSID_4" ] && [ "$WIFI_SSID_4" != '""' ] && [ "$WIFI_SSID_4" != "''" ]; then
+        WIFI_SSID_4_CLEAN=$(echo "$WIFI_SSID_4" | tr -d '"' | tr -d "'")
+        WIFI_PASSWORD_4_CLEAN=$(echo "$WIFI_PASSWORD_4" | tr -d '"' | tr -d "'")
+        echo "        \"$WIFI_SSID_4_CLEAN\":" >> "$TEMP_WIFI"
+        echo "          password: \"$WIFI_PASSWORD_4_CLEAN\"" >> "$TEMP_WIFI"
+        echo "  - SSID 4: $WIFI_SSID_4_CLEAN"
+    fi
+
+    # SSID 5 추가 (선택)
+    if [ -n "$WIFI_SSID_5" ] && [ "$WIFI_SSID_5" != '""' ] && [ "$WIFI_SSID_5" != "''" ]; then
+        WIFI_SSID_5_CLEAN=$(echo "$WIFI_SSID_5" | tr -d '"' | tr -d "'")
+        WIFI_PASSWORD_5_CLEAN=$(echo "$WIFI_PASSWORD_5" | tr -d '"' | tr -d "'")
+        echo "        \"$WIFI_SSID_5_CLEAN\":" >> "$TEMP_WIFI"
+        echo "          password: \"$WIFI_PASSWORD_5_CLEAN\"" >> "$TEMP_WIFI"
+        echo "  - SSID 5: $WIFI_SSID_5_CLEAN"
+    fi
+
     # 설정 파일 적용
     mv "$TEMP_WIFI" /etc/netplan/02-wlan0-wifi.yaml
     chmod 600 /etc/netplan/02-wlan0-wifi.yaml

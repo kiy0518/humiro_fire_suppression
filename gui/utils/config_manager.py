@@ -224,6 +224,8 @@ class ConfigManager:
                 "WIFI_SSID_1", "WIFI_PASSWORD_1",
                 "WIFI_SSID_2", "WIFI_PASSWORD_2",
                 "WIFI_SSID_3", "WIFI_PASSWORD_3",
+                "WIFI_SSID_4", "WIFI_PASSWORD_4",
+                "WIFI_SSID_5", "WIFI_PASSWORD_5",
                 "RTSP_PORT", "STREAM_NAME",
             ]
             for key in wifi_keys:

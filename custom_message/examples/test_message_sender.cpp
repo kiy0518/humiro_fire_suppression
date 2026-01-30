@@ -81,12 +81,16 @@ int main() {
                 start.target_alt = 10.0f;       // 10m
                 start.auto_fire = 1;            // 자동 발사
                 start.max_projectiles = 5;
+                start.takeoff_speed = 3.0f;     // 이륙 속도 3 m/s
+                start.flight_speed = 5.0f;      // 비행 속도 5 m/s
 
                 std::cout << "\n[전송] FIRE_MISSION_START (60000)" << std::endl;
                 std::cout << "  위도: 37.1234567°" << std::endl;
                 std::cout << "  경도: 127.1234567°" << std::endl;
                 std::cout << "  고도: 10.0m" << std::endl;
                 std::cout << "  Auto Fire: 예" << std::endl;
+                std::cout << "  이륙 속도: 3.0 m/s" << std::endl;
+                std::cout << "  비행 속도: 5.0 m/s" << std::endl;
 
                 if (msg_handler.sendFireMissionStart(start)) {
                     std::cout << "✓ 전송 성공" << std::endl;

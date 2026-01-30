@@ -220,7 +220,20 @@ class CustomMessageSenderGUI:
         self.auto_fire_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(row_frame, text="자동 발사", variable=self.auto_fire_var).pack(side="left", padx=10)
 
-        ttk.Button(row_frame, text="전송", command=self.send_mission_start).pack(side="right", padx=5)
+        row_frame2 = ttk.Frame(frame)
+        row_frame2.pack(fill="x", pady=2)
+
+        ttk.Label(row_frame2, text="이륙속도(m/s):").pack(side="left")
+        self.takeoff_speed_entry = ttk.Entry(row_frame2, width=8)
+        self.takeoff_speed_entry.insert(0, "3.0")
+        self.takeoff_speed_entry.pack(side="left", padx=5)
+
+        ttk.Label(row_frame2, text="비행속도(m/s):").pack(side="left")
+        self.flight_speed_entry = ttk.Entry(row_frame2, width=8)
+        self.flight_speed_entry.insert(0, "5.0")
+        self.flight_speed_entry.pack(side="left", padx=5)
+
+        ttk.Button(row_frame2, text="전송", command=self.send_mission_start).pack(side="right", padx=5)
 
     def create_mission_status_section(self, parent):
         frame = ttk.LabelFrame(parent, text="2. FIRE_MISSION_STATUS (미션 상태)", padding=5)
@@ -513,9 +526,9 @@ class CustomMessageSenderGUI:
             86: 5,       # SET_POSITION_TARGET_GLOBAL_INT (표준 MAVLink 메시지) - 공식 값
             # 60000번대 커스텀 메시지 (QGC → VIM4)
             60000: 100,  # FIRE_MISSION_START
-            60001: 101,  # FIRE_AUTO_AIM
-            60002: 102,  # FIRE_LAUNCH
-            60003: 103,  # FIRE_RETURN
+            60001: 101,  # AUTO_AIM
+            60002: 102,  # FIRE_COMMAND
+            60003: 103,  # RETURN_TO_LAUNCH
             # 60010번대 커스텀 메시지 (VIM4 → QGC)
             60010: 110,  # FIRE_MISSION_STATUS
             60011: 111   # FIRE_SUPPRESSION_RESULT
@@ -559,20 +572,24 @@ class CustomMessageSenderGUI:
 
             alt = float(self.alt_entry.get())
             auto_fire = 1 if self.auto_fire_var.get() else 0
+            takeoff_speed = float(self.takeoff_speed_entry.get())
+            flight_speed = float(self.flight_speed_entry.get())
             system_id = int(self.system_id_entry.get())
             component_id = int(self.component_id_entry.get())
 
             # Message ID: 60000 (FIRE_MISSION_START)
             msg_id = 60000
 
-            # 메시지 페이로드 (struct FireMissionStart)
+            # 메시지 페이로드 (struct FireMissionStart - Wire Format 순서)
             payload = struct.pack(
-                '<BBiifBB',  # Little endian
-                system_id,          # target_system
-                component_id,       # target_component
+                '<iifffBBBB',  # Little endian, 4바이트 먼저 1바이트 마지막
                 lat,                # target_lat (int32_t)
                 lon,                # target_lon (int32_t)
                 alt,                # target_alt (float)
+                takeoff_speed,      # takeoff_speed (float)
+                flight_speed,       # flight_speed (float)
+                system_id,          # target_system (uint8_t)
+                component_id,       # target_component (uint8_t)
                 auto_fire,          # auto_fire (uint8_t)
                 5                   # max_projectiles (uint8_t)
             )
@@ -580,9 +597,9 @@ class CustomMessageSenderGUI:
             self.send_mavlink2_message(msg_id, payload)
 
             if self.indoor_test_var.get():
-                self.log(f"✓ FIRE_MISSION_START 전송 (실내 테스트): lat=0, lon=0, {alt}m, Auto={auto_fire}")
+                self.log(f"✓ FIRE_MISSION_START 전송 (실내 테스트): lat=0, lon=0, {alt}m, Auto={auto_fire}, 이륙={takeoff_speed}m/s, 비행={flight_speed}m/s")
             else:
-                self.log(f"✓ FIRE_MISSION_START 전송: {lat/1e7}°, {lon/1e7}°, {alt}m, Auto={auto_fire}")
+                self.log(f"✓ FIRE_MISSION_START 전송: {lat/1e7}°, {lon/1e7}°, {alt}m, Auto={auto_fire}, 이륙={takeoff_speed}m/s, 비행={flight_speed}m/s")
 
         except Exception as e:
             self.log(f"✗ 전송 실패: {e}")

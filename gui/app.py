@@ -3008,10 +3008,10 @@ def api_mavlink_send_custom():
         # CRC_EXTRA 값 (메시지 ID별 고유값)
         # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         crc_extra_map = {
-            60000: 100,  # 미션 스타트
-            60001: 101,  # 자동조준
-            60002: 102,  # 발사
-            60003: 103,  # 복귀
+            60000: 100,  # FIRE_MISSION_START
+            60001: 101,  # AUTO_AIM
+            60002: 102,  # FIRE_COMMAND
+            60003: 103,  # RETURN_TO_LAUNCH
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 
@@ -3058,21 +3058,19 @@ def api_mavlink_send_fire():
         # 메시지별 Payload 생성
         payload = b''
         if message_type == 'FIRE_MISSION_START':
-            # struct __attribute__((packed)) FireMissionStart {
-            #     uint8_t target_system;        // System ID
-            #     uint8_t target_component;     // Component ID
-            #     int32_t target_lat;           // Target latitude * 1e7
-            #     int32_t target_lon;           // Target longitude * 1e7
-            #     float target_alt;             // Target altitude MSL (m)
-            #     uint8_t auto_fire;            // 0=manual, 1=auto
-            #     uint8_t max_projectiles;      // Max projectiles to use
-            # };
-            payload = struct.pack('<BBiifBB',
-                int(params.get('target_system', 1)),
-                int(params.get('target_component', 191)),
+            # Wire Format 순서 (4바이트 먼저, 1바이트 마지막)
+            # int32_t target_lat, int32_t target_lon, float target_alt,
+            # float takeoff_speed, float flight_speed,
+            # uint8_t target_system, uint8_t target_component,
+            # uint8_t auto_fire, uint8_t max_projectiles
+            payload = struct.pack('<iifffBBBB',
                 int(params.get('target_lat', 0)),
                 int(params.get('target_lon', 0)),
                 float(params.get('target_alt', 10.0)),
+                float(params.get('takeoff_speed', 3.0)),
+                float(params.get('flight_speed', 5.0)),
+                int(params.get('target_system', 1)),
+                int(params.get('target_component', 191)),
                 int(params.get('auto_fire', 0)),
                 int(params.get('max_projectiles', 1))
             )
@@ -3112,10 +3110,10 @@ def api_mavlink_send_fire():
         # CRC_EXTRA 값 (메시지 ID별 고유값)
         # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         crc_extra_map = {
-            60000: 100,  # 미션 스타트
-            60001: 101,  # 자동조준
-            60002: 102,  # 발사
-            60003: 103,  # 복귀
+            60000: 100,  # FIRE_MISSION_START
+            60001: 101,  # AUTO_AIM
+            60002: 102,  # FIRE_COMMAND
+            60003: 103,  # RETURN_TO_LAUNCH
         }
         crc_extra = crc_extra_map.get(message_id, 0)
 
@@ -3124,25 +3122,18 @@ def api_mavlink_send_fire():
         crc = struct.pack('<H', crc_value)  # little endian 16-bit
         message += crc
 
-        # UDP로 전송 (여러 번 반복 - 안정성 확보)
-        import time
+        # UDP로 전송 (1회)
         print(f"[DEBUG] Sending {message_type} to {target_ip}:{target_port}, payload length: {len(payload)}, message length: {len(message)}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        success_count = 0
-        for i in range(3):  # 3회 전송
-            try:
-                sent_bytes = sock.sendto(message, (target_ip, target_port))
-                print(f"[DEBUG] Sent {sent_bytes} bytes (attempt {i+1}/3)")
-                success_count += 1
-                time.sleep(0.1)  # 100ms 간격
-            except Exception as e:
-                print(f"[DEBUG] Send failed (attempt {i+1}/3): {e}")
-        sock.close()
-
-        if success_count > 0:
-            return jsonify({"success": True, "message": f"{message_type} 전송 완료 ({success_count}/3회, {len(payload)} bytes)"})
-        else:
-            return jsonify({"success": False, "message": f"{message_type} 전송 실패"})
+        try:
+            sent_bytes = sock.sendto(message, (target_ip, target_port))
+            print(f"[DEBUG] Sent {sent_bytes} bytes")
+            sock.close()
+            return jsonify({"success": True, "message": f"{message_type} 전송 완료 ({len(payload)} bytes)"})
+        except Exception as e:
+            print(f"[DEBUG] Send failed: {e}")
+            sock.close()
+            return jsonify({"success": False, "message": f"{message_type} 전송 실패: {e}"})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 

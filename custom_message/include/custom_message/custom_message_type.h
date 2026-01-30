@@ -69,10 +69,12 @@ enum class PX4Mode : uint8_t {
  * ★ Wire Format 순서 (타입 크기 내림차순)
  */
 struct __attribute__((packed)) FireMissionStart {
-    // 4-byte fields first
+    // 4-byte fields first (Wire Format 순서)
     int32_t target_lat;           // Target latitude * 1e7
     int32_t target_lon;           // Target longitude * 1e7
-    float target_alt;             // Target altitude MSL (m)
+    float target_alt;             // Target altitude (m)
+    float takeoff_speed;          // Takeoff speed (m/s)
+    float flight_speed;           // Flight speed (m/s)
     // 1-byte fields last
     uint8_t target_system;        // System ID
     uint8_t target_component;     // Component ID
@@ -81,7 +83,7 @@ struct __attribute__((packed)) FireMissionStart {
 };
 
 /**
- * @brief 자동 조준 메시지 (FIRE_AUTO_AIM)
+ * @brief 자동 조준 메시지 (AUTO_AIM)
  *
  * Message ID: 60001
  * Direction: QGC → VIM4
@@ -94,7 +96,7 @@ struct __attribute__((packed)) FireAutoAim {
 };
 
 /**
- * @brief 발사 메시지 (FIRE_LAUNCH)
+ * @brief 발사 메시지 (FIRE_COMMAND)
  *
  * Message ID: 60002
  * Direction: QGC → VIM4
@@ -107,7 +109,7 @@ struct __attribute__((packed)) FireLaunch {
 };
 
 /**
- * @brief 복귀 메시지 (FIRE_RETURN)
+ * @brief 복귀 메시지 (RETURN_TO_LAUNCH)
  *
  * Message ID: 60003
  * Direction: QGC → VIM4
@@ -131,7 +133,7 @@ struct __attribute__((packed)) FireMissionStatus {
     // 4-byte fields first
     int32_t target_lat;           // Target latitude * 1e7
     int32_t target_lon;           // Target longitude * 1e7
-    float target_alt;             // Target altitude MSL (m)
+    float target_alt;             // Target altitude (m)
     float distance_to_target;     // Distance to target (m)
     // 2-byte fields
     int16_t thermal_max_temp;     // Max temperature * 10 (0.1 C)
