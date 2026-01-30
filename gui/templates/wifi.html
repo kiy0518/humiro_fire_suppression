@@ -151,12 +151,19 @@ function loadCurrentConnection() {
         .then(data => {
             const container = document.getElementById('currentConnection');
             if (data.success && data.connection) {
+                const sig = data.connection.signal || 0;
+                const sigIcon = sig >= 75 ? 'bi-wifi' : sig >= 50 ? 'bi-wifi-2' : sig >= 25 ? 'bi-wifi-1' : 'bi-wifi-off';
+                const freq = data.connection.frequency ? ` | ${data.connection.frequency}` : '';
+                const rate = data.connection.bitrate ? ` | ${data.connection.bitrate}` : '';
                 container.innerHTML = `
                     <div class="d-flex align-items-center">
-                        <i class="bi bi-wifi text-success" style="font-size: 2rem;"></i>
-                        <div class="ms-3">
+                        <i class="bi ${sigIcon}" style="font-size: 2rem;"></i>
+                        <div class="ms-3 flex-grow-1">
                             <h5 class="mb-0">${data.connection.name}</h5>
-                            <small class="text-muted">장치: ${data.connection.device}</small>
+                            <small class="text-muted">장치: ${data.connection.device}${freq}${rate}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold">${sig}%</div>
                         </div>
                     </div>
                 `;
@@ -252,17 +259,23 @@ function scanNetworks() {
         .then(data => {
             if (data.success && data.networks.length > 0) {
                 container.innerHTML = '<div class="list-group">' +
-                    data.networks.map(network => `
+                    data.networks.map(network => {
+                        const s = parseInt(network.signal) || 0;
+                        const sIcon = s >= 75 ? 'bi-wifi' : s >= 50 ? 'bi-wifi-2' : s >= 25 ? 'bi-wifi-1' : 'bi-wifi-off';
+                        return `
                         <div class="list-group-item">
                             <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <h6 class="mb-1">
-                                        <i class="bi bi-wifi"></i> ${network.ssid}
-                                        ${network.in_use ? '<span class="badge bg-success ms-2">연결됨</span>' : ''}
-                                    </h6>
-                                    <small class="text-muted">
-                                        신호: ${network.signal}% | 보안: ${network.security || '없음'}
-                                    </small>
+                                <div class="d-flex align-items-center">
+                                    <i class="bi ${sIcon} me-2" style="font-size:1.3rem;"></i>
+                                    <div>
+                                        <h6 class="mb-1">
+                                            ${network.ssid}
+                                            ${network.in_use ? '<span class="badge bg-success ms-2">연결됨</span>' : ''}
+                                        </h6>
+                                        <small class="text-muted">
+                                            ${s}% | ${network.security || '보안 없음'}
+                                        </small>
+                                    </div>
                                 </div>
                                 ${!network.in_use ? `
                                     <button class="btn btn-sm btn-primary" onclick="showAddNetworkModalWithSsid('${network.ssid}')">
@@ -270,8 +283,8 @@ function scanNetworks() {
                                     </button>
                                 ` : ''}
                             </div>
-                        </div>
-                    `).join('') +
+                        </div>`;
+                    }).join('') +
                     '</div>';
             } else {
                 container.innerHTML = `

@@ -118,6 +118,7 @@ public:
         uint64_t unknown_message_count = 0;
         uint64_t parse_error_count = 0;
         uint64_t send_error_count = 0;
+        uint64_t queue_drop_count = 0;
     };
 
     Statistics getStatistics() const;

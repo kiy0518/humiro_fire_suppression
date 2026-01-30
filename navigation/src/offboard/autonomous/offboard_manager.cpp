@@ -14,8 +14,11 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
     distance_adjuster_ = std::make_unique<DistanceAdjuster>(node);
     rtl_handler_ = std::make_unique<RTLHandler>(node);
 
-    // 중단 플래그 연결 (DistanceAdjuster가 루프 중에 확인)
+    // 중단 플래그 연결 (각 핸들러가 블로킹 루프 중에 확인)
+    takeoff_handler_->setAbortFlag(&abort_requested_);
+    waypoint_handler_->setAbortFlag(&abort_requested_);
     distance_adjuster_->setAbortFlag(&abort_requested_);
+    rtl_handler_->setAbortFlag(&abort_requested_);
 
     // testMission3용 구독자 초기화
     auto qos = rclcpp::QoS(rclcpp::KeepLast(10)).best_effort().durability_volatile();
@@ -51,12 +54,16 @@ bool OffboardManager::executeMission(const MissionConfig& config)
         RCLCPP_INFO(node_->get_logger(), "======================================");
         RCLCPP_INFO(node_->get_logger(), "Mission config:");
         RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.2f m", config.takeoff_altitude);
+        RCLCPP_INFO(node_->get_logger(), "  Takeoff speed: %.2f m/s", config.takeoff_speed);
+        RCLCPP_INFO(node_->get_logger(), "  Flight speed: %.2f m/s", config.flight_speed);
         RCLCPP_INFO(node_->get_logger(), "  Target waypoint: Lat=%.7f, Lon=%.7f, Alt=%.2f m",
                     config.target_waypoint.latitude,
                     config.target_waypoint.longitude,
                     config.target_waypoint.altitude);
         RCLCPP_INFO(node_->get_logger(), "  Target distance: %.2f m (±%.2f m)",
                     config.target_distance, config.distance_tolerance);
+        RCLCPP_INFO(node_->get_logger(), "  Auto fire: %s, Max projectiles: %d",
+                    config.auto_fire ? "ON" : "OFF", config.max_projectiles);
         RCLCPP_INFO(node_->get_logger(), "======================================\n");
 
         // === State: ARMING ===
@@ -663,6 +670,12 @@ void OffboardManager::resetToIdle()
 
 void OffboardManager::disableOffboardMode()
 {
+    // 멱등성: 이미 비활성화 상태면 스킵
+    if (!isOffboardMode()) {
+        RCLCPP_DEBUG(node_->get_logger(), "[OFFBOARD] Already disabled, skipping");
+        return;
+    }
+
     RCLCPP_INFO(node_->get_logger(), "[OFFBOARD] Disabling OFFBOARD mode (heartbeat stop)...");
 
     // TakeoffHandler의 heartbeat 중지

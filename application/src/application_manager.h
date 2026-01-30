@@ -133,8 +133,11 @@ private:
     void cleanupComponents();
     void cleanupROS2();
     
-    // 미션 실행 (추가)
+    // 미션 실행
     void executeMission(const custom_message::FireMissionStart& start);
+
+    // 미션 종료 통합 정리 (mission_running_ 리셋 + OffboardManager 정리)
+    void finishMission(bool reset_offboard = true);
     // void testExeMission(const custom_message::FireMissionStart& start);
     // void testExeMission3(const custom_message::FireMissionStart& start);
 };

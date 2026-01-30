@@ -38,7 +38,25 @@ public:
      * 모드 변경 콜백 설정 (OFFBOARD → 다른 모드 전환 시 호출됨)
      */
     void setModeChangeCallback(ModeChangeCallback callback);
-    
+
+    // Vehicle status 업데이트 콜백 (nav_state, arming_state)
+    using VehicleStatusCallback = std::function<void(uint8_t, uint8_t)>;
+    void setVehicleStatusCallback(VehicleStatusCallback callback) { vehicle_status_callback_ = callback; }
+
+    // ========== 미션 사전 조건 체크용 getter ==========
+    /** @brief FC 연결 상태 (최근 3초 이내 VehicleStatus 수신) */
+    bool isFCConnected() const;
+    /** @brief GPS fix 상태 (fix_type >= 3: 3D Fix) */
+    bool isGPSFixed() const;
+    /** @brief GPS fix type 반환 */
+    uint8_t getGPSFixType() const { return gps_fix_type_.load(); }
+    /** @brief 배터리 잔량 (0.0~1.0) */
+    float getBatteryRemaining() const { return battery_remaining_.load(); }
+    /** @brief 현재 nav_state */
+    uint8_t getNavState() const { return current_nav_state_.load(); }
+    /** @brief 현재 arming_state */
+    uint8_t getArmingState() const { return current_arming_state_.load(); }
+
 private:
     // PX4 상태 콜백 (uXRCE-DDS)
     void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
@@ -79,7 +97,15 @@ private:
 
     // 모드 변경 콜백 (OFFBOARD → 다른 모드 전환 감지용)
     ModeChangeCallback mode_change_callback_;
+    VehicleStatusCallback vehicle_status_callback_;
     uint8_t last_nav_state_ = 255;  // 이전 nav_state 저장
+
+    // 미션 사전 조건 체크용 상태 변수 (atomic)
+    std::atomic<uint8_t> current_nav_state_{0};
+    std::atomic<uint8_t> current_arming_state_{0};
+    std::atomic<uint8_t> gps_fix_type_{0};
+    std::atomic<float> battery_remaining_{0.0f};
+    std::chrono::steady_clock::time_point last_vehicle_status_time_;
 };
 
 #endif // STATUS_ROS2_SUBSCRIBER_H

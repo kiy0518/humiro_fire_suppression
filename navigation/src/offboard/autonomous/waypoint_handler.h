@@ -50,6 +50,11 @@ public:
      */
     bool isWaypointReached() const;
 
+    /**
+     * @brief 외부 중단 플래그 설정 (OffboardManager에서 호출)
+     */
+    void setAbortFlag(std::atomic<bool>* abort_flag) { abort_flag_ = abort_flag; }
+
 private:
     /**
      * @brief VehicleGlobalPosition 콜백
@@ -117,6 +122,9 @@ private:
 
     // Target waypoint
     GPSCoordinate target_waypoint_{0.0, 0.0, 0.0f};
+
+    // Abort flag (외부에서 설정)
+    std::atomic<bool>* abort_flag_{nullptr};
 
     // Constants
     static constexpr float WAYPOINT_THRESHOLD = 2.0f;   // 2m 오차 허용

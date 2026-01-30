@@ -19,6 +19,7 @@
 #include <chrono>
 #include <queue>
 #include <condition_variable>
+#include <unordered_map>
 
 namespace custom_message {
 
@@ -93,17 +94,28 @@ public:
             return true;
         }
 
-        // 수신 소켓 생성
-        receive_socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+        // 소켓 생성 (최대 3회 재시도)
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            receive_socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+            if (receive_socket_fd_ >= 0) break;
+            std::cerr << "[CustomMessage] 수신 소켓 생성 실패 (시도 " << attempt << "/3): "
+                      << strerror(errno) << std::endl;
+            if (attempt < 3) std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
         if (receive_socket_fd_ < 0) {
-            std::cerr << "[CustomMessage] 수신 소켓 생성 실패: " << strerror(errno) << std::endl;
+            std::cerr << "[CustomMessage] 수신 소켓 생성 최종 실패" << std::endl;
             return false;
         }
 
-        // 송신 소켓 생성
-        send_socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            send_socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
+            if (send_socket_fd_ >= 0) break;
+            std::cerr << "[CustomMessage] 송신 소켓 생성 실패 (시도 " << attempt << "/3): "
+                      << strerror(errno) << std::endl;
+            if (attempt < 3) std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
         if (send_socket_fd_ < 0) {
-            std::cerr << "[CustomMessage] 송신 소켓 생성 실패: " << strerror(errno) << std::endl;
+            std::cerr << "[CustomMessage] 송신 소켓 생성 최종 실패" << std::endl;
             close(receive_socket_fd_);
             receive_socket_fd_ = -1;
             return false;
@@ -494,22 +506,21 @@ private:
                         {
                             std::lock_guard<std::mutex> lock(message_queue_mutex_);
                             const size_t MAX_QUEUE_SIZE = 5000;  // 1000 → 5000으로 증가 (메시지 손실 방지)
-                            if (message_queue_.size() < MAX_QUEUE_SIZE) {
-                                std::vector<uint8_t> msg(buffer, buffer + received);
-                                message_queue_.push(std::move(msg));
-                                message_queue_cv_.notify_one();
-                            } else {
-                                // 큐가 가득 찬 경우 (드물게 발생)
-                                std::lock_guard<std::mutex> stats_lock(stats_mutex_);
-                                stats_.parse_error_count++;
-                                static int queue_full_count = 0;
-                                queue_full_count++;
-                                // 더 자주 경고 출력 (10개마다)
-                                if (queue_full_count % 10 == 1) {
-                                    std::cerr << "[CustomMessage] ⚠ 메시지 큐가 가득 참 (크기: " 
-                                              << message_queue_.size() << ", 메시지 손실 가능)" << std::endl;
+                            if (message_queue_.size() >= MAX_QUEUE_SIZE) {
+                                // 오래된 메시지 드롭 (front drop) - 새 메시지 우선
+                                message_queue_.pop();
+                                {
+                                    std::lock_guard<std::mutex> stats_lock(stats_mutex_);
+                                    stats_.queue_drop_count++;
+                                    if (stats_.queue_drop_count % 100 == 1) {
+                                        std::cerr << "[CustomMessage] 큐 오버플로우: 오래된 메시지 드롭 (총 "
+                                                  << stats_.queue_drop_count << "건)" << std::endl;
+                                    }
                                 }
                             }
+                            std::vector<uint8_t> msg(buffer, buffer + received);
+                            message_queue_.push(std::move(msg));
+                            message_queue_cv_.notify_one();
                         }
                     }
                 }
@@ -577,6 +588,21 @@ private:
         }
     }
 
+    // 표준 MAVLink 메시지를 mavlink-router(14550)로 포워딩 → FC로 전달
+    void forwardToFC(const uint8_t* buffer, size_t len) {
+        if (send_socket_fd_ < 0 || !running_ || len == 0) return;
+
+        std::lock_guard<std::mutex> lock(target_mutex_);
+        ssize_t sent = sendto(send_socket_fd_, buffer, len, 0,
+                              (struct sockaddr*)&target_addr_, sizeof(target_addr_));
+        if (sent > 0) {
+            std::cout << "[CustomMessage] → FC 포워딩 완료: " << len << " bytes → "
+                      << target_address_ << ":" << send_port_ << std::endl;
+        } else {
+            std::cerr << "[CustomMessage] ✗ FC 포워딩 실패: " << strerror(errno) << std::endl;
+        }
+    }
+
     void parseMAVLinkMessage(const uint8_t* buffer, size_t len) {
         // 안전성 검증: 버퍼가 nullptr이거나 길이가 0이면 즉시 반환
         if (!buffer || len == 0) {
@@ -626,10 +652,27 @@ private:
             return;
         }
 
+        // 중복 메시지 방지: 커스텀 메시지(60000~60003)에 대해 sysid별 seq 추적
+        bool is_custom_message = (msg_id >= 60000 && msg_id <= 60003);
+        if (is_custom_message) {
+            uint8_t sysid = header->sysid;
+            uint8_t seq = header->seq;
+            auto it = last_seq_by_sysid_.find(sysid);
+            if (it != last_seq_by_sysid_.end() && it->second == seq) {
+                duplicate_drop_count_++;
+                if (duplicate_drop_count_ % 10 == 1) {
+                    std::cout << "[CustomMessage] 중복 메시지 드롭: sysid=" << static_cast<int>(sysid)
+                              << ", seq=" << static_cast<int>(seq)
+                              << ", MSG_ID=" << msg_id << " (총 " << duplicate_drop_count_ << "건)" << std::endl;
+                }
+                return;
+            }
+            last_seq_by_sysid_[sysid] = seq;
+        }
+
         // 표준 MAVLink 메시지는 라우터가 이미 FC로 전달했으므로 여기서는 무시
         // 커스텀 메시지: 60000(미션스타트), 60001(자동조준), 60002(발사), 60003(복귀)
         // 표준 메시지: COMMAND_LONG(76), SET_MODE(11)
-        bool is_custom_message = (msg_id >= 60000 && msg_id <= 60003);
         bool is_command_long = (msg_id == 76);
         bool is_set_mode = (msg_id == 11);
 
@@ -687,8 +730,8 @@ private:
         calculated_crc = calculateCRC16(&crc_extra_byte, 1, calculated_crc);
 
         if (received_crc != calculated_crc) {
-            // 60001, 60002, 60003는 CRC 무시하고 처리 (GCS CRC_EXTRA 불일치 문제 해결 시)
-            if (msg_id == 60001 || msg_id == 60002 || msg_id == 60003) {
+            // 커스텀 메시지(60000-60003)는 CRC 무시하고 처리 (자체 CRC_EXTRA 사용)
+            if (is_custom_message) {
                 std::cout << "[CustomMessage] [STEP 2] ⚠ CRC 불일치 무시 (MSG_ID=" << msg_id
                           << "): 수신=0x" << std::hex << received_crc
                           << ", 계산=0x" << calculated_crc << std::dec
@@ -716,13 +759,15 @@ private:
         // 메시지 타입별 파싱 (이미 위에서 유효성 검사 완료)
         switch (msg_id) {
             case 11:  // SET_MODE (표준 MAVLink 메시지)
-                // SET_MODE는 라우터가 이미 FC로 전달했으므로 파싱만 수행
                 parseSetMode(payload, payload_len);
+                // 표준 메시지를 mavlink-router(14550)로 포워딩 → FC로 전달
+                forwardToFC(buffer, len);
                 break;
 
             case 76:  // COMMAND_LONG (표준 MAVLink 메시지)
-                // COMMAND_LONG은 라우터가 이미 FC로 전달했으므로 파싱만 수행
                 parseCommandLong(payload, payload_len);
+                // 표준 메시지를 mavlink-router(14550)로 포워딩 → FC로 전달
+                forwardToFC(buffer, len);
                 break;
 
             case 60000:  // 미션 스타트
@@ -883,21 +928,23 @@ private:
     }
 
     void parseSetMode(const uint8_t* payload, size_t len) {
-        // SET_MODE 페이로드 구조: target_system(1) + base_mode(1) + custom_mode(4) = 6 bytes
+        // SET_MODE MAVLink v2 Wire Format (크기 내림차순 재배열):
+        // custom_mode(4) + target_system(1) + base_mode(1) = 6 bytes
         const size_t SET_MODE_PAYLOAD_LEN = 6;
         if (len < SET_MODE_PAYLOAD_LEN) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
-            std::cerr << "[CustomMessage] SET_MODE 페이로드 길이 부족: " 
+            std::cerr << "[CustomMessage] SET_MODE 페이로드 길이 부족: "
                       << len << " < " << SET_MODE_PAYLOAD_LEN << std::endl;
             return;
         }
 
-        uint8_t target_system = payload[0];
-        uint8_t base_mode = payload[1];
-        uint32_t custom_mode = payload[2] | (static_cast<uint32_t>(payload[3]) << 8) |
-                               (static_cast<uint32_t>(payload[4]) << 16) |
-                               (static_cast<uint32_t>(payload[5]) << 24);
+        // Wire format 순서 (큰 필드 먼저)
+        uint32_t custom_mode = payload[0] | (static_cast<uint32_t>(payload[1]) << 8) |
+                               (static_cast<uint32_t>(payload[2]) << 16) |
+                               (static_cast<uint32_t>(payload[3]) << 24);
+        uint8_t target_system = payload[4];
+        uint8_t base_mode = payload[5];
         uint8_t main_mode = (custom_mode >> 16) & 0xFF;  // Extract main_mode
 
         std::cout << "[CustomMessage] [STEP 3] SET_MODE 파싱 완료: "
@@ -919,39 +966,43 @@ private:
     }
 
     void parseCommandLong(const uint8_t* payload, size_t len) {
-        // COMMAND_LONG 페이로드 구조: target_system(1) + target_component(1) + command(2) + confirmation(1) + param1-7(28) = 33 bytes
-        const size_t COMMAND_LONG_PAYLOAD_LEN = 33;
-        if (len < COMMAND_LONG_PAYLOAD_LEN) {
+        // COMMAND_LONG MAVLink v2 Wire Format (크기 내림차순 재배열):
+        // param1(4) + param2(4) + param3(4) + param4(4) + param5(4) + param6(4) + param7(4)
+        // + command(2) + target_system(1) + target_component(1) + confirmation(1) = 33 bytes
+        // MAVLink v2 trailing zero truncation으로 더 짧을 수 있음
+        const size_t COMMAND_LONG_MIN_LEN = 30;  // param1-7(28) + command(2) 까지 필수
+        if (len < COMMAND_LONG_MIN_LEN) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
             stats_.parse_error_count++;
-            std::cerr << "[CustomMessage] COMMAND_LONG 페이로드 길이 부족: " 
-                      << len << " < " << COMMAND_LONG_PAYLOAD_LEN << std::endl;
+            std::cerr << "[CustomMessage] COMMAND_LONG 페이로드 길이 부족: "
+                      << len << " < " << COMMAND_LONG_MIN_LEN << std::endl;
             return;
         }
 
-        uint8_t target_system = payload[0];
-        uint8_t target_component = payload[1];
-        uint16_t command = payload[2] | (static_cast<uint16_t>(payload[3]) << 8);
-        // confirmation은 무시 (payload[4])
-        
-        // param1-7 파싱 (little-endian float, 각 4 bytes)
-        auto parse_float = [](const uint8_t* data) -> float {
-            uint32_t bits = static_cast<uint32_t>(data[0]) |
-                           (static_cast<uint32_t>(data[1]) << 8) |
-                           (static_cast<uint32_t>(data[2]) << 16) |
-                           (static_cast<uint32_t>(data[3]) << 24);
+        // param1-7 파싱 (little-endian float, 각 4 bytes, offset 0~27)
+        auto parse_float = [](const uint8_t* data, size_t payload_len, size_t offset) -> float {
+            if (offset + 4 > payload_len) return 0.0f;
+            uint32_t bits = static_cast<uint32_t>(data[offset]) |
+                           (static_cast<uint32_t>(data[offset+1]) << 8) |
+                           (static_cast<uint32_t>(data[offset+2]) << 16) |
+                           (static_cast<uint32_t>(data[offset+3]) << 24);
             float value;
             memcpy(&value, &bits, sizeof(float));
             return value;
         };
-        
-        float param1 = parse_float(&payload[5]);
-        float param2 = parse_float(&payload[9]);
-        float param3 = parse_float(&payload[13]);
-        float param4 = parse_float(&payload[17]);
-        float param5 = parse_float(&payload[21]);
-        float param6 = parse_float(&payload[25]);
-        float param7 = parse_float(&payload[29]);
+
+        // Wire format 순서 (큰 필드 먼저)
+        float param1 = parse_float(payload, len, 0);
+        float param2 = parse_float(payload, len, 4);
+        float param3 = parse_float(payload, len, 8);
+        float param4 = parse_float(payload, len, 12);
+        float param5 = parse_float(payload, len, 16);
+        float param6 = parse_float(payload, len, 20);
+        float param7 = parse_float(payload, len, 24);
+        uint16_t command = payload[28] | (static_cast<uint16_t>(payload[29]) << 8);
+        uint8_t target_system = (len > 30) ? payload[30] : 0;
+        uint8_t target_component = (len > 31) ? payload[31] : 0;
+        // confirmation = payload[32] (무시)
 
         std::cout << "[CustomMessage] [STEP 3] COMMAND_LONG 파싱 완료: "
                   << "target_system=" << static_cast<int>(target_system)
@@ -999,6 +1050,10 @@ private:
     std::queue<std::vector<uint8_t>> message_queue_;
     std::mutex message_queue_mutex_;
     std::condition_variable message_queue_cv_;
+
+    // 중복 메시지 방지 (sysid -> last seq)
+    std::unordered_map<uint8_t, uint8_t> last_seq_by_sysid_;
+    uint64_t duplicate_drop_count_{0};
 
     FireMissionStartCallback mission_start_callback_;
     FireAutoAimCallback auto_aim_callback_;

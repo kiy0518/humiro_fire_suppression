@@ -285,9 +285,8 @@ def api_status():
     wifi_ip = config_manager.get_wifi_ip()
     mav_sys_id = int(config_manager.get("MAV_SYS_ID", str(drone_id)))
     mav_comp_id = int(config_manager.get("MAV_COMP_ID", "191"))
-    # 외부 테스트 포트 (GUI, Python 테스트 코드용)
-    # 주석 제거 후 파싱
-    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "16001").split('#')[0].strip()
+    # 앱 수신 포트 (mavlink-router Application 엔드포인트)
+    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "15001").split('#')[0].strip()
     external_port = int(external_port_str)
 
     return jsonify({
@@ -2798,7 +2797,7 @@ def api_mavlink_test_connection():
     try:
         data = request.json
         target_ip = data.get('target_ip', config_manager.get_fc_ip())
-        target_port = int(data.get('target_port', config_manager.get('EXTERNAL_UDP_PORT', '16001')))
+        target_port = int(data.get('target_port', config_manager.get('EXTERNAL_UDP_PORT', '15001')))
 
         # UDP 소켓으로 간단한 연결 테스트
         import socket

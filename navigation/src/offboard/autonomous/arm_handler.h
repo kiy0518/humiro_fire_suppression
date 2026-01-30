@@ -83,6 +83,13 @@ public:
      */
     bool isOffboardHeartbeatActive() const { return offboard_timer_ != nullptr; }
 
+    /**
+     * @brief 외부에서 vehicle status 업데이트 (StatusROS2Subscriber에서 호출)
+     * @param nav_state PX4 nav_state 값
+     * @param arming_state PX4 arming_state 값
+     */
+    void updateVehicleStatus(uint8_t nav_state, uint8_t arming_state);
+
 private:
     /**
      * @brief Vehicle Status 콜백

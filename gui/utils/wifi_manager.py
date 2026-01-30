@@ -273,11 +273,35 @@ class WiFiManager:
             if len(parts) >= 3:
                 conn_type = parts[1].strip()
                 if conn_type in ["802-11-wireless", "wifi"]:
-                    return {
+                    device = parts[2].strip()
+                    info = {
                         "name": parts[0].strip(),
                         "type": conn_type,
-                        "device": parts[2].strip()
+                        "device": device,
+                        "signal": 0,
+                        "frequency": "",
+                        "bitrate": "",
                     }
+                    # 신호 강도 조회
+                    sig_ok, sig_out, _ = self._run_command([
+                        self.nmcli_path, "-t", "-f",
+                        "IN-USE,SSID,SIGNAL,FREQ,RATE",
+                        "device", "wifi", "list", "ifname", device
+                    ])
+                    if sig_ok:
+                        for wline in sig_out.strip().split("\n"):
+                            wparts = wline.split(":")
+                            if len(wparts) >= 3 and wparts[0].strip() == "*":
+                                try:
+                                    info["signal"] = int(wparts[2].strip())
+                                except (ValueError, IndexError):
+                                    pass
+                                if len(wparts) >= 4:
+                                    info["frequency"] = wparts[3].strip()
+                                if len(wparts) >= 5:
+                                    info["bitrate"] = wparts[4].strip()
+                                break
+                    return info
 
         return None
 

@@ -107,6 +107,12 @@ bool TakeoffHandler::takeoff(float altitude_m, int timeout_ms)
     start_time = std::chrono::steady_clock::now();
 
     while (true) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[TakeoffHandler] ★ Takeoff aborted by external request");
+            return false;
+        }
+
         // 이륙 시작 위치 고정 (X, Y, Yaw), Z만 목표 고도로
         publishTrajectorySetpoint(
             takeoff_start_x_,      // ← 고정된 X 위치
@@ -221,6 +227,12 @@ bool TakeoffHandler::returnToTakeoffPosition(int timeout_ms)
     const float YAW_THRESHOLD = 0.17f;      // 약 10도 오차 허용
 
     while (true) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[TakeoffHandler] ★ Return aborted by external request");
+            return false;
+        }
+
         // 이륙 시작 위치로 setpoint 발행
         publishTrajectorySetpoint(
             takeoff_start_x_,

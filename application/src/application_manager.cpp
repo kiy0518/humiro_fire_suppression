@@ -214,15 +214,7 @@ void ApplicationManager::initializeComponents() {
                 [this](uint8_t old_nav_state, uint8_t new_nav_state) {
                     if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
                         std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << std::endl;
-                        std::cout << "    → mission_running_ 플래그 리셋 (새 커스텀 메시지 수신 가능)" << std::endl;
-                        mission_running_.store(false);
-
-                        // OffboardManager 상태도 리셋
-                        if (offboard_manager_) {
-                            offboard_manager_->disableOffboardMode();
-                            offboard_manager_->resetToIdle();
-                            std::cout << "    → OffboardManager 상태 리셋 완료" << std::endl;
-                        }
+                        finishMission(true);
                     }
                 }
             );
@@ -232,6 +224,17 @@ void ApplicationManager::initializeComponents() {
             std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
             offboard_manager_ = new OffboardManager(ros2_node_);
             std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
+
+            // StatusROS2Subscriber → ArmHandler 상태 연동
+            // 같은 노드에서 동일 토픽 중복 구독 시 콜백 미수신 문제 방지
+            status_ros2_subscriber_->setVehicleStatusCallback(
+                [this](uint8_t nav_state, uint8_t arming_state) {
+                    if (offboard_manager_) {
+                        offboard_manager_->getArmHandler().updateVehicleStatus(nav_state, arming_state);
+                    }
+                }
+            );
+            std::cout << "  ✓ VehicleStatus 연동 설정 완료 (StatusROS2Subscriber → ArmHandler)" << std::endl;
             std::cout << "  ✓ ROS2 상태 구독자 활성화" << std::endl;
         }
     }
@@ -345,9 +348,11 @@ void ApplicationManager::initializeCustomMessage() {
                 // OSD 표시
                 if (status_overlay_) {
                     std::ostringstream oss;
-                    oss << "Mission Start: ("
-                        << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
-                        << (start.target_lon / 1e7) << ") Alt:" << start.target_alt << "m";
+                    oss << "Mission: Alt=" << start.target_alt << "m"
+                        << " TkSpd=" << std::fixed << std::setprecision(1) << start.takeoff_speed
+                        << " FltSpd=" << start.flight_speed << "m/s"
+                        << (start.auto_fire ? " AUTO" : " MAN")
+                        << " x" << (int)start.max_projectiles;
                     status_overlay_->setCustomMessage(oss.str(), 5.0);
                 }
 
@@ -437,9 +442,7 @@ void ApplicationManager::initializeCustomMessage() {
                     // 현재 실행 중인 모든 루프(거리 제어 등)가 즉시 종료됨
                     offboard_manager_->abortMission();
                     std::cout << "[FIRE_RETURN] ✓ abortMission() 호출 완료" << std::endl;
-
-                    // 미션 플래그 리셋
-                    mission_running_.store(false);
+                    finishMission(false);
                 } else {
                     std::cerr << "[FIRE_RETURN] Error: OffboardManager 미초기화" << std::endl;
                 }
@@ -542,14 +545,7 @@ void ApplicationManager::initializeCustomMessage() {
                         if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
                             std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (외부 모드 변경 요청: main_mode="
                                       << (int)main_mode << ")" << std::endl;
-                            offboard_manager_->disableOffboardMode();
-                            offboard_manager_->resetToIdle();
-
-                            // 중요: mission_running_ 플래그 리셋하여 새 미션 수신 가능하도록 함
-                            mission_running_.store(false);
-                            std::cout << "[DEBUG] ✓ mission_running_ 플래그 리셋됨 - 새 커스텀 메시지 수신 가능" << std::endl;
-
-                            // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
+                            finishMission(true);
                             std::this_thread::sleep_for(std::chrono::milliseconds(500));
                         }
                     }
@@ -561,9 +557,8 @@ void ApplicationManager::initializeCustomMessage() {
                         // ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
                         std::this_thread::sleep_for(std::chrono::milliseconds(200));
                         
-                        // Send command multiple times (like ArmHandler does)
-                        // PX4는 모드 변경 명령을 여러 번 받아야 안정적으로 처리됨
-                        int send_count = 10;  // 5회 → 10회로 증가 (안정성 향상)
+                        // DO_SET_MODE 명령 전송 (3회 반복, 100ms 간격)
+                        int send_count = 3;
                         for (int i = 0; i < send_count; i++) {
                             px4_msgs::msg::VehicleCommand cmd;
                             cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -576,20 +571,16 @@ void ApplicationManager::initializeCustomMessage() {
                             cmd.source_system = 1;
                             cmd.source_component = 1;
                             cmd.from_external = true;
-                            
+
                             vehicle_command_pub_->publish(cmd);
-                            
+
                             if (i == 0) {
-                                std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 시작 (main_mode=" << (int)main_mode 
-                                         << ", " << send_count << "회 반복, target_system=" << (int)target_system 
-                                         << ", target_component=" << (int)target_component << ")" << std::endl;
+                                std::cout << "[DEBUG] DO_SET_MODE 전송 (main_mode=" << (int)main_mode
+                                         << ", " << send_count << "회, target=" << (int)target_system << ")" << std::endl;
                             }
-                            
-                            // FC 처리 시간 확보를 위해 간격 증가
-                            std::this_thread::sleep_for(std::chrono::milliseconds(150));  // 100ms → 150ms
+
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
                         }
-                        
-                        std::cout << "[DEBUG] ✓ DO_SET_MODE 명령 전송 완료 (" << send_count << "회)" << std::endl;
                         
                         if (status_overlay_) {
                             std::ostringstream oss;
@@ -658,14 +649,7 @@ void ApplicationManager::initializeCustomMessage() {
                     if (offboard_manager_ && offboard_manager_->isOffboardMode()) {
                         std::cout << "[DEBUG] OFFBOARD 모드 비활성화 (SET_MODE 수신: main_mode="
                                   << (int)main_mode << ")" << std::endl;
-                        offboard_manager_->disableOffboardMode();
-                        offboard_manager_->resetToIdle();
-
-                        // 중요: mission_running_ 플래그 리셋하여 새 미션 수신 가능하도록 함
-                        mission_running_.store(false);
-                        std::cout << "[DEBUG] ✓ mission_running_ 플래그 리셋됨 - 새 커스텀 메시지 수신 가능" << std::endl;
-
-                        // heartbeat 중단 후 모드 전환이 완료될 때까지 대기 (약 0.5초)
+                        finishMission(true);
                         std::this_thread::sleep_for(std::chrono::milliseconds(500));
                     }
                 }
@@ -694,117 +678,8 @@ void ApplicationManager::initializeCustomMessage() {
             std::cout << "  ⚠ 커스텀 메시지 시작 실패" << std::endl;
         }
 
-        // ===== 테스트용 메시지 핸들러 추가 (EXTERNAL_UDP_PORT) =====
-        // DRONE_ID 기반으로 포트 계산 (드론1=16001, 드론2=16011, 드론3=16021)
-        uint16_t external_port = 16001 + port_offset;
-
-        std::cout << "\n[테스트 메시지 핸들러 초기화 - " << external_port << " 포트]" << std::endl;
-        std::cout << "  → DRONE_ID " << drone_id << " 기반 External 포트: " << external_port << std::endl;
-
-        test_message_handler_ = new custom_message::CustomMessage(
-            external_port,  // 수신 포트 (DRONE_ID 기반: 16001/16011/16021)
-            external_port,  // 송신 포트 (DRONE_ID 기반)
-            "0.0.0.0",  // 바인드 주소
-            target_address,  // 대상 주소
-            1,  // 시스템 ID
-            1   // 컴포넌트 ID
-        );
-        
-        // FIRE_MISSION_START 콜백 설정 (동일 로직)
-        test_message_handler_->setFireMissionStartCallback(
-            [this](const custom_message::FireMissionStart& start) {
-                auto now = std::chrono::system_clock::now();
-                auto time_t = std::chrono::system_clock::to_time_t(now);
-                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now.time_since_epoch()) % 1000;
-                
-                std::cout << "\n[TEST PORT] ========== FIRE_MISSION_START 수신 (15000) ==========" << std::endl;
-                std::cout << "[TEST PORT] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
-                          << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
-                std::cout << "[TEST PORT] 목표 위치:" << std::endl;
-                std::cout << "[TEST PORT]   - 위도: " << std::fixed << std::setprecision(7) 
-                          << (start.target_lat / 1e7) << "°" << std::endl;
-                std::cout << "[TEST PORT]   - 경도: " << std::fixed << std::setprecision(7) 
-                          << (start.target_lon / 1e7) << "°" << std::endl;
-                std::cout << "[TEST PORT]   - 고도: " << std::fixed << std::setprecision(2) 
-                          << start.target_alt << " m" << std::endl;
-                std::cout << "[TEST PORT] Auto Fire: " << (start.auto_fire ? "예" : "아니오") << std::endl;
-                std::cout << "[TEST PORT]   - 이륙 속도: " << start.takeoff_speed << " m/s" << std::endl;
-                std::cout << "[TEST PORT]   - 비행 속도: " << start.flight_speed << " m/s" << std::endl;
-                std::cout << "[TEST PORT] ==========================================" << std::endl;
-                
-                if (status_overlay_) {
-                    std::ostringstream oss;
-                    oss << "[TEST] Mission: (" 
-                        << std::fixed << std::setprecision(7) << (start.target_lat / 1e7) << ", "
-                        << (start.target_lon / 1e7) << ") " << start.target_alt << "m";
-                    status_overlay_->setCustomMessage(oss.str(), 5.0);
-                }
-                
-                // 미션 실행 (주석 처리 - 테스트용은 OSD만 표시)
-                // executeMission(start);
-            }
-        );
-        
-        // FIRE_AUTO_AIM (60001) 콜백 설정 - 자동조준
-        test_message_handler_->setFireAutoAimCallback(
-            [this](const custom_message::FireAutoAim& aim) {
-                std::cout << "\n[TEST PORT] FIRE_AUTO_AIM (60001) 수신 - 자동조준" << std::endl;
-                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(aim.target_system) << std::endl;
-                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(aim.target_component) << std::endl;
-
-                if (status_overlay_) {
-                    status_overlay_->setCustomMessage("[TEST] Auto Aim", 3.0);
-                }
-            }
-        );
-
-        // FIRE_LAUNCH (60002) 콜백 설정 - 발사
-        test_message_handler_->setFireLaunchCallback(
-            [this](const custom_message::FireLaunch& launch) {
-                std::cout << "\n[TEST PORT] FIRE_LAUNCH (60002) 수신 - 발사" << std::endl;
-                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(launch.target_system) << std::endl;
-                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(launch.target_component) << std::endl;
-
-                if (status_overlay_) {
-                    status_overlay_->setCustomMessage("[TEST] Launch", 3.0);
-                }
-            }
-        );
-
-        // FIRE_RETURN (60003) 콜백 설정 - 복귀/착륙
-        test_message_handler_->setFireReturnCallback(
-            [this](const custom_message::FireReturn& ret) {
-                std::cout << "\n[TEST PORT] FIRE_RETURN (60003) 수신 - 즉시 착륙" << std::endl;
-                std::cout << "[TEST PORT]   target_system: " << static_cast<int>(ret.target_system) << std::endl;
-                std::cout << "[TEST PORT]   target_component: " << static_cast<int>(ret.target_component) << std::endl;
-
-                if (status_overlay_) {
-                    status_overlay_->setCustomMessage("[TEST] Landing!", 3.0);
-                }
-
-                // 즉시 착륙 실행 (테스트용)
-#ifdef ENABLE_ROS2
-                if (offboard_manager_) {
-                    std::cout << "[TEST PORT] ★ 즉시 미션 중단 및 착륙 명령" << std::endl;
-                    offboard_manager_->abortMission();
-                    std::cout << "[TEST PORT] ✓ abortMission() 호출 완료" << std::endl;
-                    mission_running_.store(false);
-                } else {
-                    std::cerr << "[TEST PORT] Error: OffboardManager 미초기화" << std::endl;
-                }
-#else
-                std::cerr << "[TEST PORT] ROS2가 비활성화되어 착륙 불가" << std::endl;
-#endif
-            }
-        );
-
-        // 테스트 메시지 송수신 시작
-        if (test_message_handler_->start()) {
-            std::cout << "  ✓ 테스트 메시지 송수신 시작 (포트 15000)" << std::endl;
-        } else {
-            std::cout << "  ⚠ 테스트 메시지 시작 실패" << std::endl;
-        }
+        // 테스트 핸들러 비활성화 (16001은 mavlink-router가 Server 모드로 점유)
+        test_message_handler_ = nullptr;
 
     } catch (const std::exception& e) {
         std::cerr << "  ✗ 커스텀 메시지 초기화 실패: " << e.what() << std::endl;
@@ -1245,6 +1120,35 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         return;
     }
 
+    // ========== 미션 사전 조건 체크 (F-1~F-5) ==========
+    if (status_ros2_subscriber_) {
+        // F-1: FC 연결 상태 확인
+        if (!status_ros2_subscriber_->isFCConnected()) {
+            std::cerr << "[미션 거부] FC 연결 없음 (최근 3초 이내 VehicleStatus 미수신)" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No FC", 5.0);
+            return;
+        }
+        // F-2: GPS fix 상태 확인
+        if (!status_ros2_subscriber_->isGPSFixed()) {
+            std::cerr << "[미션 거부] GPS 미고정 (fix_type="
+                      << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ", 최소 3 필요)" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
+            return;
+        }
+        // F-3: 배터리 잔량 확인 (20% 미만 거부)
+        float battery = status_ros2_subscriber_->getBatteryRemaining();
+        if (battery > 0.0f && battery < 0.2f) {
+            std::cerr << "[미션 거부] 배터리 부족 (" << static_cast<int>(battery * 100) << "%, 최소 20% 필요)" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: Low Battery", 5.0);
+            return;
+        }
+        std::cout << "[사전 조건 통과] FC=" << (status_ros2_subscriber_->isFCConnected() ? "OK" : "X")
+                  << ", GPS=" << static_cast<int>(status_ros2_subscriber_->getGPSFixType())
+                  << ", Battery=" << static_cast<int>(battery * 100) << "%" << std::endl;
+    }
+    // F-4: OffboardManager IDLE 상태 확인 (아래 상태 판단 로직에서 처리)
+    // F-5: 이전 미션 정리 완료 확인 (compare_exchange + 상태 판단에서 처리)
+
     // 중복 실행 방지: 이미 미션이 실행 중이면 무시
     // 단, FC가 OFFBOARD 모드가 아니면 강제로 리셋 후 재시도 허용 (이전 미션 실패로 간주)
     bool expected = false;
@@ -1261,9 +1165,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         // FC가 OFFBOARD 모드가 아니면 이전 미션이 실패한 것으로 간주하고 리셋
         if (!is_offboard) {
             std::cout << "  ★ FC가 OFFBOARD 모드가 아님 → 이전 미션 실패로 간주, 강제 리셋 후 재시도" << std::endl;
-            mission_running_.store(false);
-            offboard_manager_->disableOffboardMode();
-            offboard_manager_->resetToIdle();
+            finishMission(true);
             // 재시도
             expected = false;
             if (!mission_running_.compare_exchange_strong(expected, true)) {
@@ -1301,13 +1203,13 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             offboard_manager_->resetToIdle();
         } else {
             std::cout << "  → ERROR 상태이고 FC가 OFFBOARD 모드: 미션 시작 불가 (수동 복구 필요)" << std::endl;
-            mission_running_.store(false);
+            finishMission(false);
             return;
         }
     } else if (is_offboard) {
         // OFFBOARD 모드이고 미션이 실행 중: 중복 실행 방지
         std::cout << "  → FC가 OFFBOARD 모드이고 미션이 실행 중: 미션 시작 불가" << std::endl;
-        mission_running_.store(false);
+        finishMission(false);
         return;
     } else {
         // 다른 상태이지만 FC가 OFFBOARD가 아님: 상태 리셋 후 시작 가능
@@ -1326,18 +1228,56 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.target_waypoint.longitude = start.target_lon / 1e7;
     config.target_waypoint.altitude = start.target_alt;
     
-    // 이륙 고도 설정
+    // 이륙/비행 설정
     config.takeoff_altitude = start.target_alt;
-    
-    // 목표 거리 설정 (10m)
-    config.target_distance = 10.0f;
-    config.distance_tolerance = 1.0f;
-    config.hover_duration_sec = 5.0f;
+    config.takeoff_speed = start.takeoff_speed;
+    config.flight_speed = start.flight_speed;
+
+    // 격발 설정
+    config.auto_fire = start.auto_fire;
+    config.max_projectiles = start.max_projectiles;
+
+    // 목표 거리/허용 오차/호버링 시간 (환경변수로 오버라이드 가능)
+    const char* env_dist = std::getenv("MISSION_TARGET_DISTANCE");
+    const char* env_tol = std::getenv("MISSION_DISTANCE_TOLERANCE");
+    const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
+    config.target_distance = env_dist ? std::atof(env_dist) : 10.0f;
+    config.distance_tolerance = env_tol ? std::atof(env_tol) : 1.0f;
+    config.hover_duration_sec = env_hover ? std::atof(env_hover) : 5.0f;
+
+    // === 입력 검증 (B-1 ~ B-5) ===
+    if (config.target_waypoint.latitude < -90.0 || config.target_waypoint.latitude > 90.0) {
+        std::cerr << "[미션 거부] 위도 범위 초과: " << config.target_waypoint.latitude << std::endl;
+        return;
+    }
+    if (config.target_waypoint.longitude < -180.0 || config.target_waypoint.longitude > 180.0) {
+        std::cerr << "[미션 거부] 경도 범위 초과: " << config.target_waypoint.longitude << std::endl;
+        return;
+    }
+    if (config.takeoff_altitude <= 0.0f || config.takeoff_altitude > 120.0f) {
+        std::cerr << "[미션 거부] 고도 범위 초과: " << config.takeoff_altitude << " m (허용: 0~120m)" << std::endl;
+        return;
+    }
+    if (config.takeoff_speed <= 0.0f || config.takeoff_speed > 5.0f) {
+        std::cerr << "[미션 경고] 이륙 속도 비정상: " << config.takeoff_speed << " m/s → 기본값 1.0 적용" << std::endl;
+        config.takeoff_speed = 1.0f;
+    }
+    if (config.flight_speed <= 0.0f || config.flight_speed > 15.0f) {
+        std::cerr << "[미션 경고] 비행 속도 비정상: " << config.flight_speed << " m/s → 기본값 5.0 적용" << std::endl;
+        config.flight_speed = 5.0f;
+    }
+    if (config.max_projectiles == 0 || config.max_projectiles > 20) {
+        std::cerr << "[미션 경고] 발사 수 비정상: " << (int)config.max_projectiles << " → 기본값 6 적용" << std::endl;
+        config.max_projectiles = 6;
+    }
 
     std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m (이륙지점 기준)" << std::endl;
+    std::cout << "  - 이륙 속도: " << config.takeoff_speed << " m/s" << std::endl;
+    std::cout << "  - 비행 속도: " << config.flight_speed << " m/s" << std::endl;
     std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
               << config.target_waypoint.longitude << "), 고도: " << config.target_waypoint.altitude << " m (이륙지점 기준)" << std::endl;
     std::cout << "  - 목표 거리: " << config.target_distance << " m" << std::endl;
+    std::cout << "  - 자동 격발: " << (config.auto_fire ? "ON" : "OFF") << ", 최대 발사: " << (int)config.max_projectiles << "발" << std::endl;
 
     // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
     std::thread mission_thread([this, config, start]() {
@@ -1360,9 +1300,6 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             std::cerr << "[미션 실행 오류] 알 수 없는 예외 발생" << std::endl;
         }
 
-        // 미션 완료/실패 시 플래그 리셋
-        mission_running_.store(false);
-
         if (success) {
             std::cout << "\n[미션 성공] 목표 위치 도착" << std::endl;
 
@@ -1374,12 +1311,16 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             }
 
             std::cout << "[미션 완료]" << std::endl;
+            if (status_overlay_) {
+                status_overlay_->setCustomMessage("Mission Complete", 5.0);
+            }
+            finishMission(false);
         } else {
             std::cerr << "\n[미션 실패]" << std::endl;
-            // 중요: 미션 실패 시 OffboardManager 상태도 리셋 (다음 미션 수신 가능하도록)
-            std::cout << "[ApplicationManager] → OffboardManager 상태 리셋 (IDLE로 복귀)" << std::endl;
-            offboard_manager_->disableOffboardMode();
-            offboard_manager_->resetToIdle();
+            if (status_overlay_) {
+                status_overlay_->setCustomMessage("Mission FAILED", 5.0);
+            }
+            finishMission(true);
         }
     });
 
@@ -1387,6 +1328,20 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     mission_thread.detach();
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+#endif
+}
+
+void ApplicationManager::finishMission(bool reset_offboard) {
+#ifdef ENABLE_ROS2
+    mission_running_.store(false);
+    if (reset_offboard && offboard_manager_) {
+        offboard_manager_->disableOffboardMode();
+        offboard_manager_->resetToIdle();
+    }
+    std::cout << "[ApplicationManager] ✓ finishMission() - mission_running_ 리셋"
+              << (reset_offboard ? " + OffboardManager 정리" : "") << std::endl;
+#else
+    mission_running_.store(false);
 #endif
 }
 

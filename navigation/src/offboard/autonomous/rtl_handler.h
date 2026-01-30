@@ -56,6 +56,11 @@ public:
      */
     bool isRTLActive() const;
 
+    /**
+     * @brief 외부 중단 플래그 설정 (OffboardManager에서 호출)
+     */
+    void setAbortFlag(std::atomic<bool>* abort_flag) { abort_flag_ = abort_flag; }
+
 private:
     /**
      * @brief VehicleStatus 콜백
@@ -113,6 +118,9 @@ private:
 
     // FC 시스템 ID (DRONE_ID 환경 변수에서 읽음)
     uint8_t target_system_;
+
+    // Abort flag (외부에서 설정)
+    std::atomic<bool>* abort_flag_{nullptr};
 
     // Constants
     static constexpr uint16_t VEHICLE_CMD_NAV_RETURN_TO_LAUNCH = 20;

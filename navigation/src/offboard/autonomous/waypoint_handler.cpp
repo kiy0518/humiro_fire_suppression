@@ -97,6 +97,12 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
     start_time = std::chrono::steady_clock::now();
 
     while (true) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[WaypointHandler] ★ Navigation aborted by external request");
+            return false;
+        }
+
         // TrajectorySetpoint 발행
         publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_);
 

@@ -34,10 +34,14 @@ enum class MissionState {
 
 struct MissionConfig {
     float takeoff_altitude = 5.0f;           // 이륙 고도 (미터)
+    float takeoff_speed = 1.0f;              // 이륙 속도 (m/s)
+    float flight_speed = 5.0f;               // 비행 속도 (m/s)
     GPSCoordinate target_waypoint;           // 목표 위치
     float target_distance = 10.0f;           // 목표 거리 (미터)
     float distance_tolerance = 1.0f;         // 거리 허용 오차
     float hover_duration_sec = 5.0f;         // 호버링 시간 (초)
+    uint8_t auto_fire = 0;                   // 0=수동, 1=자동 격발
+    uint8_t max_projectiles = 6;             // 최대 발사 수
 };
 
 class OffboardManager {

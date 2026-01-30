@@ -106,6 +106,12 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     bool rtl_activated = false;
 
     while (!rtl_activated) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[RTLHandler] ★ RTL activation aborted by external request");
+            return false;
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         if (nav_state_ == NAV_STATE_AUTO_RTL) {
@@ -129,6 +135,12 @@ bool RTLHandler::returnToLaunch(int timeout_ms)
     start_time = std::chrono::steady_clock::now();
 
     while (true) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[RTLHandler] ★ RTL landing aborted by external request");
+            return false;
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
         double distance = getDistanceFromHome();
