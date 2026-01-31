@@ -103,8 +103,8 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, 
             return false;
         }
 
-        // TrajectorySetpoint 발행 (속도 제한 적용)
-        float vx = std::nanf(""), vy = std::nanf(""), vz = std::nanf("");
+        // TrajectorySetpoint 발행 (중간 waypoint 방식으로 속도 제한)
+        float sp_x = target_x, sp_y = target_y, sp_z = target_z;
         if (flight_speed > 0.0f) {
             float cur_x = current_local_x_.load();
             float cur_y = current_local_y_.load();
@@ -113,13 +113,16 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, 
             float dy = target_y - cur_y;
             float dz = target_z - cur_z;
             float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-            if (dist > 0.1f) {
-                vx = (dx / dist) * flight_speed;
-                vy = (dy / dist) * flight_speed;
-                vz = (dz / dist) * flight_speed;
+            // 현재 위치에서 flight_speed * 0.5s 만큼 앞의 중간점을 setpoint으로 발행
+            float lookahead = flight_speed * 0.5f;
+            if (dist > lookahead) {
+                float ratio = lookahead / dist;
+                sp_x = cur_x + dx * ratio;
+                sp_y = cur_y + dy * ratio;
+                sp_z = cur_z + dz * ratio;
             }
         }
-        publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_, vx, vy, vz);
+        publishTrajectorySetpoint(sp_x, sp_y, sp_z, current_yaw_);
 
         // 중요: spin_some을 호출하지 않음 (메인 executor에서 콜백 처리)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
