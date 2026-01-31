@@ -94,7 +94,7 @@ bool TakeoffHandler::takeoff(float altitude_m, int timeout_ms)
     takeoff_start_x_ = current_x_;
     takeoff_start_y_ = current_y_;
     takeoff_start_yaw_ = current_yaw_;
-    target_altitude_ = -altitude_m;  // NED 좌표계: 위쪽이 음수
+    target_altitude_ = takeoff_start_altitude_ - altitude_m;  // 이륙 시작점 기준 상대 고도 (NED: 위쪽이 음수)
 
     RCLCPP_INFO(node_->get_logger(),
                 "Current altitude: %.2f m (NED), Target: %.2f m (NED)",
@@ -386,9 +386,6 @@ void TakeoffHandler::publishVehicleCommand(
 
 void TakeoffHandler::startTakeoff(float altitude_m)
 {
-    // 목표 고도 설정 (NED 좌표계: 아래가 양수이므로 음수로 변환)
-    target_altitude_ = -std::abs(altitude_m);
-
     // 현재 위치를 이륙 시작점으로 저장
     if (position_received_) {
         takeoff_start_x_ = current_x_.load();
@@ -396,6 +393,9 @@ void TakeoffHandler::startTakeoff(float altitude_m)
         takeoff_start_altitude_ = current_altitude_.load();
         takeoff_start_yaw_ = current_yaw_.load();
     }
+
+    // 목표 고도 설정 (이륙 시작점 기준 상대 고도, NED: 위쪽이 음수)
+    target_altitude_ = takeoff_start_altitude_ - std::abs(altitude_m);
 
     RCLCPP_INFO(node_->get_logger(),
                 "[TakeoffHandler] Takeoff started - target altitude: %.1fm (NED Z: %.1f)",

@@ -136,14 +136,14 @@ bool OffboardManager::executeMission(const MissionConfig& config)
         return false;
     }
 
-    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Navigating to waypoint...");
-    if (!waypoint_handler_->goToWaypoint(config.target_waypoint)) {
+    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Navigating to waypoint (speed: %.1f m/s)...", config.flight_speed);
+    if (!waypoint_handler_->goToWaypoint(config.target_waypoint, 60000, config.flight_speed)) {
         handleError("Waypoint navigation failed");
         emergencyRTL();
         return false;
     }
-    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Waypoint reached!\n");
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Waypoint reached! Holding position for 2 seconds...\n");
+    waypoint_handler_->holdPosition(2000);
 
     // === State: ADJUST_DISTANCE ===
     if (!transitionToState(MissionState::ADJUST_DISTANCE)) {
@@ -228,6 +228,155 @@ bool OffboardManager::executeMission(const MissionConfig& config)
         return false;
     } catch (...) {
         RCLCPP_ERROR(node_->get_logger(), "[executeMission] 알 수 없는 예외 발생");
+        handleError("Mission execution failed");
+        return false;
+    }
+}
+
+bool OffboardManager::executeMission1(const MissionConfig& config)
+{
+    try {
+        // 이미 미션이 실행 중이면 중복 실행 방지
+        if (current_state_ != MissionState::IDLE) {
+            RCLCPP_WARN(node_->get_logger(),
+                       "Mission already running (current state: %s). Ignoring new mission request.",
+                       getStateName(current_state_).c_str());
+            return false;
+        }
+
+        mission_config_ = config;
+
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "  Starting Test Mission (executeMission1)");
+        RCLCPP_INFO(node_->get_logger(), "  ADJUST_DISTANCE, HOVER 제외");
+        RCLCPP_INFO(node_->get_logger(), "======================================");
+        RCLCPP_INFO(node_->get_logger(), "Mission config:");
+        RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.2f m", config.takeoff_altitude);
+        RCLCPP_INFO(node_->get_logger(), "  Takeoff speed: %.2f m/s", config.takeoff_speed);
+        RCLCPP_INFO(node_->get_logger(), "  Flight speed: %.2f m/s", config.flight_speed);
+        RCLCPP_INFO(node_->get_logger(), "  Target waypoint: Lat=%.7f, Lon=%.7f, Alt=%.2f m",
+                    config.target_waypoint.latitude,
+                    config.target_waypoint.longitude,
+                    config.target_waypoint.altitude);
+        RCLCPP_INFO(node_->get_logger(), "======================================\n");
+
+        // === State: ARMING ===
+        if (!transitionToState(MissionState::ARMING)) {
+            handleError("Failed to transition to ARMING state");
+            return false;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "[ARMING] Enabling OFFBOARD mode...");
+        try {
+            RCLCPP_INFO(node_->get_logger(), "[ARMING] Starting hold-position setpoint before OFFBOARD mode...");
+            takeoff_handler_->startHoldPositionSetpoint();
+
+            if (!arm_handler_->enableOffboardMode()) {
+                handleError("Failed to enable OFFBOARD mode");
+                return false;
+            }
+        } catch (const std::runtime_error& e) {
+            std::string error_msg = e.what();
+            if (error_msg.find("already been added to an executor") != std::string::npos) {
+                RCLCPP_WARN(node_->get_logger(), "[ARMING] enableOffboardMode executor 충돌 (계속 진행): %s", e.what());
+            } else {
+                RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 실패: %s", e.what());
+                handleError("Failed to enable OFFBOARD mode");
+                return false;
+            }
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 예외: %s", e.what());
+            handleError("Failed to enable OFFBOARD mode");
+            return false;
+        } catch (...) {
+            RCLCPP_ERROR(node_->get_logger(), "[ARMING] enableOffboardMode 알 수 없는 예외 발생");
+            handleError("Failed to enable OFFBOARD mode");
+            return false;
+        }
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    RCLCPP_INFO(node_->get_logger(), "[ARMING] Arming vehicle...");
+    if (!arm_handler_->arm()) {
+        handleError("Failed to arm vehicle");
+        return false;
+    }
+    RCLCPP_INFO(node_->get_logger(), "[ARMING] Vehicle armed successfully\n");
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // === State: TAKEOFF ===
+    if (!transitionToState(MissionState::TAKEOFF)) {
+        handleError("Failed to transition to TAKEOFF state");
+        emergencyRTL();
+        return false;
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Taking off to %.2f m...", config.takeoff_altitude);
+    if (!takeoff_handler_->takeoff(config.takeoff_altitude)) {
+        handleError("Takeoff failed");
+        emergencyRTL();
+        return false;
+    }
+    RCLCPP_INFO(node_->get_logger(), "[TAKEOFF] Takeoff successful! Altitude: %.2f m\n",
+                takeoff_handler_->getCurrentAltitude());
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+
+    // === State: NAVIGATE ===
+    if (!transitionToState(MissionState::NAVIGATE)) {
+        handleError("Failed to transition to NAVIGATE state");
+        emergencyRTL();
+        return false;
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Navigating to waypoint (speed: %.1f m/s)...", config.flight_speed);
+    if (!waypoint_handler_->goToWaypoint(config.target_waypoint, 60000, config.flight_speed)) {
+        handleError("Waypoint navigation failed");
+        emergencyRTL();
+        return false;
+    }
+    RCLCPP_INFO(node_->get_logger(), "[NAVIGATE] Waypoint reached! Holding position for 2 seconds...\n");
+    waypoint_handler_->holdPosition(2000);
+
+    // === State: RTL (ADJUST_DISTANCE, HOVER 생략) ===
+    if (!transitionToState(MissionState::RTL)) {
+        handleError("Failed to transition to RTL state");
+        emergencyRTL();
+        return false;
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "[RTL] Returning to launch...");
+    if (!rtl_handler_->returnToLaunch()) {
+        handleError("RTL failed");
+        return false;
+    }
+    RCLCPP_INFO(node_->get_logger(), "[RTL] RTL complete! Vehicle landed\n");
+
+    RCLCPP_INFO(node_->get_logger(), "[RTL] Disabling OFFBOARD mode (heartbeat stop)...");
+    disableOffboardMode();
+
+    // === State: LANDED ===
+    transitionToState(MissionState::LANDED);
+
+    RCLCPP_INFO(node_->get_logger(), "======================================");
+    RCLCPP_INFO(node_->get_logger(), "  Test Mission Complete! (executeMission1)");
+    RCLCPP_INFO(node_->get_logger(), "======================================");
+
+    return true;
+    } catch (const std::runtime_error& e) {
+        std::string error_msg = e.what();
+        if (error_msg.find("already been added to an executor") != std::string::npos) {
+            RCLCPP_WARN(node_->get_logger(), "[executeMission1] executor 충돌 (계속 진행): %s", e.what());
+            return true;
+        } else {
+            RCLCPP_ERROR(node_->get_logger(), "[executeMission1] runtime_error: %s", e.what());
+            handleError("Mission execution failed");
+            return false;
+        }
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(node_->get_logger(), "[executeMission1] 예외: %s", e.what());
+        handleError("Mission execution failed");
+        return false;
+    } catch (...) {
+        RCLCPP_ERROR(node_->get_logger(), "[executeMission1] 알 수 없는 예외 발생");
         handleError("Mission execution failed");
         return false;
     }

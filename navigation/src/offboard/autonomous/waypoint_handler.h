@@ -29,7 +29,7 @@ public:
      * @param timeout_ms 타임아웃 (밀리초, 기본값 60초)
      * @return 이동 성공 여부
      */
-    bool goToWaypoint(const GPSCoordinate& target, int timeout_ms = 60000);
+    bool goToWaypoint(const GPSCoordinate& target, int timeout_ms = 60000, float flight_speed = 0.0f);
 
     /**
      * @brief 현재 GPS 위치 반환
@@ -49,6 +49,12 @@ public:
      * @return 목표 위치 도달 여부
      */
     bool isWaypointReached() const;
+
+    /**
+     * @brief 현재 위치에서 hold-position setpoint를 지정 시간 동안 발행
+     * @param duration_ms 유지 시간 (밀리초)
+     */
+    void holdPosition(int duration_ms);
 
     /**
      * @brief 외부 중단 플래그 설정 (OffboardManager에서 호출)
@@ -71,7 +77,8 @@ private:
     /**
      * @brief TrajectorySetpoint 발행 (Local NED 좌표)
      */
-    void publishTrajectorySetpoint(float x, float y, float z, float yaw);
+    void publishTrajectorySetpoint(float x, float y, float z, float yaw,
+                                       float vx = std::nanf(""), float vy = std::nanf(""), float vz = std::nanf(""));
 
     /**
      * @brief OffboardControlMode 발행

@@ -213,8 +213,13 @@ void ApplicationManager::initializeComponents() {
             status_ros2_subscriber_->setModeChangeCallback(
                 [this](uint8_t old_nav_state, uint8_t new_nav_state) {
                     if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
-                        std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << std::endl;
-                        finishMission(true);
+                        // RTL(nav_state=5) 전환은 미션이 정상적으로 RTL 단계를 실행한 것이므로 abort하지 않음
+                        if (new_nav_state == 5) {
+                            std::cout << "  ★ [모드 변경 콜백] OFFBOARD → AUTO_RTL: 정상 RTL 전환 (무시)" << std::endl;
+                        } else {
+                            std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << " (비정상 종료)" << std::endl;
+                            finishMission(true);
+                        }
                     }
                 }
             );
@@ -1283,7 +1288,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     std::thread mission_thread([this, config, start]() {
         bool success = false;
         try {
-            success = offboard_manager_->executeMission(config);
+            success = offboard_manager_->executeMission1(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();
@@ -1335,6 +1340,7 @@ void ApplicationManager::finishMission(bool reset_offboard) {
 #ifdef ENABLE_ROS2
     mission_running_.store(false);
     if (reset_offboard && offboard_manager_) {
+        offboard_manager_->abortMission();
         offboard_manager_->disableOffboardMode();
         offboard_manager_->resetToIdle();
     }

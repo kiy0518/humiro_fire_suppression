@@ -50,7 +50,7 @@ WaypointHandler::WaypointHandler(rclcpp::Node::SharedPtr node)
     RCLCPP_INFO(node_->get_logger(), "WaypointHandler initialized");
 }
 
-bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
+bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, float flight_speed)
 {
     RCLCPP_INFO(node_->get_logger(),
                 "Going to waypoint: Lat=%.7f, Lon=%.7f, Alt=%.2f m",
@@ -103,18 +103,35 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
             return false;
         }
 
-        // TrajectorySetpoint 발행
-        publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_);
+        // TrajectorySetpoint 발행 (속도 제한 적용)
+        float vx = std::nanf(""), vy = std::nanf(""), vz = std::nanf("");
+        if (flight_speed > 0.0f) {
+            float cur_x = current_local_x_.load();
+            float cur_y = current_local_y_.load();
+            float cur_z = current_local_z_.load();
+            float dx = target_x - cur_x;
+            float dy = target_y - cur_y;
+            float dz = target_z - cur_z;
+            float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist > 0.1f) {
+                vx = (dx / dist) * flight_speed;
+                vy = (dy / dist) * flight_speed;
+                vz = (dz / dist) * flight_speed;
+            }
+        }
+        publishTrajectorySetpoint(target_x, target_y, target_z, current_yaw_, vx, vy, vz);
 
         // 중요: spin_some을 호출하지 않음 (메인 executor에서 콜백 처리)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        // 거리 확인
-        double distance = getDistanceToTarget(target);
+        // 수평 거리 확인 (고도 무시, 이동 중 고도 저하 허용)
+        double horizontal_distance = gps_utils::haversineDistance(
+            current_latitude_.load(), current_longitude_.load(),
+            target.latitude, target.longitude);
 
-        if (distance < WAYPOINT_THRESHOLD) {
+        if (horizontal_distance < WAYPOINT_THRESHOLD) {
             RCLCPP_INFO(node_->get_logger(),
-                        "Waypoint reached! Distance: %.2f m", distance);
+                        "Waypoint reached! Horizontal distance: %.2f m", horizontal_distance);
             return true;
         }
 
@@ -124,15 +141,15 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms)
 
         if (elapsed > timeout_ms) {
             RCLCPP_ERROR(node_->get_logger(),
-                        "Waypoint navigation timeout! Distance: %.2f m", distance);
+                        "Waypoint navigation timeout! H_Dist: %.2f m", horizontal_distance);
             return false;
         }
 
         // 진행 상황 로깅 (5초마다)
         if (static_cast<int>(elapsed) % 5000 < 100) {
             RCLCPP_INFO(node_->get_logger(),
-                        "Navigating... Distance: %.2f m, Position: (%.7f, %.7f)",
-                        distance, current_latitude_.load(), current_longitude_.load());
+                        "Navigating... H_Dist: %.2f m, Position: (%.7f, %.7f)",
+                        horizontal_distance, current_latitude_.load(), current_longitude_.load());
         }
     }
 
@@ -155,7 +172,9 @@ double WaypointHandler::getDistanceToTarget(const GPSCoordinate& target) const
         target.latitude, target.longitude
     );
 
-    double altitude_diff = target.altitude - current_altitude_amsl_.load();
+    // target.altitude는 상대 고도이므로, 현재 고도도 상대 고도로 변환하여 비교
+    double current_relative_alt = current_altitude_amsl_.load() - home_altitude_amsl_;
+    double altitude_diff = target.altitude - current_relative_alt;
 
     // 3D 거리 계산
     return std::sqrt(horizontal_distance * horizontal_distance +
@@ -199,7 +218,8 @@ void WaypointHandler::vehicleLocalPositionCallback(
     local_position_received_ = true;
 }
 
-void WaypointHandler::publishTrajectorySetpoint(float x, float y, float z, float yaw)
+void WaypointHandler::publishTrajectorySetpoint(float x, float y, float z, float yaw,
+                                                 float vx, float vy, float vz)
 {
     px4_msgs::msg::TrajectorySetpoint msg{};
 
@@ -212,10 +232,10 @@ void WaypointHandler::publishTrajectorySetpoint(float x, float y, float z, float
 
     msg.yaw = yaw;
 
-    // NaN으로 설정하여 사용하지 않는 필드 표시
-    msg.velocity[0] = std::nanf("");
-    msg.velocity[1] = std::nanf("");
-    msg.velocity[2] = std::nanf("");
+    // Velocity setpoint (속도 제한, NaN이면 PX4 기본값 사용)
+    msg.velocity[0] = vx;
+    msg.velocity[1] = vy;
+    msg.velocity[2] = vz;
 
     msg.acceleration[0] = std::nanf("");
     msg.acceleration[1] = std::nanf("");
@@ -228,6 +248,25 @@ void WaypointHandler::publishTrajectorySetpoint(float x, float y, float z, float
     msg.yawspeed = std::nanf("");
 
     trajectory_setpoint_pub_->publish(msg);
+}
+
+void WaypointHandler::holdPosition(int duration_ms)
+{
+    float hold_x = current_local_x_.load();
+    float hold_y = current_local_y_.load();
+    float hold_z = current_local_z_.load();
+    float hold_yaw = current_yaw_.load();
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[WaypointHandler] Hold position for %d ms at (%.2f, %.2f, %.2f)",
+                duration_ms, hold_x, hold_y, hold_z);
+
+    auto start = std::chrono::steady_clock::now();
+    while (std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - start).count() < duration_ms) {
+        publishTrajectorySetpoint(hold_x, hold_y, hold_z, hold_yaw);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }
 
 void WaypointHandler::publishOffboardControlMode()

@@ -56,6 +56,14 @@ public:
     bool executeMission(const MissionConfig& config);
 
     /**
+     * @brief 테스트 미션 실행 (ADJUST_DISTANCE, HOVER 제외)
+     * 순서: ARMING → TAKEOFF → NAVIGATE → RTL → LANDED
+     * @param config 미션 설정
+     * @return 미션 성공 여부
+     */
+    bool executeMission1(const MissionConfig& config);
+
+    /**
      * @brief 실내 테스트 미션 실행 (GPS 불필요, Optical Flow 사용)
      * @param takeoff_altitude 이륙 고도 (미터, 기본값 1.0m)
      * @param hover_duration 호버링 시간 (초, 기본값 5초)
