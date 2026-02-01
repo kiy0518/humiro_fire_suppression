@@ -103,8 +103,6 @@ YYYY. MM. DD. HH:MM:SS
 ## 변경 사항
 - 변경 내용 1
 - 변경 내용 2
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ```
 
 ### Git 명령어
@@ -148,8 +146,6 @@ git push origin v0.x.x
 
    ### 버그 수정
    - 수정 내용 1
-
-   Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
    EOF
 
    # 태그 생성
