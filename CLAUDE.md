@@ -122,6 +122,60 @@ git push origin main
 git push origin v0.x.x
 ```
 
+### GitHub 태그 히스토리 릴리스 노트 작성 (필수)
+
+**모든 태그는 상세한 릴리스 노트를 포함해야 합니다**:
+
+1. **Annotated Tag 사용**:
+   - ❌ Lightweight tag 금지: `git tag v0.x.x`
+   - ✅ Annotated tag 필수: `git tag -a v0.x.x -m "메시지"`
+
+2. **릴리스 노트 형식**:
+   ```bash
+   # 메시지 파일 생성
+   cat > /tmp/tag_message.txt <<'EOF'
+   날짜: YYYY. MM. DD. HH:MM:SS
+
+   **v0.x.x: 제목**
+
+   ### 추가된 기능
+   - 기능 1 설명
+   - 기능 2 설명
+
+   ### 변경 사항
+   - 변경 내용 1
+   - 변경 내용 2
+
+   ### 버그 수정
+   - 수정 내용 1
+
+   Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>
+   EOF
+
+   # 태그 생성
+   git tag -a v0.x.x -F /tmp/tag_message.txt
+
+   # GitHub에 푸시
+   git push origin v0.x.x
+   ```
+
+3. **GitHub에서 확인**:
+   - 저장소 → Tags → 태그 클릭
+   - 릴리스 노트가 표시되어야 함
+   - 예시: v0.12.7, v0.12.8 참고
+
+4. **기존 태그 수정** (필요 시):
+   ```bash
+   # 로컬 태그 삭제
+   git tag -d v0.x.x
+
+   # 상세한 메시지로 재생성
+   git tag -a v0.x.x -F /tmp/tag_message.txt
+
+   # 강제 푸시
+   git push origin v0.x.x --force
+   ```
+
 ### 버전 히스토리 예시
 
 ```
