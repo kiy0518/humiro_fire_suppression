@@ -3,7 +3,6 @@
 #include <unistd.h>
 #include <gst/gst.h>
 #include <opencv2/core/utils/logger.hpp>
-
 #include "config.h"
 #include "src/application_manager.h"
 

@@ -47,10 +47,10 @@ TakeoffHandler::TakeoffHandler(rclcpp::Node::SharedPtr node)
         "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&TakeoffHandler::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
-    // OFFBOARD 모드 heartbeat 타이머 (2Hz)
+    // OFFBOARD 모드 heartbeat 타이머 (10Hz)
     try {
         offboard_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(500),
+            std::chrono::milliseconds(100),
             std::bind(&TakeoffHandler::publishOffboardControlMode, this));
     } catch (const std::runtime_error& e) {
         // executor 관련 예외는 특별히 처리
@@ -375,7 +375,7 @@ void TakeoffHandler::publishVehicleCommand(
     msg.param7 = param7;
     msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = target_system_;
+    msg.source_system = 255;  // Companion computer
     msg.source_component = 1;
     msg.from_external = true;
 

@@ -486,10 +486,10 @@ void ApplicationManager::initializeCustomMessage() {
                         cmd.command = 400;  // MAV_CMD_COMPONENT_ARM_DISARM
                         cmd.target_system = target_system;
                         cmd.target_component = target_component;
-                        cmd.source_system = 1;
+                        cmd.source_system = 255;  // Companion computer
                         cmd.source_component = 1;
                         cmd.from_external = true;
-                        
+
                         vehicle_command_pub_->publish(cmd);
                         std::cout << "[DEBUG] ✓ ARM/DISARM 명령 ROS2로 전송 완료 (param1=" << param1 << ")" << std::endl;
                         
@@ -573,7 +573,7 @@ void ApplicationManager::initializeCustomMessage() {
                             cmd.command = 176;          // MAV_CMD_DO_SET_MODE
                             cmd.target_system = target_system;
                             cmd.target_component = target_component;
-                            cmd.source_system = 1;
+                            cmd.source_system = 255;  // Companion computer
                             cmd.source_component = 1;
                             cmd.from_external = true;
 

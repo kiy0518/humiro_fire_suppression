@@ -171,12 +171,12 @@ bool OffboardManager::executeMission(const MissionConfig& config)
     }
 
     RCLCPP_INFO(node_->get_logger(), "[HOVER] Hovering for %.1f seconds...", config.hover_duration_sec);
-    int hover_iterations = static_cast<int>(config.hover_duration_sec * 2);  // 2Hz
+    int hover_iterations = static_cast<int>(config.hover_duration_sec * 10);  // 10Hz
     for (int i = 0; i < hover_iterations; i++) {
         distance_adjuster_->hover();
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
-        if (i % 4 == 0) {  // 2초마다 로깅
+        if (i % 20 == 0) {  // 2초마다 로깅
             RCLCPP_INFO(node_->get_logger(), "[HOVER] Distance: %.2f m",
                        distance_adjuster_->getFrontDistance());
         }

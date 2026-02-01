@@ -347,7 +347,7 @@ void RTLHandler::publishVehicleCommand(
     msg.param7 = param7;
     msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = target_system_;
+    msg.source_system = 255;  // Companion computer
     msg.source_component = 1;
     msg.from_external = true;
 

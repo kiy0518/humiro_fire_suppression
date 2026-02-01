@@ -126,7 +126,7 @@ private:
     static constexpr uint16_t VEHICLE_CMD_NAV_RETURN_TO_LAUNCH = 20;
     static constexpr uint16_t VEHICLE_CMD_NAV_LAND = 21;
     static constexpr uint8_t NAV_STATE_AUTO_RTL = 5;  // PX4 RTL mode
-    static constexpr uint8_t ARMING_STATE_STANDBY = 2;  // Disarmed
+    static constexpr uint8_t ARMING_STATE_STANDBY = 1;  // Disarmed (PX4 v1.16: 1=STANDBY, 2=ARMED)
     static constexpr float HOME_THRESHOLD = 5.0f;  // 5m 이내면 Home 도달
     static constexpr float LANDED_THRESHOLD = 0.25f;  // 지상 25cm 이내 (Optical Flow 센서 오프셋 고려)
 };

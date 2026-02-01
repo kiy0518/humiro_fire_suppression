@@ -125,7 +125,7 @@ void ArmHandler::publishVehicleCommand(uint16_t command, float param1, float par
     msg.param2 = param2;
     msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = target_system_;
+    msg.source_system = 255;  // Companion computer
     msg.source_component = 1;
     msg.from_external = true;
     

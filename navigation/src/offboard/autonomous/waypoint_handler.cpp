@@ -26,10 +26,10 @@ WaypointHandler::WaypointHandler(rclcpp::Node::SharedPtr node)
         "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&WaypointHandler::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
-    // OFFBOARD 모드 heartbeat 타이머 (2Hz)
+    // OFFBOARD 모드 heartbeat 타이머 (10Hz)
     try {
         offboard_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(500),
+            std::chrono::milliseconds(100),
             std::bind(&WaypointHandler::publishOffboardControlMode, this));
     } catch (const std::runtime_error& e) {
         // executor 관련 예외는 특별히 처리
@@ -105,14 +105,15 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, 
 
         // TrajectorySetpoint 발행 (중간 waypoint 방식으로 속도 제한)
         float sp_x = target_x, sp_y = target_y, sp_z = target_z;
-        if (flight_speed > 0.0f) {
-            float cur_x = current_local_x_.load();
-            float cur_y = current_local_y_.load();
-            float cur_z = current_local_z_.load();
-            float dx = target_x - cur_x;
-            float dy = target_y - cur_y;
-            float dz = target_z - cur_z;
-            float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+        float cur_x = current_local_x_.load();
+        float cur_y = current_local_y_.load();
+        float cur_z = current_local_z_.load();
+        float dx = target_x - cur_x;
+        float dy = target_y - cur_y;
+        float dz = target_z - cur_z;
+        float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (flight_speed > 0.0f && dist > 0.0f) {
             // 현재 위치에서 flight_speed * 0.5s 만큼 앞의 중간점을 setpoint으로 발행
             float lookahead = flight_speed * 0.5f;
             if (dist > lookahead) {
@@ -122,7 +123,14 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, 
                 sp_z = cur_z + dz * ratio;
             }
         }
-        publishTrajectorySetpoint(sp_x, sp_y, sp_z, current_yaw_);
+
+        // 진행 방향으로 헤딩 회전 (NED: atan2(East, North) = atan2(dy, dx))
+        float target_yaw = current_yaw_;
+        float horizontal_dist = std::sqrt(dx * dx + dy * dy);
+        if (horizontal_dist > 1.0f) {
+            target_yaw = std::atan2(dy, dx);
+        }
+        publishTrajectorySetpoint(sp_x, sp_y, sp_z, target_yaw);
 
         // 중요: spin_some을 호출하지 않음 (메인 executor에서 콜백 처리)
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

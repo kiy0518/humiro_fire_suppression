@@ -909,7 +909,7 @@ void OutdoorMissionManager::sendVehicleCommand(uint16_t command, float param1,
     msg.param3 = param3;
     msg.target_system = 1;
     msg.target_component = 1;
-    msg.source_system = 1;
+    msg.source_system = 255;  // Companion computer
     msg.source_component = 1;
     msg.from_external = true;
 

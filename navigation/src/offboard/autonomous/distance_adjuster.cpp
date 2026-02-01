@@ -27,10 +27,10 @@ DistanceAdjuster::DistanceAdjuster(rclcpp::Node::SharedPtr node)
         "/fmu/out/vehicle_local_position", px4_qos,
         std::bind(&DistanceAdjuster::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
-    // OFFBOARD 모드 heartbeat 타이머 (2Hz)
+    // OFFBOARD 모드 heartbeat 타이머 (10Hz)
     try {
         offboard_timer_ = node_->create_wall_timer(
-            std::chrono::milliseconds(500),
+            std::chrono::milliseconds(100),
             std::bind(&DistanceAdjuster::publishOffboardControlMode, this));
     } catch (const std::runtime_error& e) {
         // executor 관련 예외는 특별히 처리
@@ -161,9 +161,9 @@ bool DistanceAdjuster::adjustDistance(float target_distance, float tolerance, in
             last_position_update = now;
         }
 
-        // OFFBOARD heartbeat 수동 전송 (500ms마다)
+        // OFFBOARD heartbeat 수동 전송 (100ms마다)
         auto heartbeat_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_heartbeat_time).count();
-        if (heartbeat_elapsed >= 500) {
+        if (heartbeat_elapsed >= 100) {
             publishOffboardControlMode();
             last_heartbeat_time = now;
         }
