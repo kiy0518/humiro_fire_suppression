@@ -14,6 +14,7 @@ source "$PROJECT_ROOT/setup_env.sh"
 #   3. 002-install_mavlink_router.sh - MAVLink Router 설치
 #   4. 004-rebuild_workspaces.sh - 워크스페이스 재빌드 (경로 변경 시)
 #   5. 003-apply_config.sh - 설정 적용
+#   6. 005-booting_image_setup.sh - 부팅 로고 이미지 설정
 #
 # 설치 후 설정 변경:
 #   1. device_config.env 수정
@@ -206,7 +207,10 @@ main() {
     # 4단계: 설정 적용
     run_script "003-apply_config.sh" "4단계: 설정 적용"
     
-    # 5단계: 버전 정보 저장
+    # 5단계: 부팅 로고 설정
+    run_script "005-booting_image_setup.sh" "5단계: 부팅 로고 이미지 설정" true
+
+    # 6단계: 버전 정보 저장
     save_versions
     
     # 설치 완료 시간 계산
