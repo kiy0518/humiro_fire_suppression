@@ -219,6 +219,9 @@ void ApplicationManager::initializeComponents() {
                         } else if (new_nav_state == 4) {
                             // HOLD/LOITER(nav_state=4) 전환은 일시정지로 간주하여 미션 유지
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → HOLD: 일시정지 (미션 유지)" << std::endl;
+                        } else if (new_nav_state == 18) {
+                            // AUTO_LAND(nav_state=18) 전환은 미션이 정상적으로 착륙 단계를 실행한 것이므로 abort하지 않음
+                            std::cout << "  ★ [모드 변경 콜백] OFFBOARD → AUTO_LAND: 정상 착륙 전환 (무시)" << std::endl;
                         } else {
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << " (비정상 종료)" << std::endl;
                             finishMission(true);
@@ -1291,7 +1294,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     std::thread mission_thread([this, config, start]() {
         bool success = false;
         try {
-            success = offboard_manager_->executeMission2(config);
+            success = offboard_manager_->executeMission3(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();

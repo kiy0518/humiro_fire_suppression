@@ -57,6 +57,15 @@ public:
     void holdPosition(int duration_ms);
 
     /**
+     * @brief 목표 방향으로 헤딩 정렬 (PD 제어)
+     * @param target_bearing_deg 목표 방위각 (도, 0=북, 90=동)
+     * @param timeout_ms 타임아웃 (밀리초, 기본값 10초)
+     * @param tolerance_deg 허용 오차 (도, 기본값 5도)
+     * @return 정렬 성공 여부
+     */
+    bool alignHeading(float target_bearing_deg, int timeout_ms = 10000, float tolerance_deg = 5.0f);
+
+    /**
      * @brief 외부 중단 플래그 설정 (OffboardManager에서 호출)
      */
     void setAbortFlag(std::atomic<bool>* abort_flag) { abort_flag_ = abort_flag; }
@@ -134,7 +143,7 @@ private:
     std::atomic<bool>* abort_flag_{nullptr};
 
     // Constants
-    static constexpr float WAYPOINT_THRESHOLD = 2.0f;   // 2m 오차 허용
+    static constexpr float WAYPOINT_THRESHOLD = 5.0f;   // 5m 오차 허용 (GPS 정확도 고려)
 };
 
 #endif // WAYPOINT_HANDLER_H

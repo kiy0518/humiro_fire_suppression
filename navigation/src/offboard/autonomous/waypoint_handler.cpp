@@ -156,11 +156,12 @@ bool WaypointHandler::goToWaypoint(const GPSCoordinate& target, int timeout_ms, 
             return false;
         }
 
-        // 진행 상황 로깅 (5초마다)
-        if (static_cast<int>(elapsed) % 5000 < 100) {
+        // 진행 상황 로깅 (1초마다)
+        if (static_cast<int>(elapsed) % 1000 < 100) {
             RCLCPP_INFO(node_->get_logger(),
-                        "Navigating... H_Dist: %.2f m, Position: (%.7f, %.7f)",
-                        horizontal_distance, current_latitude_.load(), current_longitude_.load());
+                        "Navigating... H_Dist: %.2f m, Target: (%.7f, %.7f), Current: (%.7f, %.7f)",
+                        horizontal_distance, target.latitude, target.longitude,
+                        current_latitude_.load(), current_longitude_.load());
         }
     }
 
@@ -278,6 +279,118 @@ void WaypointHandler::holdPosition(int duration_ms)
         publishTrajectorySetpoint(hold_x, hold_y, hold_z, hold_yaw);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+}
+
+bool WaypointHandler::alignHeading(float target_bearing_deg, int timeout_ms, float tolerance_deg)
+{
+    // 현재 위치 고정
+    float hold_x = current_local_x_.load();
+    float hold_y = current_local_y_.load();
+    float hold_z = current_local_z_.load();
+
+    // 목표 yaw를 라디안으로 변환 (NED 좌표계: 북=0, 동=90)
+    // bearing은 0=북, 90=동이고, NED yaw도 0=북, π/2=동이므로 직접 변환
+    float target_yaw = target_bearing_deg * M_PI / 180.0f;
+
+    // -π ~ π 범위로 정규화
+    while (target_yaw > M_PI) target_yaw -= 2.0f * M_PI;
+    while (target_yaw < -M_PI) target_yaw += 2.0f * M_PI;
+
+    float tolerance_rad = tolerance_deg * M_PI / 180.0f;
+
+    RCLCPP_INFO(node_->get_logger(),
+                "[HEADING] Aligning to %.1f deg (%.3f rad), tolerance: %.1f deg",
+                target_bearing_deg, target_yaw, tolerance_deg);
+
+    // PD 제어 상수
+    constexpr float K_P = 1.5f;
+    constexpr float K_D = 0.9f;
+
+    float prev_yaw_diff = 0.0f;
+    bool first_iteration = true;
+
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_log_time = start_time;
+
+    while (true) {
+        // 중단 요청 확인
+        if (abort_flag_ && abort_flag_->load()) {
+            RCLCPP_WARN(node_->get_logger(), "[HEADING] Alignment aborted by external request");
+            return false;
+        }
+
+        float current_yaw = current_yaw_.load();
+
+        // yaw 차이 계산
+        float yaw_diff = target_yaw - current_yaw;
+
+        // -π ~ π 범위로 정규화
+        while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
+        while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
+
+        // 목표 도달 확인
+        if (std::fabs(yaw_diff) < tolerance_rad) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "[HEADING] Heading aligned! Current: %.1f deg, Target: %.1f deg, Error: %.2f deg",
+                        current_yaw * 180.0f / M_PI, target_bearing_deg, yaw_diff * 180.0f / M_PI);
+            return true;
+        }
+
+        // PD 제어로 yawspeed 계산
+        float yaw_diff_deriv = first_iteration ? 0.0f : (yaw_diff - prev_yaw_diff);
+        float yawspeed = K_P * yaw_diff + K_D * yaw_diff_deriv;
+
+        // yawspeed 제한 (최대 1 rad/s)
+        constexpr float MAX_YAWSPEED = 1.0f;
+        if (yawspeed > MAX_YAWSPEED) yawspeed = MAX_YAWSPEED;
+        if (yawspeed < -MAX_YAWSPEED) yawspeed = -MAX_YAWSPEED;
+
+        prev_yaw_diff = yaw_diff;
+        first_iteration = false;
+
+        // TrajectorySetpoint 발행 (위치 유지, yawspeed로 회전)
+        px4_msgs::msg::TrajectorySetpoint msg{};
+        msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+        msg.position[0] = hold_x;
+        msg.position[1] = hold_y;
+        msg.position[2] = hold_z;
+        msg.yaw = std::nanf("");  // yaw 직접 지정 대신 yawspeed 사용
+        msg.yawspeed = yawspeed;
+        msg.velocity[0] = std::nanf("");
+        msg.velocity[1] = std::nanf("");
+        msg.velocity[2] = std::nanf("");
+        msg.acceleration[0] = std::nanf("");
+        msg.acceleration[1] = std::nanf("");
+        msg.acceleration[2] = std::nanf("");
+        msg.jerk[0] = std::nanf("");
+        msg.jerk[1] = std::nanf("");
+        msg.jerk[2] = std::nanf("");
+        trajectory_setpoint_pub_->publish(msg);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+        // 타임아웃 확인
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start_time).count();
+
+        if (elapsed > timeout_ms) {
+            RCLCPP_WARN(node_->get_logger(),
+                        "[HEADING] Timeout! Current: %.1f deg, Target: %.1f deg, Error: %.2f deg",
+                        current_yaw * 180.0f / M_PI, target_bearing_deg, yaw_diff * 180.0f / M_PI);
+            return false;
+        }
+
+        // 진행 상황 로깅 (1초마다)
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_log_time).count() > 1000) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "[HEADING] Aligning... Current: %.1f deg, Target: %.1f deg, Error: %.2f deg, Yawspeed: %.2f rad/s",
+                        current_yaw * 180.0f / M_PI, target_bearing_deg, yaw_diff * 180.0f / M_PI, yawspeed);
+            last_log_time = now;
+        }
+    }
+
+    return false;
 }
 
 void WaypointHandler::publishOffboardControlMode()
