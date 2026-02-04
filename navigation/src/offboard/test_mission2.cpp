@@ -31,8 +31,13 @@ int main(int argc, char* argv[])
     // OffboardManager 생성
     OffboardManager manager(node);
 
+    // MissionConfig 설정 (이륙 3m, 호버 10초)
+    MissionConfig config;
+    config.takeoff_altitude = 3.0f;
+    config.hover_duration_sec = 10.0f;
+
     // executeMission2 실행 (블로킹)
-    bool success = manager.executeMission2();
+    bool success = manager.executeMission2(config);
 
     if (success) {
         RCLCPP_INFO(node->get_logger(), "\n[성공] Mission 2 완료!");
