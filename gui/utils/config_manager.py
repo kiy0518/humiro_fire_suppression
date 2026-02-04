@@ -463,7 +463,14 @@ class ConfigManager:
                 },
                 "common": {
                     "name": "공통",
-                    "params": []
+                    "params": [
+                        {
+                            "name": "MPC_XY_VEL_MAX",
+                            "expected": 5,
+                            "description": "최대 수평 속도 (m/s)",
+                            "auto_check": True
+                        }
+                    ]
                 }
             },
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")

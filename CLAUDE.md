@@ -2,11 +2,97 @@
 
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
-**버전**: v2.1 (2026-01-04)
-**프로젝트 진행률**: 75% (Phase 1 완료)
+**버전**: v2.3 (2026-02-04)
+**프로젝트 진행률**: ~62% (work-plan 기준)
 **총 코드량**: 10,500+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
+
+---
+
+## ⚠️ 필수 확인 사항 (모든 작업 전)
+
+**코드 작성 또는 답변 전에 반드시 `work-plan/` 폴더를 확인하세요!**
+
+```bash
+# work-plan 폴더 위치
+/home/khadas/humiro_fire_suppression/work-plan/
+```
+
+### work-plan 문서 전체 목록
+
+#### 📋 프로젝트 관리
+| 파일 | 내용 |
+|------|------|
+| `000_PROJECT_PROGRESS_REPORT.md` | 프로젝트 진행 현황 |
+| `001_PROJECT_MASTER_PLAN.md` | 전체 마스터 플랜 |
+| `007_CURRENT_STATUS.md` | 현재 상태 |
+| `026_IMPLEMENTATION_GAP_ANALYSIS.md` | 구현 현황 분석 |
+
+#### 🔧 Phase 완료 보고서
+| 파일 | 내용 |
+|------|------|
+| `002_PHASE2_COMPLETE.md` | Phase 2 완료 |
+| `006_PHASE3_COMPLETE.md` | Phase 3 완료 |
+| `012_20260102_autonomous_phase1_complete.md` | 자율 비행 Phase 1 완료 |
+
+#### 🚁 자율 비행 / Navigation
+| 파일 | 내용 |
+|------|------|
+| `014_VIM4_AUTONOMOUS_CONTROL_PLAN.md` | VIM4 자율 제어 계획 |
+| `024_01_OFFBOARD_MODE_SEQUENCE_V2.md` | OFFBOARD 모드 시퀀스 |
+| `013_NEXT_STEPS_FORMATION_CONTROL.md` | 편대 제어 다음 단계 |
+| `025_COLLISION_AVOIDANCE_DESIGN.md` | 충돌 방지 설계 |
+| `025_COLLISION_AVOIDANCE_VERIFICATION.md` | 충돌 방지 검증 |
+
+#### 📡 통신 / 메시지
+| 파일 | 내용 |
+|------|------|
+| `003_ROS2_COMMUNICATION_EXPLANATION.md` | ROS2 통신 설명 |
+| `008_ROS2_TOPIC_ARCHITECTURE.md` | ROS2 토픽 아키텍처 |
+| `010_ROS2_COMMUNICATION_MODULE.md` | ROS2 통신 모듈 |
+| `019_MAVLINK_CUSTOM_MESSAGE.md` | MAVLink 커스텀 메시지 |
+| `021_MAVLINK_ARCHITECTURE_REFACTORING.md` | MAVLink 아키텍처 리팩토링 |
+| `022_COMMUNICATION_ARCHITECTURE.md` | 통신 아키텍처 |
+| `022_COMMUNICATION_ARCHITECTURE_STATUS.md` | 통신 아키텍처 상태 |
+
+#### 🎯 화재 진압 시나리오
+| 파일 | 내용 |
+|------|------|
+| `015_FIRE_SUPPRESSION_SCENARIO.md` | 화재 진압 시나리오 |
+| `020_RTK_GPS_COORDINATE_FORMAT.md` | RTK GPS 좌표 형식 |
+
+#### 🖥️ 스트리밍 / GUI
+| 파일 | 내용 |
+|------|------|
+| `009_STATUS_MONITORING_PLAN.md` | 상태 모니터링 계획 |
+| `017_STREAMING_ARCHITECTURE_REFACTORING.md` | 스트리밍 아키텍처 리팩토링 |
+| `016_QGC_DEVELOPMENT_GUIDE.md` | QGC 개발 가이드 |
+| `027_GUI_MANAGEMENT_TOOL_PLAN.md` | GUI 관리 도구 계획 |
+
+#### 🔩 기타
+| 파일 | 내용 |
+|------|------|
+| `001-usb-camera-autosuspend-fix.md` | USB 카메라 자동 절전 수정 |
+| `004_REFACTORING_COMPLETE_SUMMARY.md` | 리팩토링 완료 요약 |
+| `005_QUICK_START_ROS2_TOPICS.md` | ROS2 토픽 빠른 시작 |
+| `011_20260102_px4_msgs_fix.md` | PX4 메시지 수정 |
+| `018_README.md` | README |
+| `023_SCRIPT_DEVICE_CONFIG_INTEGRATION.md` | 스크립트 기기 설정 통합 |
+
+### ⚠️ 문서 동기화 유지 (필수)
+**`work-plan/` 폴더에 문서가 추가되거나 삭제되면 이 CLAUDE.md 파일의 목록도 함께 업데이트하세요!**
+
+```bash
+# work-plan 문서 목록 확인
+ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
+```
+
+### 확인 절차
+1. **코드 수정 전**: 해당 모듈의 설계 문서 확인
+2. **새 기능 추가 전**: 마스터 플랜과 일치 여부 확인
+3. **버그 수정 전**: 기존 설계 의도 파악
+4. **질문 답변 전**: 최신 진행 상황 확인
 
 ---
 
@@ -20,7 +106,7 @@
 - PX4 Firmware v1.16.0
 - OpenCV + GStreamer
 
-**현재 상태** (2026-01-04):
+**현재 상태** (2026-02-04):
 - ✅ 열화상 시스템 (2,665 LOC)
 - ✅ LiDAR 거리 측정 (1,188 LOC)
 - ✅ 스트리밍 시스템 (800 LOC)

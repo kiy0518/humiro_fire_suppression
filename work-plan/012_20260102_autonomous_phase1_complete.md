@@ -1,8 +1,8 @@
 # VIM4 자율 제어 Phase 1 완료
 
-**날짜**: 2026-01-02  
-**작성자**: Claude Code Assistant  
-**태그**: v1.1-autonomous-phase1
+**날짜**: 2026-01-02
+**작성자**: Claude Code Assistant
+**버전**: v0.12.x (Phase 1 완료 시점)
 
 ---
 
@@ -536,7 +536,6 @@ VIM4 자율 제어 Phase 1을 완전히 구현하고 테스트했습니다.
 
 ---
 
-**작성자**: Claude Code Assistant  
-**날짜**: 2026-01-02  
-**Git Tag**: v1.1-autonomous-phase1
+**작성자**: Claude Code Assistant
+**날짜**: 2026-01-02
 
