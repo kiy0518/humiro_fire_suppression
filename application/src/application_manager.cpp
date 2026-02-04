@@ -1291,7 +1291,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     std::thread mission_thread([this, config, start]() {
         bool success = false;
         try {
-            success = offboard_manager_->executeMission1(config);
+            success = offboard_manager_->executeMission2(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();
