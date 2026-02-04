@@ -133,6 +133,19 @@ target_link_libraries(test_mission
   ${px4_msgs_LIBRARIES}
 )
 
+add_executable(test_mission2 test_mission2.cpp)
+target_link_libraries(test_mission2
+  offboard_manager
+  ${rclcpp_LIBRARIES}
+  ${px4_msgs_LIBRARIES}
+)
+
+add_executable(test_offboard_simple test_offboard_simple.cpp)
+target_link_libraries(test_offboard_simple
+  ${rclcpp_LIBRARIES}
+  ${px4_msgs_LIBRARIES}
+)
+
 # Install
 install(TARGETS
   arm_handler
@@ -146,6 +159,8 @@ install(TARGETS
   test_waypoint
   test_rtl
   test_mission
+  test_mission2
+  test_offboard_simple
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
