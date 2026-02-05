@@ -97,7 +97,7 @@ private:
     // ========== 메시지 발행 ==========
     void publishOffboardControlMode();
     void publishTrajectorySetpoint();
-    void publishVehicleCommand(uint16_t command, float param1 = 0.0f, float param2 = 0.0f);
+    void publishVehicleCommand(uint16_t command, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f);
 
     // ========== 콜백 ==========
     void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
@@ -155,6 +155,11 @@ private:
     MissionConfig mission_config_;
     float initial_yaw_{0.0f};           // 이륙 시점 헤딩
     float prev_yaw_diff_{0.0f};         // PD 제어용
+
+    // ========== 시작 위치 (미션 시작 시점 로컬 NED) ==========
+    float start_local_x_{0.0f};
+    float start_local_y_{0.0f};
+    float start_local_z_{0.0f};
 
     // ========== 목표 NED 좌표 ==========
     float target_ned_x_{0.0f};

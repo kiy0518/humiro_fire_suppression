@@ -67,8 +67,18 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     setpoint_counter_.store(0);
     prev_yaw_diff_ = 0.0f;
 
+    // Home 위치 리셋 (현재 위치를 새 Home으로 사용)
+    home_set_ = false;
+
+    // 시작 위치 저장 (PX4 로컬 NED 좌표)
+    start_local_x_ = current_local_x_.load();
+    start_local_y_ = current_local_y_.load();
+    start_local_z_ = current_local_z_.load();
+
     RCLCPP_INFO(node_->get_logger(), "==============================================");
     RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMission3)");
+    RCLCPP_INFO(node_->get_logger(), "  Start position (NED): (%.1f, %.1f, %.1f)",
+                start_local_x_, start_local_y_, start_local_z_);
     RCLCPP_INFO(node_->get_logger(), "==============================================");
     RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.1f m", config.takeoff_altitude);
     RCLCPP_INFO(node_->get_logger(), "  Target: Lat=%.7f, Lon=%.7f",
@@ -99,6 +109,15 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         if (state == MissionState::LANDED || state == MissionState::ERROR) {
             break;
         }
+
+        // RTL 상태에서 disarm 감지 (타이머가 취소된 경우를 위한 백업 체크)
+        if (state == MissionState::RTL && arming_state_.load() == 1) {
+            RCLCPP_INFO(node_->get_logger(), "[RTL] Disarm detected in wait loop, mission complete!");
+            current_state_.store(MissionState::LANDED);
+            mission_running_.store(false);
+            break;
+        }
+
         std::this_thread::sleep_for(100ms);
     }
 
@@ -124,30 +143,96 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
 
 void OffboardManager::timerCallback()
 {
+    // 미션이 실행 중이 아니면 아무것도 하지 않음
+    if (!mission_running_.load()) {
+        return;
+    }
+
     // 중단 요청 확인
     if (abort_requested_.load()) {
         RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission aborted, triggering RTL...");
+        abort_requested_.store(false);  // 한 번만 실행
+
+        // 타이머 먼저 취소
+        if (timer_) {
+            timer_->cancel();
+            RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
+        }
+
+        // 명시적 AUTO_RTL 모드 전환 (main=4, sub=5)
+        publishVehicleCommand(
+            px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
+            1.0f, 4.0f, 5.0f);
         publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
         current_state_.store(MissionState::RTL);
         return;
     }
 
-    // ★★★ 핵심: 항상 heartbeat 발행 (2Hz 이상 필수) ★★★
-    publishOffboardControlMode();
-
-    uint64_t counter = setpoint_counter_.fetch_add(1);
     auto state = current_state_.load();
+    uint8_t nav = nav_state_.load();
 
-    // RTL 상태면 더 이상 setpoint 발행 안 함
-    if (state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
+    // PX4가 RTL 모드(5)이거나 우리 상태가 RTL/LANDED/ERROR면 heartbeat 발행 안 함
+    // nav_state: 5=AUTO_RTL, 14=OFFBOARD
+    // 이렇게 해야 PX4가 RTL 착륙 중에 다시 OFFBOARD로 전환되지 않음
+    if (nav == 5 || state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
         // RTL 완료 체크 (착륙 감지)
-        if (state == MissionState::RTL && arming_state_.load() == 1) {
+        if ((state == MissionState::RTL || nav == 5) && arming_state_.load() == 1) {
             RCLCPP_INFO(node_->get_logger(), "[RTL] Vehicle disarmed, mission complete!");
             current_state_.store(MissionState::LANDED);
-            mission_running_.store(false);
+            mission_running_.store(false);  // 이후 콜백에서 아무것도 하지 않음
         }
         return;
     }
+
+    uint64_t counter = setpoint_counter_.fetch_add(1);
+
+    // ★★★ 중요: RTL 전환 체크를 heartbeat 발행 전에 먼저 수행 ★★★
+    // 이렇게 해야 RTL 전환 시 마지막 heartbeat가 발행되지 않음
+
+    // 1. 목표 도달 체크
+    if (state == MissionState::NAVIGATE && counter > MOVE_START + 10) {
+        float dx = target_ned_x_ - current_local_x_.load();
+        float dy = target_ned_y_ - current_local_y_.load();
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        if (dist < WAYPOINT_THRESHOLD) {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 목표 도착! RTL 시작...");
+
+            // 타이머 취소 (heartbeat 발행 없이 종료)
+            if (timer_) {
+                timer_->cancel();
+                RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
+            }
+
+            // 명시적 AUTO_RTL 모드 전환
+            publishVehicleCommand(
+                px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
+                1.0f, 4.0f, 5.0f);
+            publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
+            current_state_.store(MissionState::RTL);
+            return;  // heartbeat 발행 없이 바로 종료
+        }
+    }
+
+    // 2. 타임아웃 체크 (heartbeat 발행 전에)
+    if (counter > RTL_TIMEOUT && state != MissionState::RTL) {
+        RCLCPP_WARN(node_->get_logger(), "[TIMEOUT] Mission timeout, triggering RTL...");
+
+        if (timer_) {
+            timer_->cancel();
+            RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
+        }
+
+        publishVehicleCommand(
+            px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
+            1.0f, 4.0f, 5.0f);
+        publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
+        current_state_.store(MissionState::RTL);
+        return;  // heartbeat 발행 없이 바로 종료
+    }
+
+    // ★★★ 핵심: heartbeat 발행 (RTL 체크 통과 후에만) ★★★
+    publishOffboardControlMode();
 
     // ========== 상태 머신 ==========
 
@@ -177,15 +262,29 @@ void OffboardManager::timerCallback()
                     mission_config_.hover_duration_sec);
         current_state_.store(MissionState::HOVER);
 
-        // 목표 좌표 계산 (GPS → NED)
-        gpsToLocalNED(mission_config_.target_waypoint.latitude,
-                      mission_config_.target_waypoint.longitude,
-                      mission_config_.takeoff_altitude,
-                      target_ned_x_, target_ned_y_, target_ned_z_);
+        // 목표 좌표 계산: 현재 GPS → 목표 GPS 오프셋을 시작 위치에 더함
+        double cur_lat = current_lat_.load();
+        double cur_lon = current_lon_.load();
+        double tgt_lat = mission_config_.target_waypoint.latitude;
+        double tgt_lon = mission_config_.target_waypoint.longitude;
 
-        // 목표 방향 계산
-        target_yaw_ = calculateTargetYaw(target_ned_x_, target_ned_y_);
+        // GPS 오프셋 계산 (미터 단위)
+        constexpr double DEG_TO_M_LAT = 111320.0;
+        double deg_to_m_lon = 111320.0 * std::cos(cur_lat * M_PI / 180.0);
+        float offset_north = static_cast<float>((tgt_lat - cur_lat) * DEG_TO_M_LAT);
+        float offset_east = static_cast<float>((tgt_lon - cur_lon) * deg_to_m_lon);
 
+        // 목표 NED = 시작 위치 + GPS 오프셋
+        target_ned_x_ = start_local_x_ + offset_north;
+        target_ned_y_ = start_local_y_ + offset_east;
+        target_ned_z_ = -mission_config_.takeoff_altitude;
+
+        // 목표 방향 계산 (시작 위치 기준)
+        target_yaw_ = calculateTargetYaw(offset_north, offset_east);
+
+        RCLCPP_INFO(node_->get_logger(), "[NAV] Current GPS: (%.7f, %.7f)", cur_lat, cur_lon);
+        RCLCPP_INFO(node_->get_logger(), "[NAV] Target GPS: (%.7f, %.7f)", tgt_lat, tgt_lon);
+        RCLCPP_INFO(node_->get_logger(), "[NAV] GPS offset: North=%.1fm, East=%.1fm", offset_north, offset_east);
         RCLCPP_INFO(node_->get_logger(), "[NAV] Target NED: (%.1f, %.1f, %.1f), Yaw: %.1f deg",
                     target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
 
@@ -203,32 +302,12 @@ void OffboardManager::timerCallback()
         current_state_.store(MissionState::NAVIGATE);
     }
 
-    // 타임아웃 체크 (도착하면 RTL)
-    if (state == MissionState::NAVIGATE && counter > MOVE_START + 10) {
-        // 목표 도달 확인
+    // 진행 상황 로깅 (2초마다) - 목표 도달/타임아웃 체크는 위에서 heartbeat 전에 수행됨
+    if (state == MissionState::NAVIGATE && counter > MOVE_START + 10 && counter % 20 == 0) {
         float dx = target_ned_x_ - current_local_x_.load();
         float dy = target_ned_y_ - current_local_y_.load();
         float dist = std::sqrt(dx * dx + dy * dy);
-
-        if (dist < WAYPOINT_THRESHOLD) {
-            RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 목표 도착! RTL 시작...");
-            publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
-            current_state_.store(MissionState::RTL);
-            return;
-        }
-
-        // 진행 상황 로깅 (2초마다)
-        if (counter % 20 == 0) {
-            RCLCPP_INFO(node_->get_logger(), "[NAV] Distance to target: %.1f m", dist);
-        }
-    }
-
-    // 최대 미션 시간 초과
-    if (counter > RTL_TIMEOUT && state != MissionState::RTL) {
-        RCLCPP_WARN(node_->get_logger(), "[TIMEOUT] Mission timeout, triggering RTL...");
-        publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
-        current_state_.store(MissionState::RTL);
-        return;
+        RCLCPP_INFO(node_->get_logger(), "[NAV] Distance to target: %.1f m", dist);
     }
 
     // TrajectorySetpoint 발행 (ARM 이후)
@@ -254,6 +333,13 @@ void OffboardManager::publishOffboardControlMode()
     msg.body_rate = false;
 
     offboard_control_mode_pub_->publish(msg);
+
+    // 디버그: heartbeat 발행 시점 로깅 (RTL 이슈 디버깅용)
+    static uint64_t hb_count = 0;
+    if (++hb_count % 50 == 0) {  // 5초마다
+        RCLCPP_DEBUG(node_->get_logger(), "[HB] Heartbeat #%ld published (state=%s, nav=%d)",
+                     hb_count, getStateName(current_state_.load()).c_str(), nav_state_.load());
+    }
 }
 
 void OffboardManager::publishTrajectorySetpoint()
@@ -267,17 +353,17 @@ void OffboardManager::publishTrajectorySetpoint()
 
     if (state == MissionState::TAKEOFF || state == MissionState::HOVER ||
         (state == MissionState::ROTATE && counter < ROTATE_START)) {
-        // 1단계: 이륙 및 호버링 (원점 위 takeoff_altitude)
-        sp_x = 0.0f;
-        sp_y = 0.0f;
+        // 1단계: 이륙 및 호버링 (시작 위치에서 takeoff_altitude)
+        sp_x = start_local_x_;
+        sp_y = start_local_y_;
         sp_z = -mission_config_.takeoff_altitude;  // NED: Z down이 양수
         yaw_setpoint = initial_yaw_;
 
     } else if (state == MissionState::ROTATE ||
                (counter >= ROTATE_START && counter < ROTATE_END)) {
         // 2단계: 회전 (yawspeed 사용)
-        sp_x = 0.0f;
-        sp_y = 0.0f;
+        sp_x = start_local_x_;
+        sp_y = start_local_y_;
         sp_z = -mission_config_.takeoff_altitude;
 
         // 현재 yaw와 목표 yaw 차이 계산
@@ -308,8 +394,8 @@ void OffboardManager::publishTrajectorySetpoint()
 
     } else if (counter >= ROTATE_END && counter < MOVE_START) {
         // 전환 구간: 호버링 유지
-        sp_x = 0.0f;
-        sp_y = 0.0f;
+        sp_x = start_local_x_;
+        sp_y = start_local_y_;
         sp_z = -mission_config_.takeoff_altitude;
         yaw_setpoint = target_yaw_;
 
@@ -349,13 +435,14 @@ void OffboardManager::publishTrajectorySetpoint()
     }
 }
 
-void OffboardManager::publishVehicleCommand(uint16_t command, float param1, float param2)
+void OffboardManager::publishVehicleCommand(uint16_t command, float param1, float param2, float param3)
 {
     px4_msgs::msg::VehicleCommand msg{};
     msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
     msg.command = command;
     msg.param1 = param1;
     msg.param2 = param2;
+    msg.param3 = param3;
     msg.target_system = 1;
     msg.target_component = 1;
     msg.source_system = 1;
@@ -363,6 +450,15 @@ void OffboardManager::publishVehicleCommand(uint16_t command, float param1, floa
     msg.from_external = true;
 
     vehicle_command_pub_->publish(msg);
+
+    // 디버그: 명령 전송 로깅
+    const char* cmd_name = "UNKNOWN";
+    if (command == 176) cmd_name = "DO_SET_MODE";
+    else if (command == 400) cmd_name = "ARM_DISARM";
+    else if (command == 20) cmd_name = "NAV_RETURN_TO_LAUNCH";
+
+    RCLCPP_INFO(node_->get_logger(), "[CMD] %s (cmd=%d, p1=%.1f, p2=%.1f, p3=%.1f)",
+                cmd_name, command, param1, param2, param3);
 }
 
 void OffboardManager::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg)
@@ -375,9 +471,29 @@ void OffboardManager::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::
 
     // 상태 변화 로깅
     if (old_nav != msg->nav_state) {
-        RCLCPP_INFO(node_->get_logger(), "[STATUS] nav_state: %d -> %d %s",
-                    old_nav, msg->nav_state,
-                    (msg->nav_state == 14 ? "(OFFBOARD)" : ""));
+        const char* nav_name = "UNKNOWN";
+        switch (msg->nav_state) {
+            case 0: nav_name = "MANUAL"; break;
+            case 2: nav_name = "ALTCTL"; break;
+            case 3: nav_name = "POSCTL"; break;
+            case 4: nav_name = "AUTO_LOITER"; break;
+            case 5: nav_name = "AUTO_RTL"; break;
+            case 14: nav_name = "OFFBOARD"; break;
+            case 17: nav_name = "AUTO_TAKEOFF"; break;
+            case 18: nav_name = "AUTO_LAND"; break;
+        }
+        RCLCPP_INFO(node_->get_logger(), "[STATUS] nav_state: %d -> %d (%s) | my_state=%s, timer=%s",
+                    old_nav, msg->nav_state, nav_name,
+                    getStateName(current_state_.load()).c_str(),
+                    (timer_ && !timer_->is_canceled()) ? "ACTIVE" : "CANCELLED");
+
+        // RTL에서 OFFBOARD로 전환 시 경고
+        if (old_nav == 5 && msg->nav_state == 14) {
+            RCLCPP_WARN(node_->get_logger(),
+                        "[WARNING] PX4 switched from AUTO_RTL to OFFBOARD! (timer=%s, arming=%d)",
+                        (timer_ && !timer_->is_canceled()) ? "ACTIVE" : "CANCELLED",
+                        msg->arming_state);
+        }
     }
     if (old_arm != msg->arming_state) {
         RCLCPP_INFO(node_->get_logger(), "[STATUS] arming: %d -> %d %s",
@@ -459,12 +575,15 @@ void OffboardManager::resetToIdle()
     abort_requested_.store(false);
     setpoint_counter_.store(0);
 
+    // Home 위치 리셋 (다음 미션에서 현재 위치 기준으로 재설정)
+    home_set_ = false;
+
     if (timer_) {
         timer_->cancel();
         timer_.reset();
     }
 
-    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE");
+    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE (home_set_ cleared)");
 }
 
 std::string OffboardManager::getStateName(MissionState state)
