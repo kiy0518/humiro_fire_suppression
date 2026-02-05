@@ -652,9 +652,11 @@ private:
             return;
         }
 
-        // 중복 메시지 방지: 커스텀 메시지(60000~60003)에 대해 sysid별 seq 추적
+        // 중복 메시지 방지: 커스텀 메시지(60001~60003)에 대해 sysid별 seq 추적
+        // 60000(미션 시작)은 중복 허용 - 비행 중 목표 좌표 변경 가능
         bool is_custom_message = (msg_id >= 60000 && msg_id <= 60003);
-        if (is_custom_message) {
+        bool is_mission_start = (msg_id == 60000);
+        if (is_custom_message && !is_mission_start) {
             uint8_t sysid = header->sysid;
             uint8_t seq = header->seq;
             auto it = last_seq_by_sysid_.find(sysid);

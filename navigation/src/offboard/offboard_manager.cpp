@@ -54,10 +54,10 @@ OffboardManager::~OffboardManager()
 
 bool OffboardManager::executeMission3(const MissionConfig& config)
 {
-    // 이미 미션 실행 중이면 거부
+    // 이미 미션 실행 중이면 좌표만 업데이트 (경로 변경)
     if (mission_running_.load()) {
-        RCLCPP_WARN(node_->get_logger(), "Mission already running!");
-        return false;
+        RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
+        return updateMissionTarget(config.target_waypoint);
     }
 
     // 미션 설정 저장
@@ -185,6 +185,12 @@ void OffboardManager::timerCallback()
     }
 
     uint64_t counter = setpoint_counter_.fetch_add(1);
+
+    // 디버그: 상태와 카운터 출력 (1초마다)
+    if (counter % 10 == 0) {
+        RCLCPP_INFO(node_->get_logger(), "[DEBUG] counter=%ld, state=%s, nav=%d",
+                    counter, getStateName(state).c_str(), nav);
+    }
 
     // ★★★ 중요: RTL 전환 체크를 heartbeat 발행 전에 먼저 수행 ★★★
     // 이렇게 해야 RTL 전환 시 마지막 heartbeat가 발행되지 않음
@@ -566,6 +572,83 @@ void OffboardManager::emergencyRTL()
     RCLCPP_ERROR(node_->get_logger(), "[EMERGENCY] RTL triggered!");
     publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
     current_state_.store(MissionState::RTL);
+}
+
+bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
+{
+    if (!mission_running_.load()) {
+        RCLCPP_WARN(node_->get_logger(), "[UPDATE] No mission running, cannot update target");
+        return false;
+    }
+
+    auto state = current_state_.load();
+
+    // RTL/LANDED/ERROR 상태에서는 업데이트 불가
+    if (state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
+        RCLCPP_WARN(node_->get_logger(), "[UPDATE] Cannot update target in %s state", getStateName(state).c_str());
+        return false;
+    }
+
+    // 미션 설정 업데이트
+    mission_config_.target_waypoint = new_target;
+
+    // ★★★ 현재 위치를 새 시작 위치로 저장 (일시 정지 지점) ★★★
+    start_local_x_ = current_local_x_.load();
+    start_local_y_ = current_local_y_.load();
+    start_local_z_ = current_local_z_.load();
+
+    // 현재 GPS 위치 기준으로 새 목표 NED 좌표 계산
+    double cur_lat = current_lat_.load();
+    double cur_lon = current_lon_.load();
+
+    constexpr double DEG_TO_M_LAT = 111320.0;
+    double deg_to_m_lon = 111320.0 * std::cos(cur_lat * M_PI / 180.0);
+
+    // 현재 위치에서 새 목표까지의 오프셋
+    float offset_north = static_cast<float>((new_target.latitude - cur_lat) * DEG_TO_M_LAT);
+    float offset_east = static_cast<float>((new_target.longitude - cur_lon) * deg_to_m_lon);
+
+    // 현재 로컬 위치 + 오프셋 = 새 목표 NED
+    float old_x = target_ned_x_;
+    float old_y = target_ned_y_;
+
+    target_ned_x_ = start_local_x_ + offset_north;
+    target_ned_y_ = start_local_y_ + offset_east;
+    target_ned_z_ = -mission_config_.takeoff_altitude;  // 고도 재설정
+
+    // 새 목표 방향 계산
+    target_yaw_ = calculateTargetYaw(offset_north, offset_east);
+
+    // HOVER 상태에서 현재 yaw 유지 (initial_yaw_ 업데이트)
+    initial_yaw_ = current_yaw_.load();
+
+    // PD 제어 초기화
+    prev_yaw_diff_ = 0.0f;
+
+    RCLCPP_INFO(node_->get_logger(), "==============================================");
+    RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target - Pausing & Redirecting");
+    RCLCPP_INFO(node_->get_logger(), "  Previous State: %s", getStateName(state).c_str());
+    RCLCPP_INFO(node_->get_logger(), "  Pause Position (NED): (%.1f, %.1f, %.1f)",
+                start_local_x_, start_local_y_, start_local_z_);
+    RCLCPP_INFO(node_->get_logger(), "  Old Target NED: (%.1f, %.1f)", old_x, old_y);
+    RCLCPP_INFO(node_->get_logger(), "  New Target GPS: (%.7f, %.7f)", new_target.latitude, new_target.longitude);
+    RCLCPP_INFO(node_->get_logger(), "  New Target NED: (%.1f, %.1f, %.1f)", target_ned_x_, target_ned_y_, target_ned_z_);
+    RCLCPP_INFO(node_->get_logger(), "  New Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
+    RCLCPP_INFO(node_->get_logger(), "==============================================");
+
+    // ★★★ 카운터 리셋 → HOVER 상태로 전환 → ROTATE → NAVIGATE 순서로 재진행 ★★★
+    // TAKEOFF_STABLE + 1 = 81로 설정 (80에서 target 재계산 방지)
+    // 여기서 카운터를 TAKEOFF_STABLE+1로 리셋하면:
+    //   - 현재 위치에서 호버링 (HOVER 상태)
+    //   - ROTATE_START(110)에서 새 방향으로 회전 (약 3초 후)
+    //   - MOVE_START(180)에서 새 목표로 이동
+    setpoint_counter_.store(TAKEOFF_STABLE + 1);  // +1: timerCallback에서 target 재계산 방지
+    current_state_.store(MissionState::HOVER);
+
+    RCLCPP_INFO(node_->get_logger(), "  → State changed to HOVER (will rotate then navigate)");
+    RCLCPP_INFO(node_->get_logger(), "==============================================\n");
+
+    return true;
 }
 
 void OffboardManager::resetToIdle()

@@ -66,6 +66,18 @@ public:
     bool executeMission3(const MissionConfig& config);
 
     /**
+     * @brief 미션 진행 중 목표 좌표 업데이트 (경로 변경)
+     * @param new_target 새 목표 GPS 좌표
+     * @return 업데이트 성공 여부 (미션 진행 중일 때만 true)
+     */
+    bool updateMissionTarget(const GPSCoordinate& new_target);
+
+    /**
+     * @brief 미션 진행 중인지 확인
+     */
+    bool isMissionRunning() const { return mission_running_.load(); }
+
+    /**
      * @brief 미션 중단 요청
      */
     void abortMission();

@@ -1215,8 +1215,20 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             }
             std::cout << "  ✓ 리셋 완료, 새 미션 시작 진행" << std::endl;
         } else {
-            std::cout << "[미션 실행 건너뜀] 이미 미션이 실행 중입니다 (상태="
+            // 미션 진행 중 → 새 좌표로 경로 변경 (executeMission3 호출)
+            std::cout << "[미션 경로 변경] 미션 진행 중, 새 좌표로 업데이트 (상태="
                       << OffboardManager::getStateName(current_state) << ")" << std::endl;
+
+            MissionConfig config;
+            config.target_waypoint.latitude = start.target_lat / 1e7;
+            config.target_waypoint.longitude = start.target_lon / 1e7;
+            config.target_waypoint.altitude = start.target_alt;
+            config.takeoff_altitude = start.target_alt;
+            config.flight_speed = start.flight_speed;
+            config.hover_duration_sec = 5.0f;
+
+            // executeMission3 호출 → 내부에서 updateMissionTarget() 실행
+            offboard_manager_->executeMission3(config);
             return;
         }
     }
