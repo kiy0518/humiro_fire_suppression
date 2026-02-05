@@ -66,6 +66,8 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     abort_requested_.store(false);
     setpoint_counter_.store(0);
     prev_yaw_diff_ = 0.0f;
+    prev_vx_ = 0.0f;
+    prev_vy_ = 0.0f;
 
     // Home 위치 리셋 (현재 위치를 새 Home으로 사용)
     home_set_ = false;
@@ -406,11 +408,72 @@ void OffboardManager::publishTrajectorySetpoint()
         yaw_setpoint = target_yaw_;
 
     } else if (state == MissionState::NAVIGATE || counter >= MOVE_START) {
-        // 3단계: 목표 위치로 이동
-        sp_x = target_ned_x_;
-        sp_y = target_ned_y_;
-        sp_z = -mission_config_.takeoff_altitude;  // 고도 유지
-        yaw_setpoint = target_yaw_;
+        // 3단계: 목표 위치로 이동 (velocity 기반 - 부드러운 선회)
+        float cur_x = current_local_x_.load();
+        float cur_y = current_local_y_.load();
+        float dx = target_ned_x_ - cur_x;
+        float dy = target_ned_y_ - cur_y;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        if (dist > 0.5f) {
+            // 방향 벡터 정규화 후 속도 적용
+            float speed = mission_config_.flight_speed;
+            if (dist < 5.0f) {
+                // 목표 근처에서 감속
+                speed = std::max(1.0f, speed * (dist / 5.0f));
+            }
+
+            // Velocity setpoint 사용 (부드러운 곡선 비행)
+            sp_x = NAN;  // position은 NAN
+            sp_y = NAN;
+            sp_z = -mission_config_.takeoff_altitude;  // 고도만 position으로 유지
+
+            // 목표 velocity 계산
+            float target_vx = (dx / dist) * speed;
+            float target_vy = (dy / dist) * speed;
+
+            // Low-pass filter로 부드러운 선회 (alpha 작을수록 더 부드러움)
+            // alpha=0.1 → 약 1초에 걸쳐 방향 전환
+            constexpr float VELOCITY_ALPHA = 0.08f;
+            float vx = prev_vx_ * (1.0f - VELOCITY_ALPHA) + target_vx * VELOCITY_ALPHA;
+            float vy = prev_vy_ * (1.0f - VELOCITY_ALPHA) + target_vy * VELOCITY_ALPHA;
+
+            // 다음 루프를 위해 저장
+            prev_vx_ = vx;
+            prev_vy_ = vy;
+
+            // yaw는 이동 방향으로 서서히 변경 (yawspeed 사용)
+            float current_yaw = current_yaw_.load();
+            float yaw_diff = target_yaw_ - current_yaw;
+            while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
+            while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
+
+            yawspeed = std::clamp(yaw_diff * 0.5f, -MAX_YAW_RATE, MAX_YAW_RATE);
+            yaw_setpoint = NAN;
+
+            // TrajectorySetpoint 메시지 직접 발행 (velocity 포함)
+            px4_msgs::msg::TrajectorySetpoint msg{};
+            msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+            msg.position = {NAN, NAN, sp_z};  // 고도만 position
+            msg.velocity = {vx, vy, NAN};     // 수평 이동은 velocity (보간된 값)
+            msg.yaw = NAN;
+            msg.yawspeed = yawspeed;
+            trajectory_setpoint_pub_->publish(msg);
+
+            if (counter % 10 == 0) {
+                RCLCPP_INFO(node_->get_logger(),
+                            "[NAVIGATE] Vel(%.1f, %.1f) Target(%.1f, %.1f) | Dist=%.1f m | Yaw: %.1f° → %.1f°",
+                            vx, vy, target_vx, target_vy, dist,
+                            current_yaw * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
+            }
+            return;  // 이미 메시지 발행했으므로 아래 코드 스킵
+        } else {
+            // 목표 근처: position setpoint으로 정밀 제어
+            sp_x = target_ned_x_;
+            sp_y = target_ned_y_;
+            sp_z = -mission_config_.takeoff_altitude;
+            yaw_setpoint = target_yaw_;
+        }
 
     } else {
         // 기본: 현재 위치 유지
@@ -626,9 +689,9 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
     prev_yaw_diff_ = 0.0f;
 
     RCLCPP_INFO(node_->get_logger(), "==============================================");
-    RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target - Pausing & Redirecting");
-    RCLCPP_INFO(node_->get_logger(), "  Previous State: %s", getStateName(state).c_str());
-    RCLCPP_INFO(node_->get_logger(), "  Pause Position (NED): (%.1f, %.1f, %.1f)",
+    RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target - Smooth Turn (No Stop)");
+    RCLCPP_INFO(node_->get_logger(), "  Current State: %s", getStateName(state).c_str());
+    RCLCPP_INFO(node_->get_logger(), "  Current Position (NED): (%.1f, %.1f, %.1f)",
                 start_local_x_, start_local_y_, start_local_z_);
     RCLCPP_INFO(node_->get_logger(), "  Old Target NED: (%.1f, %.1f)", old_x, old_y);
     RCLCPP_INFO(node_->get_logger(), "  New Target GPS: (%.7f, %.7f)", new_target.latitude, new_target.longitude);
@@ -636,16 +699,17 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
     RCLCPP_INFO(node_->get_logger(), "  New Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
     RCLCPP_INFO(node_->get_logger(), "==============================================");
 
-    // ★★★ 카운터 리셋 → HOVER 상태로 전환 → ROTATE → NAVIGATE 순서로 재진행 ★★★
-    // TAKEOFF_STABLE + 1 = 81로 설정 (80에서 target 재계산 방지)
-    // 여기서 카운터를 TAKEOFF_STABLE+1로 리셋하면:
-    //   - 현재 위치에서 호버링 (HOVER 상태)
-    //   - ROTATE_START(110)에서 새 방향으로 회전 (약 3초 후)
-    //   - MOVE_START(180)에서 새 목표로 이동
-    setpoint_counter_.store(TAKEOFF_STABLE + 1);  // +1: timerCallback에서 target 재계산 방지
-    current_state_.store(MissionState::HOVER);
-
-    RCLCPP_INFO(node_->get_logger(), "  → State changed to HOVER (will rotate then navigate)");
+    // ★★★ 정지 없이 선회: 상태/카운터 변경 없이 target만 업데이트 ★★★
+    // NAVIGATE 상태 유지 → 새 target으로 자연스럽게 선회하면서 이동
+    // HOVER/ROTATE/TAKEOFF 등 다른 상태면 NAVIGATE로 전환
+    if (state != MissionState::NAVIGATE) {
+        // 아직 NAVIGATE가 아니면 카운터를 MOVE_START로 설정해서 바로 이동 시작
+        setpoint_counter_.store(MOVE_START + 1);
+        current_state_.store(MissionState::NAVIGATE);
+        RCLCPP_INFO(node_->get_logger(), "  → State changed to NAVIGATE (immediate move)");
+    } else {
+        RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
+    }
     RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
     return true;

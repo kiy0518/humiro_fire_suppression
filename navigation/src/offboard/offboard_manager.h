@@ -179,6 +179,10 @@ private:
     float target_ned_z_{0.0f};
     float target_yaw_{0.0f};
 
+    // ========== Velocity 보간용 (부드러운 선회) ==========
+    float prev_vx_{0.0f};
+    float prev_vy_{0.0f};
+
     // ========== 타이밍 상수 (10Hz 기준) ==========
     static constexpr uint64_t PREPARE_COUNT = 20;    // 2초: heartbeat 준비
     static constexpr uint64_t ARM_COUNT = 45;        // 4.5초: ARM
