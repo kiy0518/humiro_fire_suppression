@@ -25,142 +25,19 @@ include_directories(
   ${px4_msgs_INCLUDE_DIRS}
 )
 
-# ArmHandler library
-add_library(arm_handler STATIC
-  autonomous/arm_handler.cpp
-)
-
-target_link_libraries(arm_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# TakeoffHandler library
-add_library(takeoff_handler STATIC
-  autonomous/takeoff_handler.cpp
-)
-
-target_link_libraries(takeoff_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# WaypointHandler library
-add_library(waypoint_handler STATIC
-  autonomous/waypoint_handler.cpp
-)
-
-target_link_libraries(waypoint_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# RTLHandler library
-add_library(rtl_handler STATIC
-  autonomous/rtl_handler.cpp
-)
-
-target_link_libraries(rtl_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# DistanceAdjuster library
-add_library(distance_adjuster STATIC
-  autonomous/distance_adjuster.cpp
-)
-
-target_link_libraries(distance_adjuster
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# OffboardManager library
+# ========== OffboardManager library (단순화된 버전) ==========
 add_library(offboard_manager STATIC
-  autonomous/offboard_manager.cpp
+  offboard_manager.cpp
 )
 
 target_link_libraries(offboard_manager
-  arm_handler
-  takeoff_handler
-  waypoint_handler
-  distance_adjuster
-  rtl_handler
   ${rclcpp_LIBRARIES}
   ${px4_msgs_LIBRARIES}
 )
-
-# Test executables
-add_executable(test_arm test_arm.cpp)
-target_link_libraries(test_arm
-  arm_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-add_executable(test_takeoff test_takeoff.cpp)
-target_link_libraries(test_takeoff
-  arm_handler
-  takeoff_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-add_executable(test_waypoint test_waypoint.cpp)
-target_link_libraries(test_waypoint
-  arm_handler
-  takeoff_handler
-  waypoint_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-add_executable(test_rtl test_rtl.cpp)
-target_link_libraries(test_rtl
-  arm_handler
-  takeoff_handler
-  waypoint_handler
-  rtl_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-add_executable(test_mission test_mission.cpp)
-target_link_libraries(test_mission
-  offboard_manager
-  waypoint_handler
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-add_executable(test_mission2 test_mission2.cpp)
-target_link_libraries(test_mission2
-  offboard_manager
-  ${rclcpp_LIBRARIES}
-  ${px4_msgs_LIBRARIES}
-)
-
-# test_offboard_simple은 custom_message 의존성 필요 - executeMission2로 대체됨
-# add_executable(test_offboard_simple test_offboard_simple.cpp)
-# target_link_libraries(test_offboard_simple
-#   ${rclcpp_LIBRARIES}
-#   ${px4_msgs_LIBRARIES}
-# )
 
 # Install
 install(TARGETS
-  arm_handler
-  takeoff_handler
-  waypoint_handler
-  rtl_handler
-  distance_adjuster
   offboard_manager
-  test_arm
-  test_takeoff
-  test_waypoint
-  test_rtl
-  test_mission
-  test_mission2
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib

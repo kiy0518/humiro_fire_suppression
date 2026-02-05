@@ -112,6 +112,7 @@ private:
     std::atomic<bool> rgb_init_done_;
     std::atomic<bool> thermal_init_done_;
     std::atomic<bool> mission_running_;  // 미션 실행 중 플래그 (중복 실행 방지)
+    uint8_t drone_id_ = 1;  // DRONE_ID 환경 변수에서 로드 (멀티 드론 식별용)
     
     // 내부 메서드
     void initializeROS2(int argc, char* argv[]);
@@ -138,6 +139,9 @@ private:
 
     // 미션 종료 통합 정리 (mission_running_ 리셋 + OffboardManager 정리)
     void finishMission(bool reset_offboard = true);
+
+    // target_system 검증 (멀티 드론 환경에서 자신에게 보낸 메시지인지 확인)
+    bool isTargetedToMe(uint8_t target_system) const;
     // void testExeMission(const custom_message::FireMissionStart& start);
     // void testExeMission3(const custom_message::FireMissionStart& start);
 };

@@ -1,0 +1,49 @@
+# ==============================================================================
+# MAVLink Router 설정 - SITL 시뮬레이션 + FC 자동 전환
+# 생성: 2026-01-23
+# Drone ID: 1
+# VIM4 IP: 192.168.100.11
+# 시뮬레이션 PC IP: 192.168.100.6
+# ==============================================================================
+
+[General]
+TcpServerPort = 5790
+ReportStats = false
+MavlinkDialect = common
+
+# FC 연결 (실제 비행용) - 이더넷 (10.0.0.x)
+[UdpEndpoint FC]
+Mode = Server
+Address = 0.0.0.0
+Port = 14540
+
+# SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
+# 시뮬레이션 PC에서: mavlink start -u 14540 -o 18001 -t 192.168.100.11
+[UdpEndpoint SITL]
+Mode = Server
+Address = 0.0.0.0
+Port = 18001
+
+# GCS (QGroundControl) - 브로드캐스트
+[UdpEndpoint GCS]
+Mode = Normal
+Address = 192.168.100.255
+Port = 14550
+
+# External (커스텀 메시지 테스트용)
+[UdpEndpoint External]
+Mode = Server
+Address = 0.0.0.0
+Port = 16001
+
+# ROS2 노드 연결 (로컬)
+[UdpEndpoint ROS2]
+Mode = Normal
+Address = 127.0.0.1
+Port = 14551
+
+# Application Manager 연결 (로컬)
+[UdpEndpoint Application]
+Mode = Normal
+Address = 127.0.0.1
+Port = 15001
