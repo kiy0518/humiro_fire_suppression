@@ -2,15 +2,15 @@
 
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
-**버전**: v2.3 (2026-02-04)
-**프로젝트 진행률**: ~62% (work-plan 기준)
-**총 코드량**: 10,500+ LOC
+**버전**: v3.0 (2026-02-05)
+**최신 태그**: v0.13.4
+**총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
 
 ---
 
-## ⚠️ 필수 확인 사항 (모든 작업 전)
+## 필수 확인 사항 (모든 작업 전)
 
 **코드 작성 또는 답변 전에 반드시 `work-plan/` 폴더를 확인하세요!**
 
@@ -21,7 +21,7 @@
 
 ### work-plan 문서 전체 목록
 
-#### 📋 프로젝트 관리
+#### 프로젝트 관리
 | 파일 | 내용 |
 |------|------|
 | `000_PROJECT_PROGRESS_REPORT.md` | 프로젝트 진행 현황 |
@@ -29,14 +29,14 @@
 | `007_CURRENT_STATUS.md` | 현재 상태 |
 | `026_IMPLEMENTATION_GAP_ANALYSIS.md` | 구현 현황 분석 |
 
-#### 🔧 Phase 완료 보고서
+#### Phase 완료 보고서
 | 파일 | 내용 |
 |------|------|
 | `002_PHASE2_COMPLETE.md` | Phase 2 완료 |
 | `006_PHASE3_COMPLETE.md` | Phase 3 완료 |
 | `012_20260102_autonomous_phase1_complete.md` | 자율 비행 Phase 1 완료 |
 
-#### 🚁 자율 비행 / Navigation
+#### 자율 비행 / Navigation
 | 파일 | 내용 |
 |------|------|
 | `014_VIM4_AUTONOMOUS_CONTROL_PLAN.md` | VIM4 자율 제어 계획 |
@@ -45,7 +45,7 @@
 | `025_COLLISION_AVOIDANCE_DESIGN.md` | 충돌 방지 설계 |
 | `025_COLLISION_AVOIDANCE_VERIFICATION.md` | 충돌 방지 검증 |
 
-#### 📡 통신 / 메시지
+#### 통신 / 메시지
 | 파일 | 내용 |
 |------|------|
 | `003_ROS2_COMMUNICATION_EXPLANATION.md` | ROS2 통신 설명 |
@@ -56,13 +56,13 @@
 | `022_COMMUNICATION_ARCHITECTURE.md` | 통신 아키텍처 |
 | `022_COMMUNICATION_ARCHITECTURE_STATUS.md` | 통신 아키텍처 상태 |
 
-#### 🎯 화재 진압 시나리오
+#### 화재 진압 시나리오
 | 파일 | 내용 |
 |------|------|
 | `015_FIRE_SUPPRESSION_SCENARIO.md` | 화재 진압 시나리오 |
 | `020_RTK_GPS_COORDINATE_FORMAT.md` | RTK GPS 좌표 형식 |
 
-#### 🖥️ 스트리밍 / GUI
+#### 스트리밍 / GUI
 | 파일 | 내용 |
 |------|------|
 | `009_STATUS_MONITORING_PLAN.md` | 상태 모니터링 계획 |
@@ -70,7 +70,7 @@
 | `016_QGC_DEVELOPMENT_GUIDE.md` | QGC 개발 가이드 |
 | `027_GUI_MANAGEMENT_TOOL_PLAN.md` | GUI 관리 도구 계획 |
 
-#### 🔩 기타
+#### 기타
 | 파일 | 내용 |
 |------|------|
 | `001-usb-camera-autosuspend-fix.md` | USB 카메라 자동 절전 수정 |
@@ -80,7 +80,7 @@
 | `018_README.md` | README |
 | `023_SCRIPT_DEVICE_CONFIG_INTEGRATION.md` | 스크립트 기기 설정 통합 |
 
-### ⚠️ 문서 동기화 유지 (필수)
+### 문서 동기화 유지 (필수)
 **`work-plan/` 폴더에 문서가 추가되거나 삭제되면 이 CLAUDE.md 파일의 목록도 함께 업데이트하세요!**
 
 ```bash
@@ -105,14 +105,16 @@ ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
 - ROS2 Humble
 - PX4 Firmware v1.16.0
 - OpenCV + GStreamer
+- MAVLink 커스텀 메시지 (60000-60003)
 
-**현재 상태** (2026-02-04):
-- ✅ 열화상 시스템 (2,665 LOC)
-- ✅ LiDAR 거리 측정 (1,188 LOC)
-- ✅ 스트리밍 시스템 (800 LOC)
-- ✅ 상태 모니터링 OSD (300 LOC)
-- ✅ VIM4 자율 제어 (2,260 LOC) - Phase 1 완료
-- ⏳ 편대 통신 (다음 구현 목표)
+**현재 상태** (2026-02-05, v0.13.3):
+- 열화상 시스템
+- LiDAR 거리 측정
+- 스트리밍 시스템 (HTTP/RTSP)
+- 상태 모니터링 OSD
+- VIM4 자율 제어 (OFFBOARD 미션, velocity 기반 부드러운 선회)
+- MAVLink 커스텀 메시지 (미션 시작/중지/RTL)
+- 웹 GUI 관리 도구
 
 ---
 
@@ -121,25 +123,22 @@ ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
 ### C/C++ 우선 정책 (필수)
 
 **모든 핵심 모듈은 C++17로 작성**:
-- ✅ 실시간 처리 → C++ 필수
-- ✅ 하드웨어 인터페이스 → C++ 필수
-- ✅ 이미지/비디오 처리 → C++ 필수
-- ⚠️ ROS2 래퍼 → Python 허용 (C++ 라이브러리 호출만)
+- 실시간 처리 -> C++ 필수
+- 하드웨어 인터페이스 -> C++ 필수
+- 이미지/비디오 처리 -> C++ 필수
+- ROS2 래퍼 -> Python 허용 (C++ 라이브러리 호출만)
 
 **코딩 스타일**:
 - C++17 표준, Google C++ Style Guide
 - 스마트 포인터 사용 (`std::unique_ptr`, `std::shared_ptr`)
-- 멀티스레드: 스레드 안전 큐 사용
+- 멀티스레드: `std::atomic`, 스레드 안전 큐 사용
 - 에러 처리: 명확한 에러 코드 반환
 
 **금지 사항**:
-- ❌ 하드코딩된 경로 (환경 변수 사용)
-- ❌ Python으로 실시간 처리
-- ❌ 불필요한 메모리 복사
-- ❌ 불필요한 md파일 생성
-
----
-
+- 하드코딩된 경로 (환경 변수 사용)
+- Python으로 실시간 처리
+- 불필요한 메모리 복사
+- 불필요한 md파일 생성
 
 ---
 
@@ -156,7 +155,7 @@ git tag --sort=-v:refname | grep "^v0" | head -1  # 최신 태그 확인
 ```
 
 - 현재 버전을 파악한 후 다음 버전 번호 결정
-- 예: 현재 v0.11.8이면 → PATCH는 v0.11.9, MINOR는 v0.12.0
+- 예: 현재 v0.13.3이면 -> PATCH는 v0.13.4, MINOR는 v0.14.0
 
 ### 버전 체계: Semantic Versioning
 
@@ -164,11 +163,11 @@ git tag --sort=-v:refname | grep "^v0" | head -1  # 최신 태그 확인
 
 | 단계 | 버전 변경 | 조건 |
 |------|-----------|------|
-| **개발 단계** | MINOR (v0.11.x → v0.12.x) | Phase 완료, 주요 기능 추가, 새 모듈 통합 |
-| **개발 단계** | PATCH (v0.11.7 → v0.11.8) | 버그 수정, 성능 개선, 작은 개선사항 |
-| **정식 출시 후** | MAJOR (v1.x → v2.x) | 하위 호환성이 깨지는 변경, 아키텍처 전면 개편 |
-| **정식 출시 후** | MINOR (v1.0.x → v1.1.x) | 새 기능 추가 (하위 호환 유지) |
-| **정식 출시 후** | PATCH (v1.0.0 → v1.0.1) | 버그 수정, 문서 업데이트 |
+| **개발 단계** | MINOR (v0.13.x -> v0.14.x) | Phase 완료, 주요 기능 추가, 새 모듈 통합 |
+| **개발 단계** | PATCH (v0.13.3 -> v0.13.4) | 버그 수정, 성능 개선, 작은 개선사항 |
+| **정식 출시 후** | MAJOR (v1.x -> v2.x) | 하위 호환성이 깨지는 변경, 아키텍처 전면 개편 |
+| **정식 출시 후** | MINOR (v1.0.x -> v1.1.x) | 새 기능 추가 (하위 호환 유지) |
+| **정식 출시 후** | PATCH (v1.0.0 -> v1.0.1) | 버그 수정, 문서 업데이트 |
 
 ### Git 커밋/태그 메시지 형식
 
@@ -210,11 +209,11 @@ git push origin v0.x.x
 **모든 태그는 상세한 릴리스 노트를 포함해야 합니다**:
 
 1. **Annotated Tag 사용**:
-   - ❌ Lightweight tag 금지: `git tag v0.x.x`
-   - ✅ Annotated tag 필수: `git tag -a v0.x.x -m "메시지"`
+   - Lightweight tag 금지: `git tag v0.x.x`
+   - Annotated tag 필수: `git tag -a v0.x.x -m "메시지"`
 
 2. **릴리스 노트 형식**:
-   - ⚠️ **`#` 사용 금지**: Git이 `#`으로 시작하는 줄을 주석으로 처리하여 삭제함
+   - `#` 사용 금지: Git이 `#`으로 시작하는 줄을 주석으로 처리하여 삭제함
    - 섹션 헤더는 `###` 대신 `**볼드**` 형식 사용
    ```bash
    # 메시지 파일 생성
@@ -242,42 +241,18 @@ git push origin v0.x.x
    git push origin v0.x.x
    ```
 
-3. **GitHub에서 확인**:
-   - 저장소 → Tags → 태그 클릭
-   - 릴리스 노트가 표시되어야 함
-   - 예시: v0.12.7, v0.12.8 참고
-
-4. **기존 태그 수정** (필요 시):
+3. **기존 태그 수정** (필요 시):
    ```bash
-   # 로컬 태그 삭제
    git tag -d v0.x.x
-
-   # 상세한 메시지로 재생성
    git tag -a v0.x.x -F /tmp/tag_message.txt
-
-   # 강제 푸시
    git push origin v0.x.x --force
    ```
-
-### 버전 히스토리 예시
-
-```
-# 개발 단계
-v0.1.0 - Phase 1 기본 완료 (Arming, Takeoff, RTL)
-v0.2.0 - Waypoint + LiDAR 통합
-v0.3.0 - 자동 미션 실행 추가
-v0.11.8 - MAVLink Wire Format 정렬 및 메시지 ID 통일
-v1.0.0 - 첫 정식 출시!
-
-# 정식 출시 후
-v1.1.0 - 성능 개선 및 새 기능
-v2.0.0 - 차세대 시스템
-```
 
 ### 기존 태그 처리
 
 기존 v1.x 태그들 (v1.0-px4-msgs-fix, v1.1-autonomous-phase1 등)은 **히스토리 보존**을 위해 그대로 유지합니다.
 
+---
 
 ## 프로젝트 구조
 
@@ -285,58 +260,139 @@ v2.0.0 - 차세대 시스템
 
 ```
 humiro_fire_suppression/
-├── thermal/                    # ✅ 열화상 시스템 (2,665 LOC)
+├── application/                # 통합 애플리케이션 (메인 프로그램)
+│   ├── main.cpp                # 진입점
 │   ├── src/
-│   │   ├── main.cpp            # 멀티스레드 오케스트레이션
-│   │   ├── camera_manager      # 카메라 I/O
-│   │   ├── thermal_processor   # 핫스팟 감지
-│   │   ├── frame_compositor    # RGB+Thermal 정합
-│   │   ├── rtsp_server         # RTSP 스트리밍
-│   │   └── http_server         # HTTP 스트리밍
+│   │   ├── application_manager.cpp/h  # 미션 관리, 커스텀 메시지 처리
+│   │   └── frame_compositor.cpp/h     # RGB+열화상 합성
+│   ├── build.sh
 │   └── CMakeLists.txt
 │
-├── lidar/                      # ✅ LiDAR 시스템 (1,188 LOC)
-│   ├── src/
-│   │   ├── lidar_interface     # LD19 UART 통신
-│   │   ├── distance_overlay    # 거리 시각화
-│   │   └── lidar_ros2_publisher # ROS2 발행
-│   └── CMakeLists.txt
+├── navigation/                 # OFFBOARD 자율 비행
+│   └── src/offboard/
+│       ├── offboard_manager.cpp/h     # OFFBOARD 미션 제어 (핵심)
+│       └── CMakeLists.txt
 │
-├── navigation/                 # ✅ 자율 제어 (2,260 LOC)
-│   ├── src/offboard/
-│   │   ├── autonomous/         # Phase 1 핸들러
-│   │   │   ├── arm_handler
-│   │   │   ├── takeoff_handler
-│   │   │   ├── waypoint_handler
-│   │   │   ├── distance_adjuster
-│   │   │   ├── rtl_handler
-│   │   │   └── offboard_manager
-│   │   ├── communication/      # ⏳ Phase 2 예정
-│   │   └── formation/          # ⏳ Phase 3 예정
-│   └── CMakeLists.txt
-│
-├── osd/                        # ✅ OSD 시스템 (1,500 LOC)
-│   ├── src/
-│   │   ├── lidar/              # 거리 오버레이
-│   │   ├── thermal/            # 열화상 오버레이
-│   │   ├── targeting/          # 타겟팅 오버레이
-│   │   └── status/             # 상태 모니터링 OSD
-│   └── CMakeLists.txt
-│
-├── application/                # ✅ 통합 애플리케이션 (1,500 LOC)
-│   ├── src/
-│   │   ├── main.cpp
-│   │   └── application_manager
-│   └── CMakeLists.txt
-│
-├── custom_message/             # MAVLink 커스텀 메시지
+├── custom_message/             # MAVLink 커스텀 메시지 (60000-60003)
 │   ├── include/custom_message/
+│   │   ├── custom_message.h           # 메시지 수신/파싱
+│   │   └── custom_message_type.h      # 메시지 타입 정의
 │   ├── src/
+│   │   └── custom_message.cpp
+│   ├── examples/
+│   │   └── test_message_sender.cpp    # 테스트 송신기
+│   ├── test/
+│   │   └── custom_message_sender_gui_v2.py  # GUI 테스트 도구
 │   └── CMakeLists.txt
 │
-├── targeting/                  # ⏳ 타겟팅 (30% 완료)
-├── throwing_mechanism/         # ⏳ 발사 메커니즘 (미구현)
-└── work-plan/                  # 프로젝트 계획 문서
+├── ros2/                       # ROS2 통신 모듈
+│   └── src/status/
+│       └── status_ros2_subscriber.cpp/h  # PX4 상태 구독 (vehicle_status_v1 등)
+│
+├── thermal/                    # 열화상 시스템
+│   ├── src/
+│   │   ├── main.cpp                   # 열화상 메인
+│   │   ├── camera_manager/            # 카메라 I/O
+│   │   ├── thermal_processor/         # 핫스팟 감지
+│   │   └── frame_compositor/          # RGB+Thermal 정합
+│   └── CMakeLists.txt
+│
+├── streaming/                  # 스트리밍 시스템
+│   └── src/
+│       ├── streaming_manager.cpp/h    # 스트리밍 관리
+│       ├── http_server.cpp/h          # HTTP 스트리밍
+│       └── rtsp_server.cpp/h          # RTSP 스트리밍
+│
+├── osd/                        # OSD 오버레이 시스템
+│   └── src/
+│       ├── lidar/
+│       │   └── distance_overlay.cpp/h     # LiDAR 거리 오버레이
+│       ├── thermal/
+│       │   └── thermal_overlay.cpp/h      # 열화상 오버레이
+│       ├── targeting/
+│       │   ├── aim_indicator.cpp/h        # 조준 표시
+│       │   └── hotspot_tracker.cpp/h      # 핫스팟 추적
+│       ├── status/
+│       │   └── status_overlay.cpp/h       # 상태 모니터링 OSD
+│       └── mission/
+│           └── mission_overlay.cpp/h      # 미션 오버레이
+│
+├── lidar/                      # LiDAR 시스템 (LD19)
+│   └── src/
+│       ├── lidar_interface.cpp/h      # LD19 UART 통신
+│       ├── lidar_ros2_publisher.cpp/h # ROS2 발행
+│       └── lidar_config.h             # 설정
+│
+├── gui/                        # 웹 GUI 관리 도구 (Flask)
+│   ├── app.py                         # Flask 메인
+│   ├── templates/                     # HTML 템플릿
+│   │   ├── index.html                 # 대시보드
+│   │   ├── router.html                # mavlink-router 관리
+│   │   ├── camera.html                # 카메라 설정
+│   │   ├── config.html                # 기기 설정
+│   │   ├── flight_mode.html           # 비행 모드
+│   │   ├── mavlink_sender.html        # MAVLink 메시지 송신
+│   │   ├── micro_ros.html             # MicroXRCE-DDS 관리
+│   │   ├── params.html                # FC 파라미터
+│   │   ├── terminal.html              # 웹 터미널
+│   │   └── wifi.html                  # WiFi 관리
+│   └── utils/
+│       ├── config_manager.py          # 설정 관리
+│       ├── mavlink_manager.py         # MAVLink 유틸
+│       ├── wifi_manager.py            # WiFi 유틸
+│       └── system_checker.py          # 시스템 체크
+│
+├── targeting/                  # 타겟팅 시스템 (구현 중)
+│   └── src/
+│       └── targeting_frame_compositor.cpp/h
+│
+├── throwing_mechanism/         # 발사 메커니즘 (미구현)
+│
+├── scripts/                    # 운영 스크립트
+│   ├── install/                       # 설치 스크립트
+│   │   ├── 000-install_all.sh
+│   │   ├── 001-install_px4_ros2_complete.sh
+│   │   ├── 002-install_mavlink_router.sh
+│   │   └── 003-apply_config.sh
+│   ├── runtime/                       # 런타임 스크립트
+│   │   ├── humiro_fire_suppression_wrapper.sh
+│   │   ├── service-control.sh
+│   │   └── start_micro_ros_agent_wrapper.sh
+│   ├── debug/                         # 디버그 스크립트
+│   │   ├── check_px4_connection.sh
+│   │   └── ros2_topic_echo_px4.sh
+│   ├── connect_fc.sh                  # FC 연결
+│   ├── connect_sitl.sh                # SITL 연결
+│   └── start_sitl_simulation.sh       # SITL 시작
+│
+├── config/                     # 설정 파일
+│   ├── device_config.env              # 기기별 설정 (드론ID, IP 등)
+│   ├── custom_params.json             # 커스텀 파라미터
+│   ├── fastdds_eth0_only.xml          # DDS 설정
+│   └── fc_params/                     # FC 파라미터 백업
+│
+├── deployment/                 # 배포 (systemd 서비스)
+│   └── systemd/
+│
+├── humiro_msgs/                # ROS2 커스텀 메시지 정의
+│   └── CMakeLists.txt
+│
+├── docs/                       # 기술 문서
+│   ├── SITL_VIM4_CONNECTION_QUICKSTART.md  # SITL-VIM4 연결 가이드
+│   ├── SIMULATION_SETUP_GUIDE.md          # 시뮬레이션 환경 구축
+│   ├── OFFBOARD_MODE_SETUP.md             # OFFBOARD 모드 설정
+│   ├── PX4_16_UXRCE_DDS_SETUP.md          # uXRCE-DDS 설정
+│   ├── PX4_NAV_STATE_REFERENCE.md         # PX4 상태 참조
+│   ├── PORT_RULES.md                      # 포트 규칙
+│   ├── CUSTOM_MESSAGE_DEBUG_GUIDE.md      # 커스텀 메시지 디버그
+│   ├── installation/                      # 설치 가이드 (HTML)
+│   ├── setup/                             # 설정 가이드
+│   └── technical/                         # 기술 문서
+│
+├── work-plan/                  # 프로젝트 계획 문서 (28개)
+│
+├── CLAUDE.md                   # 이 파일
+└── CHANGELOG.md                # 변경 이력
 ```
 
 ---
@@ -346,128 +402,155 @@ humiro_fire_suppression/
 ### 데이터 흐름
 
 ```
-열화상 카메라 (thermal/)
-    ↓ 핫스팟 위치 + 온도
-LiDAR (lidar/)
-    ↓ 거리 측정 (10m 확인)
-Navigation (navigation/)
-    ↓ OFFBOARD 자율 비행
-    ├─ GPS 좌표 이동
-    ├─ LiDAR 거리 조정 (10m±1m)
-    └─ 호버링 (발사 준비)
-Targeting (targeting/) ⏳ 구현 예정
-    ↓ 핫스팟 추적 + 드론 미세 조정
-Throwing Mechanism ⏳ 구현 예정
-    └─ GPIO 발사
+                        MAVLink (UDP)              uXRCE-DDS (UDP)
+  SITL PC / FC  ──────────────────────────────────────────────────> VIM4
+  (PX4)               ↓                                ↓
+              mavlink-router (18001)          MicroXRCE-DDS Agent (8888)
+                    ↓                                ↓
+          custom_message.cpp               ROS2 토픽 발행
+          (60000-60003 파싱)               /fmu/out/vehicle_status_v1
+                    ↓                     /fmu/out/vehicle_local_position
+          application_manager.cpp         /fmu/out/vehicle_global_position
+          (미션 관리)                              ↓
+                    ↓                     status_ros2_subscriber.cpp
+          offboard_manager.cpp            (FC 상태 구독)
+          (OFFBOARD 미션 제어)
+                    ↓
+          TrajectorySetpoint / VehicleCommand
+          (ROS2 → PX4)
 ```
 
-### Phase 1 자율 비행 상태 머신
+### 미션 상태 머신
 
 ```
-IDLE → GPS 신호 대기
+IDLE → 대기
   ↓
-ARMING → OFFBOARD 모드 + ARM
+PREPARING → heartbeat 발행 (2초, OFFBOARD 준비)
   ↓
-TAKEOFF → 5m 고도 이륙
+OFFBOARD → OFFBOARD 모드 전환 명령
   ↓
-NAVIGATE → GPS 좌표 이동
+ARMING → ARM 시동
   ↓
-ADJUST_DISTANCE → LiDAR 10m±1m 조정
+TAKEOFF → 목표 고도 이륙
   ↓
-HOVER → 타겟팅/발사 준비
+HOVER → 호버링 안정화
   ↓
-RTL → 자동 복귀/착륙
+ROTATE → 목표 방향 회전 (yaw PD 제어)
   ↓
-LANDED → 미션 완료
+NAVIGATE → 목표 위치 이동 (velocity setpoint + 보간)
+  ↓        ↑ (경로 변경 시 부드러운 선회)
+RTL → 자동 귀환/착륙
+  ↓
+LANDED → 미션 완료 → IDLE 리셋
 ```
+
+**경로 변경 (v0.13.2+)**:
+- NAVIGATE 중 새 커스텀 메시지(60000) 수신 시 목표만 업데이트
+- 정지 없이 velocity 보간으로 부드러운 곡선 선회 (v0.13.3)
 
 ### ROS2 토픽
 
-**PX4 → VIM4** (구독):
-- `/fmu/out/vehicle_status` - 비행 상태
-- `/fmu/out/vehicle_gps_position` - GPS 위치
+**PX4 -> VIM4** (구독):
+- `/fmu/out/vehicle_status_v1` - 비행 상태 (nav_state, arming_state)
+- `/fmu/out/vehicle_local_position` - 로컬 NED 위치
+- `/fmu/out/vehicle_global_position` - GPS 위치
 - `/fmu/out/battery_status` - 배터리
 
-**VIM4 → PX4** (발행):
-- `/fmu/in/offboard_control_mode` - OFFBOARD 제어 모드
-- `/fmu/in/trajectory_setpoint` - 위치 목표
-- `/fmu/in/vehicle_command` - 명령 (ARM, TAKEOFF 등)
+**VIM4 -> PX4** (발행):
+- `/fmu/in/offboard_control_mode` - OFFBOARD heartbeat
+- `/fmu/in/trajectory_setpoint` - 위치/속도 목표
+- `/fmu/in/vehicle_command` - 명령 (ARM, TAKEOFF, RTL 등)
 
 **VIM4 센서** (발행):
 - `/lidar/front_distance` - 전방 거리
+- `/lidar/points` - LiDAR 포인트
 - `/thermal/hotspot` - 핫스팟 정보
+- `/thermal/max_temperature` - 최대 온도
 - `/offboard/status` - OFFBOARD 상태
+
+### MAVLink 커스텀 메시지
+
+| MSG_ID | 이름 | 방향 | 설명 |
+|--------|------|------|------|
+| 60000 | FIRE_MISSION_START | GCS->VIM4 | 미션 시작 (좌표, 고도, 속도) |
+| 60001 | FIRE_MISSION_STATUS | VIM4->GCS | 미션 상태 보고 |
+| 60002 | FIRE_MISSION_STOP | GCS->VIM4 | 미션 중지 |
+| 60003 | FIRE_MISSION_RTL | GCS->VIM4 | 긴급 RTL |
+
+- 60000은 **중복 허용** (비행 중 경로 변경)
+- 60001-60003은 중복 차단
 
 ---
 
 ## 주요 클래스 및 API
 
-### Navigation 시스템
+### OffboardManager (`navigation/src/offboard/offboard_manager.h`)
 
-**OffboardManager** (`navigation/src/offboard/autonomous/offboard_manager.h`):
 ```cpp
+enum class MissionState {
+    IDLE, PREPARING, OFFBOARD, ARMING,
+    TAKEOFF, HOVER, ROTATE, NAVIGATE,
+    RTL, LANDED, ERROR
+};
+
+struct MissionConfig {
+    float takeoff_altitude = 5.0f;
+    float flight_speed = 5.0f;
+    GPSCoordinate target_waypoint;
+    float hover_duration_sec = 3.0f;
+};
+
 class OffboardManager {
 public:
-    enum class State {
-        IDLE,
-        ARMING,
-        TAKEOFF,
-        NAVIGATE,
-        ADJUST_DISTANCE,
-        HOVER,
-        RTL,
-        LANDED,
-        EMERGENCY_RTL
-    };
-    
-    void run();  // 메인 루프
-    void setState(State new_state);
-    State getState() const;
+    bool executeMission3(const MissionConfig& config);  // 미션 실행 (미션 중이면 경로 변경)
+    bool updateMissionTarget(const GPSCoordinate& new_target);  // 부드러운 경로 변경
+    bool isMissionRunning() const;
+    void abortMission();
+    void emergencyRTL();
+    MissionState getCurrentState() const;
+    void resetToIdle();
 };
 ```
 
-**각 핸들러 인터페이스**:
+**핵심 동작**:
+- 10Hz 타이머로 heartbeat + setpoint 발행
+- NAVIGATE 상태: velocity setpoint + low-pass filter (alpha=0.08)
+- GPS -> 로컬 NED 좌표 변환
+- Yaw PD 제어 (K_P=1.5, K_D=0.9)
+
+### ApplicationManager (`application/src/application_manager.h`)
+
 ```cpp
-// 공통 인터페이스
-class Handler {
+class ApplicationManager {
 public:
-    virtual bool execute() = 0;  // true: 성공, false: 실패
-    virtual bool isComplete() = 0;
-};
-
-// 예: ArmHandler
-class ArmHandler : public Handler {
-public:
-    bool execute() override;      // ARM 명령 전송
-    bool isComplete() override;   // ARM 완료 확인
-};
-```
-
-### Thermal 시스템
-
-**ThermalProcessor** (`thermal/src/thermal_processor.h`):
-```cpp
-class ThermalProcessor {
-public:
-    struct Hotspot {
-        cv::Point position;
-        float temperature;
-        int confidence;
-    };
-    
-    std::vector<Hotspot> detectHotspots(const cv::Mat& thermal_frame);
+    void initialize();
+    void run();                        // 메인 루프
+    void handleMissionStart(const FireMissionStart& msg);  // 미션 시작/경로 변경
+    void handleMissionStop();
+    void handleMissionRTL();
 };
 ```
 
-### LiDAR 시스템
+### CustomMessage (`custom_message/include/custom_message/custom_message.h`)
 
-**LidarInterface** (`lidar/src/lidar_interface.h`):
 ```cpp
-class LidarInterface {
+class CustomMessage {
 public:
-    bool init(const std::string& port, int baud_rate);
-    float getFrontDistance();  // 전방 거리 (미터)
-    std::array<float, 360> getScan360();  // 360도 스캔
+    bool initialize(int port = 15001);
+    void setCallback(std::function<void(const ParsedMessage&)> callback);
+    void spin();  // 메시지 수신 루프
+};
+```
+
+### StatusROS2Subscriber (`ros2/src/status/status_ros2_subscriber.h`)
+
+```cpp
+class StatusROS2Subscriber {
+public:
+    void spin();
+    bool isFCConnected() const;        // 3초 이내 VehicleStatus 수신 여부
+    uint8_t getNavState() const;
+    uint8_t getArmingState() const;
 };
 ```
 
@@ -476,6 +559,14 @@ public:
 ## 빌드 방법
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
+
+### Application (통합 - 주로 사용)
+```bash
+cd /home/khadas/humiro_fire_suppression/application/build
+cmake .. -DENABLE_ROS2=ON
+make -j4
+# 출력: ./humiro_fire_suppression
+```
 
 ### Thermal 시스템
 ```bash
@@ -488,105 +579,37 @@ make -j$(nproc)
 
 ### LiDAR 시스템
 ```bash
-cd /home/khadas/humiro_fire_suppression/lidar
+cd /home/khadas/humiro_fire_suppression/lidar/src
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
-# 출력: ./lidar_test
-```
-
-### Navigation 시스템
-```bash
-cd /home/khadas/humiro_fire_suppression/navigation
-./build.sh
-# 출력: build/test_arm, build/test_mission 등
-```
-
-### Application (통합)
-```bash
-cd /home/khadas/humiro_fire_suppression/application
-mkdir -p build && cd build
-cmake ..
-make -j$(nproc)
-# 출력: ./humiro_fire_suppression
 ```
 
 ---
 
-## 다음 구현 목표
+## SITL 시뮬레이션 연결
 
-### Phase 2: 편대 통신 모듈 (3일)
+상세 가이드: `docs/SITL_VIM4_CONNECTION_QUICKSTART.md`
 
-**위치**: `navigation/src/offboard/communication/`
+### 빠른 시작 (SITL PC의 PX4 콘솔에서)
+```bash
+# 파라미터 설정
+param set COM_RCL_EXCEPT 4
+param set NAV_RCL_ACT 0
 
-**구현할 클래스**:
-```cpp
-class FormationMember {
-public:
-    // ROS2 발행
-    void publishStatus();  // /formation/member_status
-    
-    // ROS2 구독
-    void onTargetAssignment(const TargetMsg& msg);  // /formation/target_assignment
-    
-private:
-    rclcpp::Publisher<MemberStatusMsg>::SharedPtr status_pub_;
-    rclcpp::Subscription<TargetMsg>::SharedPtr target_sub_;
-};
+# MAVLink 연결 (VIM4로)
+mavlink stop-all
+mavlink start -u 14540 -o 18001 -t 192.168.100.11 -r 4000000
+
+# uXRCE-DDS 연결 (ROS2 토픽)
+uxrce_dds_client start -t udp -h 192.168.100.11 -p 8888
 ```
 
-**메시지 정의** (`custom_message/`):
-```cpp
-struct MemberStatusMsg {
-    int drone_id;
-    float battery_level;
-    int ammo_count;
-    std::string state;  // "IDLE", "FLYING", "TARGETING", etc.
-    float target_distance;  // LiDAR 측정값
-};
-
-struct TargetMsg {
-    int target_id;
-    double latitude;
-    double longitude;
-    float altitude;
-};
-```
-
-### Phase 3: 리더 조율 로직 (4일)
-
-**위치**: `navigation/src/offboard/formation/`
-
-**구현할 클래스**:
-```cpp
-class FormationLeader {
-public:
-    void analyzeFireZones();  // 화재 지점 분석
-    void assignTargets();     // 드론별 목표 할당
-    void monitorProgress();   // 진행 상황 모니터링
-    
-private:
-    std::vector<MemberStatusMsg> member_statuses_;
-    std::vector<Target> fire_targets_;
-};
-```
-
-### Phase 5: 발사 메커니즘 (5일)
-
-**위치**: `throwing_mechanism/src/`
-
-**GPIO 제어**:
-```cpp
-class ThrowingMechanism {
-public:
-    void fire(int pin_number);  // 1-6
-    void reload();
-    int getAmmoCount() const;
-    
-private:
-    std::array<bool, 6> fired_status_;
-    void triggerGPIO(int pin);
-};
+### VIM4에서
+```bash
+sudo systemctl restart mavlink-router
+cd /home/khadas/humiro_fire_suppression/application/build
+./humiro_fire_suppression
 ```
 
 ---
@@ -598,23 +621,30 @@ private:
 - **하드웨어 인터페이스**: C++ 필수
 - **성능 중요**: C++ 필수
 - **ROS2 래퍼**: Python 허용 (C++ 호출만)
-
-### 코드 품질
-- 스마트 포인터 사용
-- 에러 처리 필수
-- 스레드 안전성 보장
-- 메모리 누수 방지
+- **웹 GUI**: Python (Flask)
 
 ### 경로 관리
-- ❌ 절대 경로 하드코딩 금지
-- ✅ 환경 변수 사용 (`PROJECT_ROOT`, `HOME` 등)
-- ✅ 상대 경로 (실행 파일 기준)
+- 절대 경로 하드코딩 금지
+- 환경 변수 사용 (`device_config.env`)
 - **프로젝트 루트**: `/home/khadas/humiro_fire_suppression`
 
-### 테스트
-- 모든 핵심 기능에 단위 테스트
-- 하드웨어는 모의 객체 사용
-- 커밋 전 테스트 통과 확인
+### 네트워크 구성
+
+| 용도 | 인터페이스 | 대역 |
+|------|-----------|------|
+| FC 통신 | eth0 | 10.0.0.x |
+| SITL/WiFi | wlan0 | 192.168.100.x |
+| ROS2 DDS | localhost | 127.0.0.1 |
+
+| 서비스 | 포트 |
+|--------|------|
+| mavlink-router FC | 14540 |
+| mavlink-router SITL | 18001 |
+| mavlink-router GCS | 14550 |
+| Application (커스텀 메시지) | 15001 |
+| External (테스트) | 16001 |
+| MicroXRCE-DDS Agent | 8888 |
+| 웹 GUI | 5000 |
 
 ---
 
@@ -626,10 +656,8 @@ private:
 - `work-plan/013_NEXT_STEPS_FORMATION_CONTROL.md` - 편대 제어 계획
 
 **기술 문서**:
-- `docs/technical/LIDAR_TARGETING.md` - LiDAR 통합
+- `docs/SITL_VIM4_CONNECTION_QUICKSTART.md` - SITL-VIM4 연결
 - `docs/OFFBOARD_MODE_SETUP.md` - OFFBOARD 모드
 - `docs/PX4_NAV_STATE_REFERENCE.md` - PX4 상태
-
-**설치 및 운영** (코드 작성 시 불필요):
-- `docs/setup/` - 설치 가이드
-- README.md - 프로젝트 개요
+- `docs/PORT_RULES.md` - 포트 규칙
+- `docs/CUSTOM_MESSAGE_DEBUG_GUIDE.md` - 커스텀 메시지 디버그
