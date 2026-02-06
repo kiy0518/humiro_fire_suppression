@@ -1224,6 +1224,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.target_waypoint.longitude = start.target_lon / 1e7;
             config.target_waypoint.altitude = start.target_alt;
             config.takeoff_altitude = start.target_alt;
+            config.target_altitude = readTargetAltitudeFromConfig();
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
 
@@ -1265,6 +1266,9 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     // 이륙/비행 설정
     config.takeoff_altitude = start.target_alt;
     config.flight_speed = start.flight_speed;
+
+    // 목표지점 고도 (GUI offboard 설정에서 읽기)
+    config.target_altitude = readTargetAltitudeFromConfig();
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -1368,10 +1372,34 @@ bool ApplicationManager::isTargetedToMe(uint8_t target_system) const {
     return target_system == 0 || target_system == 255 || target_system == drone_id_;
 }
 
-// void ApplicationManager::testExeMission(const custom_message::FireMissionStart& start) {
-// — 주석처리됨 (실내 테스트 전용, 비활성화)
-// }
+float ApplicationManager::readTargetAltitudeFromConfig() const {
+    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
+    std::ifstream file(config_path);
+    if (!file.is_open()) {
+        return -1.0f;
+    }
 
-// void ApplicationManager::testExeMission3(const custom_message::FireMissionStart& start) {
-// — 주석처리됨 (실내 테스트 전용, 비활성화)
-// }
+    std::string line;
+    while (std::getline(file, line)) {
+        // "target_altitude": 10.0 형식 파싱
+        auto pos = line.find("\"target_altitude\"");
+        if (pos != std::string::npos) {
+            auto colon_pos = line.find(':', pos);
+            if (colon_pos != std::string::npos) {
+                std::string value_str = line.substr(colon_pos + 1);
+                // 쉼표, 공백 제거
+                value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
+                try {
+                    float val = std::stof(value_str);
+                    if (val > 0.0f) {
+                        std::cout << "[Config] offboard target_altitude: " << val << " m" << std::endl;
+                        return val;
+                    }
+                } catch (...) {
+                    // 파싱 실패
+                }
+            }
+        }
+    }
+    return -1.0f;
+}

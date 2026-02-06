@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.0 (2026-02-05)
-**최신 태그**: v0.13.4
+**최신 태그**: v0.13.5
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -107,14 +107,14 @@ ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
 - OpenCV + GStreamer
 - MAVLink 커스텀 메시지 (60000-60003)
 
-**현재 상태** (2026-02-05, v0.13.3):
+**현재 상태** (2026-02-06, v0.13.5):
 - 열화상 시스템
 - LiDAR 거리 측정
 - 스트리밍 시스템 (HTTP/RTSP)
 - 상태 모니터링 OSD
-- VIM4 자율 제어 (OFFBOARD 미션, velocity 기반 부드러운 선회)
+- VIM4 자율 제어 (OFFBOARD 미션, velocity 기반 부드러운 선회, 목표지점 호버링)
 - MAVLink 커스텀 메시지 (미션 시작/중지/RTL)
-- 웹 GUI 관리 도구
+- 웹 GUI 관리 도구 (오프보드 설정 페이지 포함)
 
 ---
 
@@ -331,6 +331,7 @@ humiro_fire_suppression/
 │   │   ├── camera.html                # 카메라 설정
 │   │   ├── config.html                # 기기 설정
 │   │   ├── flight_mode.html           # 비행 모드
+│   │   ├── offboard_settings.html     # 오프보드 모드 설정
 │   │   ├── mavlink_sender.html        # MAVLink 메시지 송신
 │   │   ├── micro_ros.html             # MicroXRCE-DDS 관리
 │   │   ├── params.html                # FC 파라미터
@@ -368,6 +369,7 @@ humiro_fire_suppression/
 ├── config/                     # 설정 파일
 │   ├── device_config.env              # 기기별 설정 (드론ID, IP 등)
 │   ├── custom_params.json             # 커스텀 파라미터
+│   ├── offboard_config.json           # 오프보드 모드 설정 (목표지점 고도 등)
 │   ├── fastdds_eth0_only.xml          # DDS 설정
 │   └── fc_params/                     # FC 파라미터 백업
 │
@@ -439,6 +441,8 @@ ROTATE → 목표 방향 회전 (yaw PD 제어)
   ↓
 NAVIGATE → 목표 위치 이동 (velocity setpoint + 보간)
   ↓        ↑ (경로 변경 시 부드러운 선회)
+HOVER_AT_TARGET → 목표지점 호버링 (5초, position setpoint)
+  ↓
 RTL → 자동 귀환/착륙
   ↓
 LANDED → 미션 완료 → IDLE 리셋
@@ -447,6 +451,10 @@ LANDED → 미션 완료 → IDLE 리셋
 **경로 변경 (v0.13.2+)**:
 - NAVIGATE 중 새 커스텀 메시지(60000) 수신 시 목표만 업데이트
 - 정지 없이 velocity 보간으로 부드러운 곡선 선회 (v0.13.3)
+
+**목표지점 호버링 (v0.13.6+)**:
+- NAVIGATE 도착 후 5초간 목표지점에서 호버링 후 RTL
+- 목표지점 고도는 `config/offboard_config.json`에서 설정 (GUI 오프보드 설정 페이지)
 
 ### ROS2 토픽
 
@@ -490,11 +498,12 @@ LANDED → 미션 완료 → IDLE 리셋
 enum class MissionState {
     IDLE, PREPARING, OFFBOARD, ARMING,
     TAKEOFF, HOVER, ROTATE, NAVIGATE,
-    RTL, LANDED, ERROR
+    HOVER_AT_TARGET, RTL, LANDED, ERROR
 };
 
 struct MissionConfig {
     float takeoff_altitude = 5.0f;
+    float target_altitude = -1.0f;       // 목표지점 고도 (-1이면 takeoff_altitude 사용)
     float flight_speed = 5.0f;
     GPSCoordinate target_waypoint;
     float hover_duration_sec = 3.0f;
@@ -515,6 +524,7 @@ public:
 **핵심 동작**:
 - 10Hz 타이머로 heartbeat + setpoint 발행
 - NAVIGATE 상태: velocity setpoint + low-pass filter (alpha=0.08)
+- HOVER_AT_TARGET 상태: 목표지점에서 5초 호버링 후 RTL (position setpoint)
 - GPS -> 로컬 NED 좌표 변환
 - Yaw PD 제어 (K_P=1.5, K_D=0.9)
 

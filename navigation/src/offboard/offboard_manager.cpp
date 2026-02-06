@@ -94,7 +94,8 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     RCLCPP_INFO(node_->get_logger(), "  4. 이륙 및 호버링");
     RCLCPP_INFO(node_->get_logger(), "  5. 목표 방향 회전");
     RCLCPP_INFO(node_->get_logger(), "  6. 목표 위치 이동");
-    RCLCPP_INFO(node_->get_logger(), "  7. RTL (자동 귀환)");
+    RCLCPP_INFO(node_->get_logger(), "  7. 목표지점 호버링 (5초)");
+    RCLCPP_INFO(node_->get_logger(), "  8. RTL (자동 귀환)");
     RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
     // 상태 초기화
@@ -197,14 +198,26 @@ void OffboardManager::timerCallback()
     // ★★★ 중요: RTL 전환 체크를 heartbeat 발행 전에 먼저 수행 ★★★
     // 이렇게 해야 RTL 전환 시 마지막 heartbeat가 발행되지 않음
 
-    // 1. 목표 도달 체크
+    // 1. 목표 도달 체크 → HOVER_AT_TARGET 전환
     if (state == MissionState::NAVIGATE && counter > MOVE_START + 10) {
         float dx = target_ned_x_ - current_local_x_.load();
         float dy = target_ned_y_ - current_local_y_.load();
         float dist = std::sqrt(dx * dx + dy * dy);
 
         if (dist < WAYPOINT_THRESHOLD) {
-            RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 목표 도착! RTL 시작...");
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 목표 도착! 목표지점 호버링 시작 (%.1f초)...",
+                        TARGET_HOVER_TICKS / 10.0f);
+            hover_at_target_start_.store(counter);
+            current_state_.store(MissionState::HOVER_AT_TARGET);
+            // 타이머 유지 (heartbeat 계속 필요)
+        }
+    }
+
+    // 2. 목표지점 호버링 완료 → RTL 전환
+    if (state == MissionState::HOVER_AT_TARGET) {
+        uint64_t hover_start = hover_at_target_start_.load();
+        if (counter - hover_start >= TARGET_HOVER_TICKS) {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 7] 목표지점 호버링 완료! RTL 시작...");
 
             // 타이머 취소 (heartbeat 발행 없이 종료)
             if (timer_) {
@@ -392,73 +405,78 @@ void OffboardManager::publishTrajectorySetpoint()
         sp_z = -mission_config_.takeoff_altitude;
         yaw_setpoint = target_yaw_;
 
+    } else if (state == MissionState::HOVER_AT_TARGET) {
+        // 4단계: 목표지점 호버링 (position setpoint으로 위치 유지)
+        float effective_alt = (mission_config_.target_altitude > 0.0f)
+                              ? mission_config_.target_altitude
+                              : mission_config_.takeoff_altitude;
+        sp_x = target_ned_x_;
+        sp_y = target_ned_y_;
+        sp_z = -effective_alt;
+        yaw_setpoint = target_yaw_;
+
     } else if (state == MissionState::NAVIGATE || counter >= MOVE_START) {
-        // 3단계: 목표 위치로 이동 (velocity 기반 - 부드러운 선회)
+        // 3단계: 목표 위치로 이동 (position + velocity 동시 전송 - 피드포워드 제어)
+        // PX4는 position과 velocity를 동시에 받으면 velocity를 피드포워드로 사용하여
+        // "이 위치에 도달할 때 이 속도가 되어야 한다"를 인지하고 강력한 제동 수행
         float cur_x = current_local_x_.load();
         float cur_y = current_local_y_.load();
         float dx = target_ned_x_ - cur_x;
         float dy = target_ned_y_ - cur_y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
-        if (dist > 0.5f) {
-            // 방향 벡터 정규화 후 속도 적용
-            float speed = mission_config_.flight_speed;
-            if (dist < 5.0f) {
-                // 목표 근처에서 감속
-                speed = std::max(1.0f, speed * (dist / 5.0f));
-            }
+        // 감속 프로파일: 거리 비례 속도 (목표에서 0)
+        // 현재 실제 피드포워드 속도 계산
+        float current_ff_speed = std::sqrt(prev_vx_ * prev_vx_ + prev_vy_ * prev_vy_);
+        float speed = mission_config_.flight_speed;
+        constexpr float DECEL_RADIUS = 60.0f;  // 감속 시작 거리 (m) - 45kg기체 12m/s 기준
+        if (dist < DECEL_RADIUS) {
+            // 거리 비례 감속, 단 현재 속도보다 높으면 현재 속도로 제한
+            float decel_speed = speed * (dist / DECEL_RADIUS);
+            speed = std::max(0.3f, std::min(decel_speed, current_ff_speed));
+        }
 
-            // Velocity setpoint 사용 (부드러운 곡선 비행)
-            sp_x = NAN;  // position은 NAN
-            sp_y = NAN;
-            sp_z = -mission_config_.takeoff_altitude;  // 고도만 position으로 유지
-
-            // 목표 velocity 계산
+        // velocity 피드포워드 계산 (목표 방향 * 속도, 목표 근처에서 0으로 수렴)
+        float ff_vx = 0.0f, ff_vy = 0.0f;
+        if (dist > 0.3f) {
             float target_vx = (dx / dist) * speed;
             float target_vy = (dy / dist) * speed;
 
-            // Low-pass filter로 부드러운 선회 (alpha 작을수록 더 부드러움)
-            // alpha=0.1 → 약 1초에 걸쳐 방향 전환
-            constexpr float VELOCITY_ALPHA = 0.08f;
-            float vx = prev_vx_ * (1.0f - VELOCITY_ALPHA) + target_vx * VELOCITY_ALPHA;
-            float vy = prev_vy_ * (1.0f - VELOCITY_ALPHA) + target_vy * VELOCITY_ALPHA;
-
-            // 다음 루프를 위해 저장
-            prev_vx_ = vx;
-            prev_vy_ = vy;
-
-            // yaw는 이동 방향으로 서서히 변경 (yawspeed 사용)
-            float current_yaw = current_yaw_.load();
-            float yaw_diff = target_yaw_ - current_yaw;
-            while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
-            while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
-
-            yawspeed = std::clamp(yaw_diff * 0.5f, -MAX_YAW_RATE, MAX_YAW_RATE);
-            yaw_setpoint = NAN;
-
-            // TrajectorySetpoint 메시지 직접 발행 (velocity 포함)
-            px4_msgs::msg::TrajectorySetpoint msg{};
-            msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-            msg.position = {NAN, NAN, sp_z};  // 고도만 position
-            msg.velocity = {vx, vy, NAN};     // 수평 이동은 velocity (보간된 값)
-            msg.yaw = NAN;
-            msg.yawspeed = yawspeed;
-            trajectory_setpoint_pub_->publish(msg);
-
-            if (counter % 10 == 0) {
-                RCLCPP_INFO(node_->get_logger(),
-                            "[NAVIGATE] Vel(%.1f, %.1f) Target(%.1f, %.1f) | Dist=%.1f m | Yaw: %.1f° → %.1f°",
-                            vx, vy, target_vx, target_vy, dist,
-                            current_yaw * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
-            }
-            return;  // 이미 메시지 발행했으므로 아래 코드 스킵
+            // Low-pass filter (부드러운 선회 유지, alpha 약간 높임)
+            constexpr float VELOCITY_ALPHA = 0.15f;
+            ff_vx = prev_vx_ * (1.0f - VELOCITY_ALPHA) + target_vx * VELOCITY_ALPHA;
+            ff_vy = prev_vy_ * (1.0f - VELOCITY_ALPHA) + target_vy * VELOCITY_ALPHA;
         } else {
-            // 목표 근처: position setpoint으로 정밀 제어
-            sp_x = target_ned_x_;
-            sp_y = target_ned_y_;
-            sp_z = -mission_config_.takeoff_altitude;
-            yaw_setpoint = target_yaw_;
+            // 목표 극근처: velocity = 0 (정지 명령)
+            ff_vx = prev_vx_ * 0.5f;  // 빠르게 감쇠
+            ff_vy = prev_vy_ * 0.5f;
         }
+        prev_vx_ = ff_vx;
+        prev_vy_ = ff_vy;
+
+        // yaw 제어
+        float current_yaw = current_yaw_.load();
+        float yaw_diff = target_yaw_ - current_yaw;
+        while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
+        while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
+        yawspeed = std::clamp(yaw_diff * 0.5f, -MAX_YAW_RATE, MAX_YAW_RATE);
+
+        // Position + Velocity 동시 전송 (피드포워드 제어)
+        px4_msgs::msg::TrajectorySetpoint msg{};
+        msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+        msg.position = {target_ned_x_, target_ned_y_, -mission_config_.takeoff_altitude};  // 항상 목표 위치
+        msg.velocity = {ff_vx, ff_vy, NAN};  // 피드포워드 속도 (목표 근처에서 0)
+        msg.yaw = NAN;
+        msg.yawspeed = yawspeed;
+        trajectory_setpoint_pub_->publish(msg);
+
+        if (counter % 10 == 0) {
+            RCLCPP_INFO(node_->get_logger(),
+                        "[NAVIGATE] Pos+Vel FF | Vel(%.1f, %.1f) Speed=%.1f | Dist=%.1f m | Yaw: %.1f° → %.1f°",
+                        ff_vx, ff_vy, speed, dist,
+                        current_yaw * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
+        }
+        return;  // 이미 메시지 발행했으므로 아래 코드 스킵
 
     } else {
         // 기본: 현재 위치 유지
@@ -631,8 +649,9 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
 
     auto state = current_state_.load();
 
-    // RTL/LANDED/ERROR 상태에서는 업데이트 불가
-    if (state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
+    // RTL/LANDED/ERROR/HOVER_AT_TARGET 상태에서는 업데이트 불가
+    if (state == MissionState::RTL || state == MissionState::LANDED ||
+        state == MissionState::ERROR || state == MissionState::HOVER_AT_TARGET) {
         RCLCPP_WARN(node_->get_logger(), "[UPDATE] Cannot update target in %s state", getStateName(state).c_str());
         return false;
     }
@@ -734,6 +753,7 @@ std::string OffboardManager::getStateName(MissionState state)
         case MissionState::HOVER: return "HOVER";
         case MissionState::ROTATE: return "ROTATE";
         case MissionState::NAVIGATE: return "NAVIGATE";
+        case MissionState::HOVER_AT_TARGET: return "HOVER_AT_TARGET";
         case MissionState::RTL: return "RTL";
         case MissionState::LANDED: return "LANDED";
         case MissionState::ERROR: return "ERROR";

@@ -137,6 +137,9 @@ private:
     // 미션 실행
     void executeMission(const custom_message::FireMissionStart& start);
 
+    // offboard 설정 파일에서 target_altitude 읽기
+    float readTargetAltitudeFromConfig() const;
+
     // 미션 종료 통합 정리 (mission_running_ 리셋 + OffboardManager 정리)
     void finishMission(bool reset_offboard = true);
 

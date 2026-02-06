@@ -3137,6 +3137,47 @@ def api_mavlink_send_fire():
         return jsonify({"success": False, "message": str(e)})
 
 
+## ========== 오프보드 설정 페이지 ==========
+
+OFFBOARD_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "offboard_config.json")
+
+@app.route('/offboard-settings')
+def offboard_settings_page():
+    """오프보드 모드 설정 페이지"""
+    return render_template('offboard_settings.html', active_tab='offboard-settings')
+
+
+@app.route('/api/offboard-config', methods=['GET'])
+def api_get_offboard_config():
+    """오프보드 설정 읽기"""
+    try:
+        if os.path.exists(OFFBOARD_CONFIG_PATH):
+            with open(OFFBOARD_CONFIG_PATH, 'r') as f:
+                data = json.load(f)
+            return jsonify({"success": True, "config": data})
+        else:
+            return jsonify({"success": True, "config": {"target_altitude": 10.0, "updated_at": ""}})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/offboard-config', methods=['POST'])
+def api_set_offboard_config():
+    """오프보드 설정 저장"""
+    try:
+        data = request.json
+        from datetime import datetime
+        data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        os.makedirs(os.path.dirname(OFFBOARD_CONFIG_PATH), exist_ok=True)
+        with open(OFFBOARD_CONFIG_PATH, 'w') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        return jsonify({"success": True, "message": "오프보드 설정이 저장되었습니다."})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("Humiro Fire Suppression - Web GUI")

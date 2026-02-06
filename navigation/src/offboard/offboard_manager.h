@@ -32,6 +32,7 @@ struct GPSCoordinate {
 // 미션 설정 구조체
 struct MissionConfig {
     float takeoff_altitude = 5.0f;           // 이륙 고도 (미터)
+    float target_altitude = -1.0f;           // 목표지점 고도 (미터), -1이면 takeoff_altitude 사용
     float flight_speed = 5.0f;               // 비행 속도 (m/s)
     GPSCoordinate target_waypoint;           // 목표 위치
     float hover_duration_sec = 3.0f;         // 호버링 시간 (초)
@@ -47,6 +48,7 @@ enum class MissionState {
     HOVER,          // 호버링 (안정화)
     ROTATE,         // 목표 방향 회전
     NAVIGATE,       // 목표 위치 이동
+    HOVER_AT_TARGET,// 목표지점 호버링 (5초)
     RTL,            // 귀환
     LANDED,         // 착륙 완료
     ERROR           // 에러
@@ -59,7 +61,7 @@ public:
 
     /**
      * @brief 미션 실행 (블로킹)
-     * 순서: PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE → NAVIGATE → RTL
+     * 순서: PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE → NAVIGATE → HOVER_AT_TARGET → RTL
      * @param config 미션 설정
      * @return 미션 성공 여부
      */
@@ -183,6 +185,9 @@ private:
     float prev_vx_{0.0f};
     float prev_vy_{0.0f};
 
+    // ========== 목표지점 호버링 ==========
+    std::atomic<uint64_t> hover_at_target_start_{0};
+
     // ========== 타이밍 상수 (10Hz 기준) ==========
     static constexpr uint64_t PREPARE_COUNT = 20;    // 2초: heartbeat 준비
     static constexpr uint64_t ARM_COUNT = 45;        // 4.5초: ARM
@@ -191,6 +196,7 @@ private:
     static constexpr uint64_t ROTATE_END = 170;      // 17초: 회전 완료
     static constexpr uint64_t MOVE_START = 180;      // 18초: 이동 시작
     // RTL_TIMEOUT 제거 - 미션 시간 제한 없음 (미션 완료 또는 수동 개입으로만 RTL)
+    static constexpr uint64_t TARGET_HOVER_TICKS = 50; // 5초: 목표지점 호버링 (10Hz)
 
     // ========== 제어 파라미터 ==========
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s)
