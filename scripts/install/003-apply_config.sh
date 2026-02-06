@@ -766,13 +766,23 @@ if [ "$1" = "--auto-reboot" ]; then
     exit 0
 fi
 
-# 2초 대기
-sleep 2
+# 30초 카운트다운 후 자동 재부팅 (n 입력 시 취소)
+echo "30초 후 자동 재부팅됩니다. 취소하려면 'n'을 입력하세요."
+echo ""
 
-# 리부팅 의사 확인
-read -t 5 -p "지금 재부팅하시겠습니까? (y/n, 5초 후 자동 취소): " REBOOT_CONFIRM
+REBOOT_CANCELLED=false
+for i in $(seq 30 -1 1); do
+    printf "\r  재부팅까지 %2d초... (n: 취소) " "$i"
+    if read -t 1 -n 1 INPUT 2>/dev/null; then
+        if [ "$INPUT" = "n" ] || [ "$INPUT" = "N" ]; then
+            REBOOT_CANCELLED=true
+            break
+        fi
+    fi
+done
+echo ""
 
-if [ "$REBOOT_CONFIRM" = "y" ] || [ "$REBOOT_CONFIRM" = "Y" ]; then
+if [ "$REBOOT_CANCELLED" = false ]; then
     echo ""
 
     # FC 먼저 재부팅
