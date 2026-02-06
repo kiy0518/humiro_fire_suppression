@@ -190,7 +190,7 @@ private:
     static constexpr uint64_t ROTATE_START = 110;    // 11초: 회전 시작
     static constexpr uint64_t ROTATE_END = 170;      // 17초: 회전 완료
     static constexpr uint64_t MOVE_START = 180;      // 18초: 이동 시작
-    static constexpr uint64_t RTL_TIMEOUT = 600;     // 60초: 최대 미션 시간
+    // RTL_TIMEOUT 제거 - 미션 시간 제한 없음 (미션 완료 또는 수동 개입으로만 RTL)
 
     // ========== 제어 파라미터 ==========
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s)

@@ -222,22 +222,7 @@ void OffboardManager::timerCallback()
         }
     }
 
-    // 2. 타임아웃 체크 (heartbeat 발행 전에)
-    if (counter > RTL_TIMEOUT && state != MissionState::RTL) {
-        RCLCPP_WARN(node_->get_logger(), "[TIMEOUT] Mission timeout, triggering RTL...");
-
-        if (timer_) {
-            timer_->cancel();
-            RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
-        }
-
-        publishVehicleCommand(
-            px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
-            1.0f, 4.0f, 5.0f);
-        publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
-        current_state_.store(MissionState::RTL);
-        return;  // heartbeat 발행 없이 바로 종료
-    }
+    // 2. 타임아웃 체크 제거 - 미션 완료 또는 수동 개입으로만 RTL 진입
 
     // ★★★ 핵심: heartbeat 발행 (RTL 체크 통과 후에만) ★★★
     publishOffboardControlMode();
@@ -699,16 +684,21 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
     RCLCPP_INFO(node_->get_logger(), "  New Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
     RCLCPP_INFO(node_->get_logger(), "==============================================");
 
-    // ★★★ 정지 없이 선회: 상태/카운터 변경 없이 target만 업데이트 ★★★
-    // NAVIGATE 상태 유지 → 새 target으로 자연스럽게 선회하면서 이동
-    // HOVER/ROTATE/TAKEOFF 등 다른 상태면 NAVIGATE로 전환
-    if (state != MissionState::NAVIGATE) {
-        // 아직 NAVIGATE가 아니면 카운터를 MOVE_START로 설정해서 바로 이동 시작
+    // ★★★ 상태별 목적지 업데이트 처리 ★★★
+    if (state == MissionState::NAVIGATE) {
+        // NAVIGATE 중: 정지 없이 새 target으로 부드럽게 선회하면서 이동
+        RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
+    } else if (state == MissionState::ROTATE || state == MissionState::HOVER) {
+        // ROTATE/HOVER 중: 새 목적지로 헤딩 정렬 재시작
+        setpoint_counter_.store(ROTATE_START);
+        current_state_.store(MissionState::ROTATE);
+        prev_yaw_diff_ = 0.0f;  // PD 제어 초기화
+        RCLCPP_INFO(node_->get_logger(), "  → ROTATE restart for new target (heading realign)");
+    } else {
+        // TAKEOFF 등 기타: NAVIGATE로 즉시 전환
         setpoint_counter_.store(MOVE_START + 1);
         current_state_.store(MissionState::NAVIGATE);
         RCLCPP_INFO(node_->get_logger(), "  → State changed to NAVIGATE (immediate move)");
-    } else {
-        RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
     }
     RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
