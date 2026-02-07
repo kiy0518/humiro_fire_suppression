@@ -878,6 +878,17 @@ void OffboardManager::setContinuousUpdateMode(bool enabled) {
     RCLCPP_INFO(node_->get_logger(), "[FORMATION] continuous_update_mode = %s", enabled ? "true" : "false");
 }
 
+void OffboardManager::setTargetAltitude(float alt) {
+    mission_config_.target_altitude = alt;
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] target_altitude = %.1f m", alt);
+}
+
+void OffboardManager::setTargetYaw(float yaw_rad) {
+    target_yaw_ = yaw_rad;
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] target_yaw = %.1f deg (no state change)",
+                yaw_rad * 180.0f / M_PI);
+}
+
 std::string OffboardManager::getStateName(MissionState state)
 {
     switch (state) {

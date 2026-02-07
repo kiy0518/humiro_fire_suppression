@@ -5,6 +5,8 @@
 
 #include "formation_controller.h"
 #include "../offboard_manager.h"
+#include <algorithm>
+#include <fstream>
 #include <thread>
 
 using namespace std::chrono_literals;
@@ -105,11 +107,35 @@ void FormationController::initLeader() {
     heartbeat_timer_ = node_->create_wall_timer(
         1000ms, std::bind(&FormationController::heartbeatTimerCallback, this));
 
+    // offboard_config.json에서 진압 고도 로드 (리더도 SUPPRESS시 사용)
+    {
+        std::ifstream cfg("/home/khadas/humiro_fire_suppression/config/offboard_config.json");
+        if (cfg.is_open()) {
+            std::string line;
+            while (std::getline(cfg, line)) {
+                auto pos = line.find("\"target_altitude\"");
+                if (pos != std::string::npos) {
+                    auto colon = line.find(':', pos);
+                    if (colon != std::string::npos) {
+                        std::string val = line.substr(colon + 1);
+                        val.erase(std::remove(val.begin(), val.end(), ','), val.end());
+                        try {
+                            float alt = std::stof(val);
+                            if (alt > 0.0f) suppress_altitude_ = alt;
+                        } catch (...) {}
+                    }
+                }
+            }
+        }
+    }
+
     std::cout << "[FormationController] 리더 초기화 완료" << std::endl;
     std::cout << "  - 발행: " << ns_prefix << "/formation/leader_pose (10Hz, mission_state 포함)" << std::endl;
     std::cout << "  - 발행: /formation/heartbeat (1Hz)" << std::endl;
     std::cout << "  - 발행: /formation/command (이벤트)" << std::endl;
     std::cout << "  - 구독: /formation/follower_status" << std::endl;
+    std::cout << "  - 진압 고도: " << suppress_altitude_ << "m, 이격거리: "
+              << suppress_distance_m_ << "m" << std::endl;
 }
 
 // ============================================================================
@@ -151,6 +177,28 @@ void FormationController::initFollower() {
     leader_timeout_timer_ = node_->create_wall_timer(
         1000ms, std::bind(&FormationController::leaderTimeoutTimerCallback, this));
 
+    // offboard_config.json에서 진압 고도 로드
+    {
+        std::ifstream cfg("/home/khadas/humiro_fire_suppression/config/offboard_config.json");
+        if (cfg.is_open()) {
+            std::string line;
+            while (std::getline(cfg, line)) {
+                auto pos = line.find("\"target_altitude\"");
+                if (pos != std::string::npos) {
+                    auto colon = line.find(':', pos);
+                    if (colon != std::string::npos) {
+                        std::string val = line.substr(colon + 1);
+                        val.erase(std::remove(val.begin(), val.end(), ','), val.end());
+                        try {
+                            float alt = std::stof(val);
+                            if (alt > 0.0f) suppress_altitude_ = alt;
+                        } catch (...) {}
+                    }
+                }
+            }
+        }
+    }
+
     std::cout << "[FormationController] 팔로워 초기화 완료" << std::endl;
     std::cout << "  - 구독: " << leader_pose_topic << " (10Hz, mission_state 포함)" << std::endl;
     std::cout << "  - 구독: /formation/heartbeat (1Hz)" << std::endl;
@@ -158,6 +206,7 @@ void FormationController::initFollower() {
     std::cout << "  - 발행: /formation/follower_status (2Hz)" << std::endl;
     std::cout << "  - 오프셋: right=" << offset_right_cm_ << "cm, behind="
               << offset_behind_cm_ << "cm, above=" << offset_above_cm_ << "cm" << std::endl;
+    std::cout << "  - 진압 고도: " << suppress_altitude_ << "m (offboard_config.json)" << std::endl;
 }
 
 // ============================================================================
@@ -248,8 +297,8 @@ void FormationController::leaderStatusTimerCallback() {
             cmd_msg.header.stamp = node_->now();
             cmd_msg.target_drone_id = 0;
             cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_FOLLOW;
-            cmd_msg.target_latitude = offboard_mgr_->getCurrentLat();
-            cmd_msg.target_longitude = offboard_mgr_->getCurrentLon();
+            cmd_msg.target_latitude = mission_target_lat_;   // 미션 목적지 (팔로워 미러링 판정용)
+            cmd_msg.target_longitude = mission_target_lon_;
             cmd_msg.takeoff_altitude = mission_takeoff_altitude_;
             cmd_msg.flight_speed = mission_flight_speed_;
             command_pub_->publish(cmd_msg);
@@ -494,13 +543,30 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
     switch (msg->command) {
         case humiro_msgs::msg::FormationCommand::CMD_HOLD:
             follower_phase_ = FollowerPhase::HOLD;
-            reference_yaw_set_ = false;  // FOLLOWING 해제: 기준 yaw 리셋
+            lateral_offset_mirrored_ = false;
             std::cout << "  → HOLD: 현재 위치 유지" << std::endl;
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_FOLLOW:
             follower_phase_ = FollowerPhase::FOLLOWING;
-            reference_yaw_set_ = false;  // 새 미션: 기준 yaw 리셋
+            lateral_offset_mirrored_ = false;
+            last_offset_valid_ = false;          // 이전 미션 offset_error 리셋 (999→새 계산)
+            precomputed_suppress_valid_ = false;  // 이전 미션 진압 위치 리셋
+            // 미션 목적지 저장 (위치 기반 미러링 판정용)
+            if (msg->target_latitude != 0.0) {
+                mission_dest_lat_ = msg->target_latitude;
+                mission_dest_lon_ = msg->target_longitude;
+                mission_dest_set_ = true;
+                // 초기 approach_bearing 설정 (팔로워 현재 위치 → 목적지)
+                if (offboard_mgr_) {
+                    double cos_lat = std::cos(offboard_mgr_->getCurrentLat() * M_PI / 180.0);
+                    double tn = (mission_dest_lat_ - offboard_mgr_->getCurrentLat()) * DEG_TO_M_LAT;
+                    double te = (mission_dest_lon_ - offboard_mgr_->getCurrentLon()) * DEG_TO_M_LAT * cos_lat;
+                    approach_bearing_deg_ = std::atan2(te, tn) * 180.0f / M_PI;
+                }
+                std::cout << "  → 목적지 저장: " << mission_dest_lat_ << ", " << mission_dest_lon_
+                          << ", approach_bearing=" << approach_bearing_deg_ << "°" << std::endl;
+            }
             received_takeoff_altitude_ = msg->takeoff_altitude;
             received_flight_speed_ = msg->flight_speed;
             std::cout << "  → FOLLOW: alt=" << received_takeoff_altitude_
@@ -524,7 +590,7 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_RTL:
             follower_phase_ = FollowerPhase::RTL;
-            reference_yaw_set_ = false;  // FOLLOWING 해제: 기준 yaw 리셋
+            lateral_offset_mirrored_ = false;
             if (offboard_mgr_) {
                 offboard_mgr_->emergencyRTL();
                 std::cout << "  → RTL: 귀환 명령" << std::endl;
@@ -533,26 +599,62 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS: {
             follower_phase_ = FollowerPhase::SUPPRESSING;
-            std::cout << "  → SUPPRESS: 진압 편대 전환" << std::endl;
+            std::cout << "  → SUPPRESS: 진압 편대 전환 (dist=" << suppress_distance_m_
+                      << "m, angle=" << suppress_angle_deg_ << "°, alt="
+                      << suppress_altitude_ << "m, approach=" << approach_bearing_deg_
+                      << "°)" << std::endl;
 
-            // 타겟 GPS + 자신의 SUPPRESS_DISTANCE/ANGLE로 진압 위치 계산
             if (offboard_mgr_ && msg->target_latitude != 0.0) {
-                double angle_rad = suppress_angle_deg_ * M_PI / 180.0;
-                double dist = (double)suppress_distance_m_;
-                double target_lat_rad = msg->target_latitude * M_PI / 180.0;
-                double cos_lat = std::cos(target_lat_rad);
-
                 GPSCoordinate suppress_pos;
-                suppress_pos.latitude = msg->target_latitude
-                    + (dist * std::cos(angle_rad)) / DEG_TO_M_LAT;
-                suppress_pos.longitude = msg->target_longitude
-                    + (dist * std::sin(angle_rad)) / (DEG_TO_M_LAT * cos_lat);
+
+                // 발화점 중심 기하학 (사전계산 또는 fallback 동일 로직)
+                // 발화점 = 미션목표 + suppress_distance × 접근방향
+                // 팔로워 = 발화점 + suppress_distance × direction(접근+180°-각도)
+                double ab_rad = approach_bearing_deg_ * M_PI / 180.0;
+                double dist = (double)suppress_distance_m_;
+                double cos_lat_tgt = std::cos(msg->target_latitude * M_PI / 180.0);
+
+                // 발화점 GPS
+                double fire_n = dist * std::cos(ab_rad);
+                double fire_e = dist * std::sin(ab_rad);
+                double fire_lat = msg->target_latitude + fire_n / DEG_TO_M_LAT;
+                double fire_lon = msg->target_longitude + fire_e / (DEG_TO_M_LAT * cos_lat_tgt);
+
+                if (precomputed_suppress_valid_) {
+                    suppress_pos.latitude = precomputed_suppress_lat_;
+                    suppress_pos.longitude = precomputed_suppress_lon_;
+                    std::cout << "  → 진압 위치(사전계산, mirror="
+                              << (lateral_offset_mirrored_ ? "ON" : "OFF") << ")" << std::endl;
+                } else {
+                    // fallback: 발화점 중심 계산 (미러링 적용)
+                    double effective_angle = lateral_offset_mirrored_
+                        ? -(double)suppress_angle_deg_ : (double)suppress_angle_deg_;
+                    double foll_bearing_rad = (approach_bearing_deg_ + 180.0 - effective_angle) * M_PI / 180.0;
+                    double foll_n = fire_n + dist * std::cos(foll_bearing_rad);
+                    double foll_e = fire_e + dist * std::sin(foll_bearing_rad);
+                    suppress_pos.latitude = msg->target_latitude + foll_n / DEG_TO_M_LAT;
+                    suppress_pos.longitude = msg->target_longitude + foll_e / (DEG_TO_M_LAT * cos_lat_tgt);
+                    std::cout << "  → 진압 위치(fallback, mirror="
+                              << (lateral_offset_mirrored_ ? "ON" : "OFF") << ")" << std::endl;
+                }
                 suppress_pos.altitude = offboard_mgr_->getCurrentAltAmsl();
 
-                offboard_mgr_->updateMissionTarget(suppress_pos);
-                std::cout << "  → 진압 위치: " << suppress_pos.latitude << ", "
-                          << suppress_pos.longitude << " (dist=" << dist
-                          << "m, angle=" << suppress_angle_deg_ << "°)" << std::endl;
+                // 진압 고도 설정 (offboard_config.json target_altitude)
+                if (suppress_altitude_ > 0.0f) {
+                    offboard_mgr_->setTargetAltitude(suppress_altitude_);
+                }
+
+                // 헤딩: 발화점 방향으로 설정
+                double dn = (fire_lat - suppress_pos.latitude) * DEG_TO_M_LAT;
+                double de = (fire_lon - suppress_pos.longitude) * DEG_TO_M_LAT
+                            * std::cos(suppress_pos.latitude * M_PI / 180.0);
+                float yaw_to_fire = std::atan2(de, dn);
+
+                offboard_mgr_->updateMissionTarget(suppress_pos, yaw_to_fire);
+                std::cout << "  → 팔로워 진압 위치: " << suppress_pos.latitude << ", "
+                          << suppress_pos.longitude << std::endl;
+                std::cout << "  → 발화점: " << fire_lat << ", " << fire_lon
+                          << ", yaw=" << (yaw_to_fire * 180.0f / M_PI) << "°" << std::endl;
             }
             break;
         }
@@ -672,6 +774,31 @@ void FormationController::triggerSuppressPhase() {
     std::cout << "[FormationController] SUPPRESS phase 전환! target=("
               << mission_target_lat_ << ", " << mission_target_lon_ << ")" << std::endl;
 
+    // 리더 헤딩: 발화점(타겟 이격거리 전방) 방향으로 갱신
+    // ★ setTargetYaw만 사용 (updateMissionTarget은 HOVER_AT_TARGET→NAVIGATE 전환 유발)
+    if (offboard_mgr_) {
+        float cur_yaw = offboard_mgr_->getCurrentYaw();  // 현재 헤딩(≈접근방향) rad
+        double cos_lat = std::cos(mission_target_lat_ * M_PI / 180.0);
+        double fire_lat = mission_target_lat_
+            + (double)suppress_distance_m_ * std::cos((double)cur_yaw) / DEG_TO_M_LAT;
+        double fire_lon = mission_target_lon_
+            + (double)suppress_distance_m_ * std::sin((double)cur_yaw) / (DEG_TO_M_LAT * cos_lat);
+
+        double dn = (fire_lat - offboard_mgr_->getCurrentLat()) * DEG_TO_M_LAT;
+        double de = (fire_lon - offboard_mgr_->getCurrentLon()) * DEG_TO_M_LAT * cos_lat;
+        float yaw_to_fire = std::atan2(de, dn);
+
+        offboard_mgr_->setTargetYaw(yaw_to_fire);
+
+        // 리더 진압 고도 설정
+        if (suppress_altitude_ > 0.0f) {
+            offboard_mgr_->setTargetAltitude(suppress_altitude_);
+        }
+
+        std::cout << "  → 리더 발화점: " << fire_lat << ", " << fire_lon
+                  << ", yaw=" << (yaw_to_fire * 180.0f / M_PI) << "°" << std::endl;
+    }
+
     // WiFi 유실 대비 3회 전송
     for (int i = 0; i < 3; i++) {
         sendCommand(0, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
@@ -702,55 +829,113 @@ std::string FormationController::followerPhaseToString(FollowerPhase phase) {
 GPSCoordinate FormationController::calculateOffsetTarget(
     const humiro_msgs::msg::LeaderPose& leader_pose) {
 
-    // 0. 기준 yaw 설정 (최초 FOLLOWING 진입 시)
-    if (!reference_yaw_set_) {
-        reference_yaw_deg_ = leader_pose.yaw_deg;
-        reference_yaw_set_ = true;
-        lateral_offset_mirrored_ = false;
-        std::cout << "[Formation] 기준 yaw 설정: " << reference_yaw_deg_ << "°" << std::endl;
-    }
-
-    // 1. 리더 heading 변화량 계산 (기준 대비)
-    float delta = leader_pose.yaw_deg - reference_yaw_deg_;
-    while (delta > 180.0f) delta -= 360.0f;
-    while (delta < -180.0f) delta += 360.0f;
-    float abs_delta = std::fabs(delta);
-
-    // 2. 히스테리시스 기반 L/R 미러링 판정
-    if (!lateral_offset_mirrored_ && abs_delta > MIRROR_THRESHOLD_DEG) {
-        lateral_offset_mirrored_ = true;
-        std::cout << "[Formation] L/R 미러링 ON (delta=" << abs_delta << "°)" << std::endl;
-    } else if (lateral_offset_mirrored_ && abs_delta < UNMIRROR_THRESHOLD_DEG) {
-        lateral_offset_mirrored_ = false;
-        std::cout << "[Formation] L/R 미러링 OFF (delta=" << abs_delta << "°)" << std::endl;
-    }
-
-    // 3. 리더 바디프레임 오프셋 (cm → m)
-    float body_x = -(float)offset_behind_cm_ / 100.0f;   // 뒤 = 음의 전방
-    float body_y = (float)offset_right_cm_ / 100.0f;     // 우측
-
-    // 4. 미러링 적용 (lateral만 반전 - 충돌 방지)
-    if (lateral_offset_mirrored_) {
-        body_y = -body_y;
-    }
-
-    // 5. NED 프레임으로 회전 (리더 yaw 기준)
     float yaw_rad = leader_pose.yaw_deg * M_PI / 180.0f;
-    float ned_x = std::cos(yaw_rad) * body_x - std::sin(yaw_rad) * body_y;  // North
-    float ned_y = std::sin(yaw_rad) * body_x + std::cos(yaw_rad) * body_y;  // East
-
-    // 6. GPS 좌표로 변환
     double cos_lat = std::cos(leader_pose.latitude * M_PI / 180.0);
 
+    // 1. 바디프레임 → NED 회전 (원본 오프셋)
+    float body_x = -(float)offset_behind_cm_ / 100.0f;   // 뒤 = 음의 전방
+    float body_y = (float)offset_right_cm_ / 100.0f;     // 우측
+    float ned_x = std::cos(yaw_rad) * body_x - std::sin(yaw_rad) * body_y;
+    float ned_y = std::sin(yaw_rad) * body_x + std::cos(yaw_rad) * body_y;
+
+    // 2. 위치 기반 충돌 방지: NED 오프셋을 경로선 기준으로 반사
+    //    리더→목적지 경로의 수직 성분으로 팔로워/타겟 좌우를 판정하고
+    //    반대편이면 NED 오프셋을 경로선 대칭으로 반사 (body_y 반전이 아닌 NED 반사)
+    if (mission_dest_set_ && offboard_mgr_) {
+        double travel_n = (mission_dest_lat_ - leader_pose.latitude) * DEG_TO_M_LAT;
+        double travel_e = (mission_dest_lon_ - leader_pose.longitude) * DEG_TO_M_LAT * cos_lat;
+        double travel_dist = std::sqrt(travel_n * travel_n + travel_e * travel_e);
+
+        if (travel_dist > 5.0) {
+            double t_hat_n = travel_n / travel_dist;
+            double t_hat_e = travel_e / travel_dist;
+
+            // 접근 방향 갱신 (CMD_SUPPRESS에서 사용)
+            approach_bearing_deg_ = std::atan2(travel_e, travel_n) * 180.0f / M_PI;
+
+            // 오프셋의 수직 성분 (경로 방향에 수직인 부분)
+            double offset_parallel = (double)ned_x * t_hat_n + (double)ned_y * t_hat_e;
+            double perp_n = (double)ned_x - offset_parallel * t_hat_n;
+            double perp_e = (double)ned_y - offset_parallel * t_hat_e;
+
+            // 팔로워의 수직 성분
+            double foll_n = (offboard_mgr_->getCurrentLat() - leader_pose.latitude) * DEG_TO_M_LAT;
+            double foll_e = (offboard_mgr_->getCurrentLon() - leader_pose.longitude) * DEG_TO_M_LAT * cos_lat;
+            double foll_parallel = foll_n * t_hat_n + foll_e * t_hat_e;
+            double foll_perp_n = foll_n - foll_parallel * t_hat_n;
+            double foll_perp_e = foll_e - foll_parallel * t_hat_e;
+
+            // 수직 성분 내적: 같은 쪽이면 양수, 반대쪽이면 음수
+            double perp_dot = perp_n * foll_perp_n + perp_e * foll_perp_e;
+
+            bool should_mirror = (perp_dot < 0);
+            if (should_mirror) {
+                // NED 반사: 경로 방향 평행 성분 유지, 수직 성분 반전
+                ned_x = (float)(offset_parallel * t_hat_n - perp_n);
+                ned_y = (float)(offset_parallel * t_hat_e - perp_e);
+            }
+
+            if (should_mirror != lateral_offset_mirrored_) {
+                lateral_offset_mirrored_ = should_mirror;
+                std::cout << "[Formation] L/R 반사 " << (should_mirror ? "ON" : "OFF")
+                          << " (perp_dot=" << perp_dot << ")" << std::endl;
+            }
+
+            // 4. 진압 위치 사전 계산 (발화점 중심 배치)
+            //    GUI 진압편대도: 타겟(발화점)이 중심, 드론들이 이격거리에 배치
+            //    발화점 = 미션목적지 + suppress_distance × 접근방향
+            //    팔로워 = 발화점 + suppress_distance × direction(접근+180°-각도)
+            //    → 리더-발화점-팔로워 각도 = suppress_angle
+            //    미러링 시 suppress_angle 부호 반전 (경로 횡단 방지)
+            {
+                double ab_rad = approach_bearing_deg_ * M_PI / 180.0;
+                double dist = (double)suppress_distance_m_;
+                double dest_cos = std::cos(mission_dest_lat_ * M_PI / 180.0);
+
+                // 발화점 NED (미션 목적지 기준)
+                double fire_n = dist * std::cos(ab_rad);
+                double fire_e = dist * std::sin(ab_rad);
+
+                // 미러링 적용: 팔로워가 반대편에 있으면 suppress_angle 반전
+                double effective_angle = lateral_offset_mirrored_
+                    ? -(double)suppress_angle_deg_ : (double)suppress_angle_deg_;
+
+                // 팔로워 방향: 접근방향 + 180° - suppress_angle (발화점 기준)
+                double foll_bearing_rad = (approach_bearing_deg_ + 180.0 - effective_angle) * M_PI / 180.0;
+                double foll_n = fire_n + dist * std::cos(foll_bearing_rad);
+                double foll_e = fire_e + dist * std::sin(foll_bearing_rad);
+
+                precomputed_suppress_lat_ = mission_dest_lat_ + foll_n / DEG_TO_M_LAT;
+                precomputed_suppress_lon_ = mission_dest_lon_ + foll_e / (DEG_TO_M_LAT * dest_cos);
+                precomputed_suppress_valid_ = true;
+            }
+        }
+        // travel_dist <= 5.0: 목적지 근처 → 마지막 값 유지
+    }
+
+    // 3. GPS 좌표로 변환
     GPSCoordinate target;
     target.latitude = leader_pose.latitude + (double)ned_x / DEG_TO_M_LAT;
     target.longitude = leader_pose.longitude + (double)ned_y / (DEG_TO_M_LAT * cos_lat);
     target.altitude = leader_pose.altitude + (float)offset_above_cm_ / 100.0f;
 
-    // 오프셋 목표 저장 (offset_error 계산용)
     last_target_lat_ = target.latitude;
     last_target_lon_ = target.longitude;
     last_offset_valid_ = true;
+
+    // 디버그: 5초마다
+    {
+        static std::chrono::steady_clock::time_point last_debug_log{};
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_log).count() >= 5) {
+            std::cout << "[Offset] right=" << offset_right_cm_ << "cm, behind=" << offset_behind_cm_
+                      << "cm, yaw=" << leader_pose.yaw_deg << "°"
+                      << ", ned=(" << ned_x << ", " << ned_y << ")"
+                      << (lateral_offset_mirrored_ ? " [반사]" : "")
+                      << ", approach=" << approach_bearing_deg_ << "°" << std::endl;
+            last_debug_log = now;
+        }
+    }
 
     return target;
 }

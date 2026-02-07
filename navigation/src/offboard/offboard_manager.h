@@ -115,6 +115,8 @@ public:
     void setFormationReadyToRotate(bool ready);
     void setFormationReadyToNavigate(bool ready);
     void setContinuousUpdateMode(bool enabled);
+    void setTargetAltitude(float alt);  // 진압 고도 설정 (HOVER_AT_TARGET에서 사용)
+    void setTargetYaw(float yaw_rad);   // yaw만 변경 (상태 전환 없음, SUPPRESS용)
 
     // ========== 위치/속도 Getter (FormationController용) ==========
     double getCurrentLat() const { return current_lat_.load(); }

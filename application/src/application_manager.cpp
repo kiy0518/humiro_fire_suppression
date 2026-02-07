@@ -80,6 +80,28 @@ ApplicationManager::~ApplicationManager() {
 }
 
 bool ApplicationManager::initialize(int argc, char* argv[]) {
+    // device_config.env 자동 로드 (환경변수 설정)
+    {
+        std::string config_path = "/home/khadas/humiro_fire_suppression/config/device_config.env";
+        std::ifstream config_file(config_path);
+        if (config_file.is_open()) {
+            std::string line;
+            int loaded = 0;
+            while (std::getline(config_file, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                auto eq = line.find('=');
+                if (eq == std::string::npos) continue;
+                std::string key = line.substr(0, eq);
+                std::string val = line.substr(eq + 1);
+                setenv(key.c_str(), val.c_str(), 1);  // 1 = overwrite
+                loaded++;
+            }
+            std::cout << "[Config] device_config.env 로드: " << loaded << "개 항목" << std::endl;
+        } else {
+            std::cerr << "[Config] device_config.env 없음: " << config_path << std::endl;
+        }
+    }
+
     // OpenCV 경고 억제
     setenv("OPENCV_FFMPEG_LOGLEVEL", "-8", 0);
     setenv("OPENCV_LOG_LEVEL", "ERROR", 0);
