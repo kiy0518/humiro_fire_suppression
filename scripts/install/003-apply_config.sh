@@ -132,9 +132,14 @@ WIFI_BROADCAST="${WIFI_IP%.*}.255"
 echo ""
 echo "┌─ 기체별 수정 항목 ─────────────────────────┐"
 echo "  드론 번호: #$DRONE_ID"
+echo "  역할: $ROLE"
 echo "  ROS 네임스페이스: $ROS_NAMESPACE"
+echo "  리더 네임스페이스: ${LEADER_NAMESPACE:-drone1}"
 echo "  eth0 IP: $ETH0_IP"
 echo "  WiFi IP: $WIFI_IP"
+echo "├─ 편대 기본값 ──────────────────────────────┤"
+echo "  이동: 좌/우=${FORMATION_OFFSET_RIGHT:-0}cm 앞/뒤=${FORMATION_OFFSET_BEHIND:-0}cm 상/하=${FORMATION_OFFSET_ABOVE:-0}cm"
+echo "  진압: 거리=${SUPPRESS_DISTANCE:-10}m 각도=${SUPPRESS_ANGLE:-0}°"
 echo "└────────────────────────────────────────────┘"
 echo ""
 echo "┌─ 자동 설정 (수정 불필요) ──────────────────┐"
@@ -415,6 +420,43 @@ EOF
 echo "  ✓ systemd 환경변수 설정 완료"
 
 # -----------------------------------------------------------------------------
+# 6.5. FastDDS 프로파일 설정 (WiFi 인터페이스 추가 - 드론 간 DDS 통신)
+# -----------------------------------------------------------------------------
+echo "[6.5/10] FastDDS 프로파일 설정..."
+
+FASTDDS_XML="$PROJECT_ROOT/config/fastdds_eth0_only.xml"
+
+cat > "$FASTDDS_XML" << EOF
+<?xml version="1.0" encoding="UTF-8" ?>
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <transport_descriptors>
+            <transport_descriptor>
+                <transport_id>eth0_only_udp</transport_id>
+                <type>UDPv4</type>
+                <interfaceWhiteList>
+                    <address>$ETH0_IP</address>
+                    <address>$WIFI_IP</address>
+                    <address>127.0.0.1</address>
+                </interfaceWhiteList>
+            </transport_descriptor>
+        </transport_descriptors>
+        <participant profile_name="participant_profile" is_default_profile="true">
+            <rtps>
+                <userTransports>
+                    <transport_id>eth0_only_udp</transport_id>
+                </userTransports>
+                <useBuiltinTransports>false</useBuiltinTransports>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
+EOF
+
+chown $REAL_USER:$REAL_USER "$FASTDDS_XML"
+echo "  ✓ FastDDS 프로파일 생성 (eth0: $ETH0_IP, WiFi: $WIFI_IP)"
+
+# -----------------------------------------------------------------------------
 # 7. 드론 설정 정보 저장 및 .bashrc 업데이트
 # -----------------------------------------------------------------------------
 echo "[7/10] 설정 저장..."
@@ -657,9 +699,21 @@ echo "=========================================="
 echo ""
 echo "적용된 설정:"
 echo "  - 드론 번호: #$DRONE_ID"
+echo "  - 역할: $ROLE"
 echo "  - ROS 네임스페이스: $ROS_NAMESPACE"
+echo "  - 리더 네임스페이스: $LEADER_NAMESPACE"
 echo "  - eth0 IP: $ETH0_IP"
 echo "  - WiFi IP: $WIFI_IP"
+echo ""
+echo "편대 비행 기본값:"
+echo "  ┌─ 이동 편대 (NAVIGATE) ─────────────────────┐"
+echo "  │  좌/우 오프셋: ${FORMATION_OFFSET_RIGHT:-0} cm"
+echo "  │  앞/뒤 오프셋: ${FORMATION_OFFSET_BEHIND:-0} cm"
+echo "  │  상/하 오프셋: ${FORMATION_OFFSET_ABOVE:-0} cm"
+echo "  ├─ 진압 편대 (SUPPRESS) ─────────────────────┤"
+echo "  │  타겟 이격거리: ${SUPPRESS_DISTANCE:-10} m"
+echo "  │  배치 각도: ${SUPPRESS_ANGLE:-0}°"
+echo "  └────────────────────────────────────────────┘"
 echo ""
 echo "자동 설정 (변경 불필요):"
 echo "  - FC IP: $FC_IP (DHCP 고정)"

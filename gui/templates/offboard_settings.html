@@ -2,38 +2,316 @@
 {% block title %}오프보드 설정{% endblock %}
 
 {% block content %}
+<style>
+    .formation-svg {
+        background: #1a1d21;
+        border-radius: 8px;
+        border: 1px solid #343a40;
+    }
+    .formation-svg text {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .offset-input-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .offset-input-group input {
+        width: 100px;
+    }
+    .offset-input-group .unit {
+        color: #6c757d;
+        font-size: 0.85em;
+        white-space: nowrap;
+    }
+    .role-badge {
+        font-size: 0.9em;
+        padding: 4px 12px;
+    }
+    .section-title {
+        font-size: 0.8em;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #6c757d;
+        margin-bottom: 4px;
+    }
+</style>
+
 <div class="row">
-    <div class="col-md-8">
-        <div class="card">
+    <!-- 왼쪽: 설정 폼 -->
+    <div class="col-lg-7">
+        <!-- 기본 오프보드 설정 + 역할 -->
+        <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-compass"></i> 오프보드 모드 설정</span>
-                <small class="text-muted" id="lastUpdated"></small>
+                <div>
+                    <span id="roleBadge" class="badge role-badge bg-primary me-2">Leader</span>
+                    <small class="text-muted" id="lastUpdated"></small>
+                </div>
             </div>
             <div class="card-body">
                 <form id="offboardForm">
                     <div class="row mb-3">
-                        <div class="col-md-6">
+                        <div class="col-md-4">
                             <label class="form-label">목표지점 고도 (m)</label>
                             <input type="number" class="form-control" id="target_altitude"
                                    step="0.5" min="1" max="120" placeholder="10.0">
-                            <div class="form-text">목표지점 도착 후 호버링 고도 (1~120m)</div>
+                            <div class="form-text">호버링 고도 (1~120m)</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">역할</label>
+                            <select class="form-select" id="fm_role">
+                                <option value="Leader">Leader (리더)</option>
+                                <option value="Follower_L">Follower L (좌측)</option>
+                                <option value="Follower_R">Follower R (우측)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">네임스페이스</label>
+                            <input type="text" class="form-control" id="fm_leader_ns"
+                                   readonly style="background-color: #e9ecef;">
+                            <div class="form-text" id="nsHelpText">drone1 (리더)</div>
                         </div>
                     </div>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-save"></i> 기본 설정 저장
+                    </button>
+                </form>
+            </div>
+        </div>
 
-                    <div class="d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-save"></i> 저장
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="loadConfig()">
-                            <i class="bi bi-arrow-clockwise"></i> 새로고침
-                        </button>
+        <!-- 이동 편대 설정 (NAVIGATE 단계) -->
+        <div class="card mb-3" id="navFormationCard">
+            <div class="card-header">
+                <i class="bi bi-arrows-move"></i> 이동 편대 (NAVIGATE)
+                <span class="section-title ms-2">리더 기준 상대 좌표</span>
+            </div>
+            <div class="card-body">
+                <form id="navFormationForm">
+                    <div class="row mb-2">
+                        <div class="col-md-4">
+                            <label class="form-label">좌/우 오프셋</label>
+                            <div class="offset-input-group">
+                                <input type="number" class="form-control" id="fm_offset_right"
+                                       step="50" value="0">
+                                <span class="unit">cm</span>
+                            </div>
+                            <div class="form-text">+ 우측 / - 좌측</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">앞/뒤 오프셋</label>
+                            <div class="offset-input-group">
+                                <input type="number" class="form-control" id="fm_offset_behind"
+                                       step="50" value="0">
+                                <span class="unit">cm</span>
+                            </div>
+                            <div class="form-text">+ 후방 / - 전방</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">상/하 오프셋</label>
+                            <div class="offset-input-group">
+                                <input type="number" class="form-control" id="fm_offset_above"
+                                       step="50" value="0">
+                                <span class="unit">cm</span>
+                            </div>
+                            <div class="form-text">+ 상방 / - 하방</div>
+                        </div>
                     </div>
+                    <div class="form-text mb-3">
+                        예: 좌후방 5m → 우/좌: <code>-500</code>, 앞/뒤: <code>500</code>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-save"></i> 이동 편대 저장
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 진압 편대 설정 (SUPPRESS 단계) -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-bullseye"></i> 진압 편대 (SUPPRESS)
+                <span class="section-title ms-2">타겟 중심 배치</span>
+            </div>
+            <div class="card-body">
+                <form id="suppressFormationForm">
+                    <div class="row mb-2">
+                        <div class="col-md-6">
+                            <label class="form-label">타겟 이격 거리</label>
+                            <div class="offset-input-group">
+                                <input type="number" class="form-control" id="fm_suppress_dist"
+                                       step="1" min="5" max="100" value="30">
+                                <span class="unit">m</span>
+                            </div>
+                            <div class="form-text">타겟으로부터의 거리 (모든 기체 동일)</div>
+                        </div>
+                        <div class="col-md-6" id="suppressAngleCol">
+                            <label class="form-label">배치 각도</label>
+                            <div class="offset-input-group">
+                                <input type="number" class="form-control" id="fm_suppress_angle"
+                                       step="5" min="-180" max="180" value="0">
+                                <span class="unit">deg</span>
+                            </div>
+                            <div class="form-text">리더 기준 각도 (+ 시계방향)</div>
+                        </div>
+                    </div>
+                    <div class="form-text mb-3" id="suppressHelpText">
+                        리더 = 0°(정면), 예: 3대 V자 → 2번: <code>-30</code>°, 3번: <code>+30</code>°
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="bi bi-save"></i> 진압 편대 저장
+                    </button>
                 </form>
             </div>
         </div>
     </div>
 
-    <div class="col-md-4">
+    <!-- 오른쪽: 시각화 -->
+    <div class="col-lg-5">
+        <!-- 이동 편대 시각화 -->
+        <div class="card mb-3" id="navSvgCard">
+            <div class="card-header">
+                <i class="bi bi-arrows-move"></i> 이동 편대 배치도
+            </div>
+            <div class="card-body p-2">
+                <svg id="navFormationSvg" class="formation-svg w-100" viewBox="0 0 400 340" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <pattern id="gridNav" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a2d32" stroke-width="0.5"/>
+                        </pattern>
+                        <marker id="arrowNav" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+                            <polygon points="0 0, 10 3.5, 0 7" fill="#6c757d"/>
+                        </marker>
+                    </defs>
+                    <rect width="400" height="340" fill="url(#gridNav)"/>
+
+                    <!-- 축 라벨 -->
+                    <text x="200" y="16" fill="#4a4e54" font-size="10" text-anchor="middle">전방 (Forward)</text>
+                    <text x="200" y="336" fill="#4a4e54" font-size="10" text-anchor="middle">후방 (Behind)</text>
+                    <text x="8" y="170" fill="#4a4e54" font-size="10" text-anchor="start" transform="rotate(-90, 12, 170)">좌측</text>
+                    <text x="392" y="170" fill="#4a4e54" font-size="10" text-anchor="end" transform="rotate(90, 388, 170)">우측</text>
+
+                    <!-- 중심선 -->
+                    <line x1="200" y1="0" x2="200" y2="340" stroke="#343a40" stroke-width="1" stroke-dasharray="4,4"/>
+                    <line x1="0" y1="170" x2="400" y2="170" stroke="#343a40" stroke-width="1" stroke-dasharray="4,4"/>
+
+                    <!-- 거리 원 -->
+                    <circle cx="200" cy="170" r="80" fill="none" stroke="#2a2d32" stroke-width="1" stroke-dasharray="2,4"/>
+                    <text x="284" y="166" fill="#3a3e44" font-size="9">5m</text>
+                    <circle cx="200" cy="170" r="160" fill="none" stroke="#2a2d32" stroke-width="1" stroke-dasharray="2,4"/>
+                    <text x="364" y="166" fill="#3a3e44" font-size="9">10m</text>
+
+                    <!-- 비행 방향 -->
+                    <line x1="200" y1="160" x2="200" y2="116" stroke="#6c757d" stroke-width="1.5" marker-end="url(#arrowNav)"/>
+
+                    <!-- 리더 드론 -->
+                    <g id="navLeader" transform="translate(200, 170)">
+                        <polygon points="0,-16 13,10 -13,10" fill="#0d6efd" fill-opacity="0.3" stroke="#0d6efd" stroke-width="2"/>
+                        <circle r="5" fill="#0d6efd"/>
+                        <text y="26" fill="#0d6efd" font-size="10" font-weight="bold" text-anchor="middle">LEADER</text>
+                        <text y="37" fill="#5a9eff" font-size="8" text-anchor="middle" id="navLeaderLabel">drone1</text>
+                    </g>
+
+                    <!-- 팔로워 드론 -->
+                    <g id="navSelfDrone" transform="translate(200, 170)" style="display:none">
+                        <line id="navOffsetLine" x1="0" y1="0" x2="0" y2="0"
+                              stroke="#ffc107" stroke-width="1" stroke-dasharray="4,4"/>
+                        <g id="navSelfBody">
+                            <polygon points="0,-13 11,9 -11,9" fill="#ffc107" fill-opacity="0.3" stroke="#ffc107" stroke-width="2"/>
+                            <circle r="4" fill="#ffc107"/>
+                            <text y="22" fill="#ffc107" font-size="10" font-weight="bold" text-anchor="middle">ME</text>
+                            <text y="33" fill="#e0a800" font-size="8" text-anchor="middle" id="navOffsetText"></text>
+                        </g>
+                    </g>
+
+                    <!-- 스케일 바 -->
+                    <g transform="translate(16, 320)">
+                        <line x1="0" y1="0" x2="80" y2="0" stroke="#6c757d" stroke-width="2"/>
+                        <line x1="0" y1="-3" x2="0" y2="3" stroke="#6c757d" stroke-width="2"/>
+                        <line x1="80" y1="-3" x2="80" y2="3" stroke="#6c757d" stroke-width="2"/>
+                        <text x="40" y="-5" fill="#6c757d" font-size="9" text-anchor="middle">5m</text>
+                    </g>
+                </svg>
+            </div>
+        </div>
+
+        <!-- 진압 편대 시각화 -->
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-bullseye"></i> 진압 편대 배치도
+            </div>
+            <div class="card-body p-2">
+                <svg id="suppressSvg" class="formation-svg w-100" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                        <pattern id="gridSup" width="40" height="40" patternUnits="userSpaceOnUse">
+                            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#2a2d32" stroke-width="0.5"/>
+                        </pattern>
+                        <marker id="arrowSup" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                            <polygon points="0 0, 8 3, 0 6" fill="#6c757d"/>
+                        </marker>
+                    </defs>
+                    <rect width="400" height="400" fill="url(#gridSup)"/>
+
+                    <!-- 타겟 (화재 지점) -->
+                    <g id="targetFire" transform="translate(200, 200)">
+                        <circle r="16" fill="#dc3545" fill-opacity="0.2" stroke="#dc3545" stroke-width="2"/>
+                        <circle r="8" fill="#dc3545" fill-opacity="0.4"/>
+                        <circle r="3" fill="#ff6b6b"/>
+                        <text y="-22" fill="#dc3545" font-size="11" font-weight="bold" text-anchor="middle">TARGET</text>
+                    </g>
+
+                    <!-- 거리 원 (동적 - JS에서 업데이트) -->
+                    <circle id="supDistCircle" cx="200" cy="200" r="120" fill="none" stroke="#343a40" stroke-width="1" stroke-dasharray="4,4"/>
+                    <text id="supDistLabel" x="324" y="196" fill="#4a4e54" font-size="10"></text>
+
+                    <!-- 리더 드론 (0° = 하단, 타겟을 향해 올려다봄) -->
+                    <g id="supLeaderGroup">
+                        <!-- 타겟→리더 방향 점선 -->
+                        <line id="supLeaderLine" x1="200" y1="200" x2="200" y2="320"
+                              stroke="#0d6efd" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+                        <g id="supLeaderDrone" transform="translate(200, 320)">
+                            <polygon points="0,-16 13,10 -13,10" fill="#0d6efd" fill-opacity="0.3" stroke="#0d6efd" stroke-width="2"/>
+                            <circle r="5" fill="#0d6efd"/>
+                            <text y="-22" fill="#0d6efd" font-size="10" font-weight="bold" text-anchor="middle">LEADER</text>
+                        </g>
+                    </g>
+
+                    <!-- 본 기체 (진압 위치) -->
+                    <g id="supSelfGroup" style="display:none">
+                        <line id="supSelfLine" x1="200" y1="200" x2="200" y2="320"
+                              stroke="#ffc107" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+                        <g id="supSelfDrone" transform="translate(200, 320)">
+                            <polygon id="supSelfTri" points="0,-13 11,9 -11,9" fill="#ffc107" fill-opacity="0.3" stroke="#ffc107" stroke-width="2"/>
+                            <circle r="4" fill="#ffc107"/>
+                            <text id="supSelfLabel" y="-18" fill="#ffc107" font-size="10" font-weight="bold" text-anchor="middle">ME</text>
+                            <text id="supSelfAngleText" y="20" fill="#e0a800" font-size="9" text-anchor="middle"></text>
+                        </g>
+                    </g>
+
+                    <!-- 각도 호 (리더↔본기체) -->
+                    <path id="supAngleArc" d="" fill="none" stroke="#ffc107" stroke-width="1.5" opacity="0.6"/>
+                    <text id="supAngleLabel" x="200" y="200" fill="#ffc107" font-size="10" text-anchor="middle"></text>
+
+                    <!-- 리더↔팔로워 직선 거리 -->
+                    <line id="supInterLine" x1="0" y1="0" x2="0" y2="0"
+                          stroke="#8be9fd" stroke-width="1" stroke-dasharray="3,3" opacity="0" />
+                    <text id="supInterDist" fill="#8be9fd" font-size="10" font-weight="bold" text-anchor="middle"></text>
+                    <text id="supInterCoord" fill="#6272a4" font-size="9" text-anchor="middle"></text>
+
+                    <!-- 범례 -->
+                    <g transform="translate(16, 375)">
+                        <circle cx="6" cy="0" r="4" fill="#dc3545"/>
+                        <text x="14" y="4" fill="#6c757d" font-size="9">타겟(화재)</text>
+                        <polygon points="80,-4 86,4 74,4" fill="#0d6efd" fill-opacity="0.5"/>
+                        <text x="92" y="4" fill="#6c757d" font-size="9">리더</text>
+                        <polygon points="140,-4 146,4 134,4" fill="#ffc107" fill-opacity="0.5"/>
+                        <text x="152" y="4" fill="#6c757d" font-size="9">본 기체</text>
+                    </g>
+                </svg>
+            </div>
+        </div>
+
+        <!-- 미션 흐름 -->
         <div class="card">
             <div class="card-header">
                 <i class="bi bi-info-circle"></i> 미션 흐름
@@ -46,8 +324,8 @@
                     <li>TAKEOFF (이륙)</li>
                     <li>HOVER (안정화)</li>
                     <li>ROTATE (목표 방향 회전)</li>
-                    <li>NAVIGATE (목표 이동)</li>
-                    <li><strong>HOVER_AT_TARGET (5초)</strong></li>
+                    <li>NAVIGATE (목표 이동) <span class="badge bg-secondary">이동 편대</span></li>
+                    <li><strong>HOVER_AT_TARGET → SUPPRESS</strong> <span class="badge bg-danger">진압 편대</span></li>
                     <li>RTL (자동 귀환)</li>
                 </ol>
             </div>
@@ -58,6 +336,7 @@
 
 {% block extra_js %}
 <script>
+// ===== 오프보드 기본 설정 =====
 const configFields = ['target_altitude'];
 
 function loadConfig() {
@@ -68,13 +347,10 @@ function loadConfig() {
                 const config = result.config;
                 configFields.forEach(field => {
                     const el = document.getElementById(field);
-                    if (el && config[field] !== undefined) {
-                        el.value = config[field];
-                    }
+                    if (el && config[field] !== undefined) el.value = config[field];
                 });
-                if (config.updated_at) {
+                if (config.updated_at)
                     document.getElementById('lastUpdated').textContent = config.updated_at;
-                }
             }
         })
         .catch(err => showToast('설정 로드 실패: ' + err, 'danger'));
@@ -82,20 +358,316 @@ function loadConfig() {
 
 document.getElementById('offboardForm').addEventListener('submit', function(e) {
     e.preventDefault();
-
-    const data = {};
-    configFields.forEach(field => {
-        const el = document.getElementById(field);
-        data[field] = parseFloat(el.value) || 0;
-    });
-
-    // 범위 검증
-    if (data.target_altitude < 1 || data.target_altitude > 120) {
-        showToast('목표지점 고도는 1~120m 범위여야 합니다.', 'warning');
+    const altitude = parseFloat(document.getElementById('target_altitude').value) || 0;
+    if (altitude < 1 || altitude > 120) {
+        showToast('고도는 1~120m 범위여야 합니다.', 'warning');
         return;
     }
 
-    fetch('/api/offboard-config', {
+    // 오프보드 기본 설정 + 편대 기본 설정 동시 저장
+    const offboardData = { target_altitude: altitude };
+    const role = document.getElementById('fm_role').value;
+    const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
+    const formationData = {
+        role: role,
+        leader_namespace: preset.leader_ns,
+        ros_namespace: preset.namespace,
+        offset_right: parseInt(document.getElementById('fm_offset_right').value) || 0,
+        offset_behind: parseInt(document.getElementById('fm_offset_behind').value) || 0,
+        offset_above: parseInt(document.getElementById('fm_offset_above').value) || 0,
+        suppress_distance: parseInt(document.getElementById('fm_suppress_dist').value) || 30,
+        suppress_angle: parseInt(document.getElementById('fm_suppress_angle').value) || 0,
+    };
+
+    Promise.all([
+        fetch('/api/offboard-config', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(offboardData)
+        }).then(r => r.json()),
+        fetch('/api/formation-config', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(formationData)
+        }).then(r => r.json())
+    ]).then(([r1, r2]) => {
+        if (r1.success && r2.success) showToast('기본 설정 저장 완료', 'success');
+        else showToast('저장 실패', 'danger');
+        loadConfig();
+        loadFormationConfig();
+    }).catch(err => showToast('저장 실패: ' + err, 'danger'));
+});
+
+
+// ===== 편대 비행 설정 =====
+const NAV_SCALE = 16; // 1m = 16px
+const SUP_CENTER = 200;
+
+// 역할별 고정 설정
+const ROLE_PRESETS = {
+    'Leader':     { namespace: 'drone1', leader_ns: 'drone1', label: 'Leader', badge: 'bg-primary' },
+    'Follower_L': { namespace: 'drone2', leader_ns: 'drone1', label: 'Follower L', badge: 'bg-warning text-dark' },
+    'Follower_R': { namespace: 'drone3', leader_ns: 'drone1', label: 'Follower R', badge: 'bg-success' },
+};
+
+function isFollowerRole(role) {
+    return role === 'Follower_L' || role === 'Follower_R';
+}
+
+function loadFormationConfig() {
+    fetch('/api/formation-config')
+        .then(r => r.json())
+        .then(result => {
+            if (result.success) {
+                const c = result.config;
+                document.getElementById('fm_role').value = c.role;
+                document.getElementById('fm_offset_right').value = c.offset_right;
+                document.getElementById('fm_offset_behind').value = c.offset_behind;
+                document.getElementById('fm_offset_above').value = c.offset_above;
+                document.getElementById('fm_suppress_dist').value = c.suppress_distance;
+                document.getElementById('fm_suppress_angle').value = c.suppress_angle;
+                updateAllUI();
+            }
+        })
+        .catch(err => showToast('편대 설정 로드 실패: ' + err, 'danger'));
+}
+
+function updateAllUI() {
+    const role = document.getElementById('fm_role').value;
+    const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
+
+    // 네임스페이스 자동 설정
+    document.getElementById('fm_leader_ns').value = preset.namespace;
+    const nsHelp = document.getElementById('nsHelpText');
+    if (role === 'Leader') {
+        nsHelp.textContent = `${preset.namespace} (리더)`;
+    } else {
+        nsHelp.textContent = `${preset.namespace} (리더: ${preset.leader_ns})`;
+    }
+
+    // 역할 뱃지
+    const badge = document.getElementById('roleBadge');
+    badge.textContent = preset.label;
+    badge.className = 'badge role-badge ' + preset.badge;
+
+    // 리더: 이동 편대 숨김, 진압 각도 숨김 (리더는 항상 0°)
+    const isFollower = isFollowerRole(role);
+    document.getElementById('navFormationCard').style.display = isFollower ? '' : 'none';
+    document.getElementById('navSvgCard').style.display = isFollower ? '' : 'none';
+    document.getElementById('suppressAngleCol').style.display = isFollower ? '' : 'none';
+    document.getElementById('suppressHelpText').style.display = isFollower ? '' : 'none';
+
+    updateNavSvg();
+    updateSuppressSvg();
+}
+
+// ===== 이동 편대 SVG =====
+function updateNavSvg() {
+    const role = document.getElementById('fm_role').value;
+    const rightCm = parseInt(document.getElementById('fm_offset_right').value) || 0;
+    const behindCm = parseInt(document.getElementById('fm_offset_behind').value) || 0;
+    const aboveCm = parseInt(document.getElementById('fm_offset_above').value) || 0;
+    const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
+
+    document.getElementById('navLeaderLabel').textContent = preset.leader_ns;
+
+    const selfDrone = document.getElementById('navSelfDrone');
+    if (role === 'Leader') { selfDrone.style.display = 'none'; return; }
+
+    const rightM = rightCm / 100.0, behindM = behindCm / 100.0, aboveM = aboveCm / 100.0;
+    const px = rightM * NAV_SCALE, py = behindM * NAV_SCALE;
+
+    selfDrone.style.display = 'block';
+    document.getElementById('navOffsetLine').setAttribute('x2', px);
+    document.getElementById('navOffsetLine').setAttribute('y2', py);
+    document.getElementById('navSelfBody').setAttribute('transform', `translate(${px}, ${py})`);
+
+    const distM = Math.sqrt(rightM * rightM + behindM * behindM).toFixed(1);
+    document.getElementById('navOffsetText').textContent =
+        `R:${rightM.toFixed(1)}m B:${behindM.toFixed(1)}m` +
+        (aboveM !== 0 ? ` A:${aboveM.toFixed(1)}m` : '') +
+        ` (${distM}m)`;
+}
+
+// ===== 진압 편대 SVG =====
+function updateSuppressSvg() {
+    const role = document.getElementById('fm_role').value;
+    const distM = parseInt(document.getElementById('fm_suppress_dist').value) || 30;
+    const angleDeg = parseInt(document.getElementById('fm_suppress_angle').value) || 0;
+
+    // 스케일: SVG 120px = distM (동적 스케일)
+    const radiusPx = 120;
+    const scaleLabel = distM + 'm';
+
+    // 거리 원 업데이트
+    document.getElementById('supDistCircle').setAttribute('r', radiusPx);
+    document.getElementById('supDistLabel').textContent = scaleLabel;
+    document.getElementById('supDistLabel').setAttribute('x', SUP_CENTER + radiusPx + 4);
+
+    // 리더 위치: 0° = 하단 (타겟을 올려다봄)
+    const leaderX = SUP_CENTER;
+    const leaderY = SUP_CENTER + radiusPx;
+
+    document.getElementById('supLeaderLine').setAttribute('x2', leaderX);
+    document.getElementById('supLeaderLine').setAttribute('y2', leaderY);
+    document.getElementById('supLeaderDrone').setAttribute('transform', `translate(${leaderX}, ${leaderY})`);
+
+    // 팔로워 위치
+    const supSelfGroup = document.getElementById('supSelfGroup');
+    if (!isFollowerRole(role) || angleDeg === 0) {
+        supSelfGroup.style.display = 'none';
+        document.getElementById('supAngleArc').setAttribute('d', '');
+        document.getElementById('supAngleLabel').textContent = '';
+        document.getElementById('supInterLine').setAttribute('opacity', '0');
+        document.getElementById('supInterDist').textContent = '';
+        document.getElementById('supInterCoord').textContent = '';
+
+        if (!isFollowerRole(role)) return;
+    }
+
+    // 각도 계산 (0° = 하단, +시계방향)
+    // SVG에서: 하단 = 90°(수학), 시계방향 = 수학의 반시계
+    // selfAngle (수학 라디안) = 90° - angleDeg° (반시계 회전)
+    const angleRad = angleDeg * Math.PI / 180;
+    const selfX = SUP_CENTER + radiusPx * Math.sin(angleRad);
+    const selfY = SUP_CENTER + radiusPx * Math.cos(angleRad);
+
+    supSelfGroup.style.display = 'block';
+
+    // 타겟→본기체 연결선
+    document.getElementById('supSelfLine').setAttribute('x2', selfX);
+    document.getElementById('supSelfLine').setAttribute('y2', selfY);
+
+    // 드론 위치 + 회전 (타겟을 향하도록)
+    // 드론 삼각형 기본: 위를 가리킴. 타겟 방향으로 회전 필요.
+    // 타겟은 (200,200), 드론은 (selfX, selfY)
+    // SVG rotate: 삼각형 기본 = 위(−Y), 시계방향 양수
+    // atan2(dx, -dy) → SVG 기준 "위에서 시계방향" 각도
+    const dx = SUP_CENTER - selfX;
+    const dy = SUP_CENTER - selfY;
+    const droneRotation = Math.atan2(dx, -dy) * 180 / Math.PI;
+
+    document.getElementById('supSelfDrone').setAttribute('transform',
+        `translate(${selfX.toFixed(1)}, ${selfY.toFixed(1)})`);
+    document.getElementById('supSelfTri').setAttribute('transform',
+        `rotate(${droneRotation.toFixed(1)})`);
+
+    // 각도 텍스트
+    document.getElementById('supSelfAngleText').textContent = `${angleDeg}°`;
+
+    // ===== 리더↔팔로워 직선 거리 + 상대좌표 =====
+    const interLine = document.getElementById('supInterLine');
+    const interDist = document.getElementById('supInterDist');
+    const interCoord = document.getElementById('supInterCoord');
+
+    // 리더-팔로워 직선 거리 (실제 m): 2 * D * sin(|A|/2)
+    const angleHalfRad = Math.abs(angleDeg) * Math.PI / 360;
+    const interDistM = 2 * distM * Math.sin(angleHalfRad);
+
+    // 리더 바디프레임 기준 상대좌표 (리더는 타겟을 정면으로 바라봄)
+    // 리더 정면 = 타겟 방향 = -Y (SVG 위쪽)
+    // 리더 우측 = +X
+    const relRight = distM * Math.sin(angleDeg * Math.PI / 180);   // + 우측
+    const relBehind = distM * (1 - Math.cos(angleDeg * Math.PI / 180)); // + 후방 (리더보다 뒤)
+
+    // SVG 위에 연결선 표시
+    interLine.setAttribute('x1', leaderX);
+    interLine.setAttribute('y1', leaderY);
+    interLine.setAttribute('x2', selfX);
+    interLine.setAttribute('y2', selfY);
+    interLine.setAttribute('opacity', '0.5');
+
+    // 거리 텍스트 (연결선 중간)
+    const midX = (leaderX + selfX) / 2;
+    const midY = (leaderY + selfY) / 2;
+    interDist.setAttribute('x', midX);
+    interDist.setAttribute('y', midY - 6);
+    interDist.textContent = `${interDistM.toFixed(1)}m`;
+
+    // 상대좌표 텍스트
+    interCoord.setAttribute('x', midX);
+    interCoord.setAttribute('y', midY + 8);
+    const rSign = relRight >= 0 ? '+' : '';
+    interCoord.textContent = `우${rSign}${relRight.toFixed(1)}m 후+${relBehind.toFixed(1)}m`;
+
+    // 각도 호 그리기 (리더 ~ 본기체)
+    drawAngleArc(angleDeg, radiusPx * 0.35);
+}
+
+function drawAngleArc(angleDeg, arcRadius) {
+    if (angleDeg === 0) {
+        document.getElementById('supAngleArc').setAttribute('d', '');
+        document.getElementById('supAngleLabel').textContent = '';
+        return;
+    }
+
+    const startAngle = 0; // 리더 (하단)
+    const endAngle = angleDeg;
+    const r = arcRadius;
+
+    // 호 그리기: 중심(200,200)에서 반지름 r인 원의 일부
+    // start = 하단 (0°), end = angleDeg° 시계방향
+    const startX = SUP_CENTER + r * Math.sin(startAngle * Math.PI / 180);
+    const startY = SUP_CENTER + r * Math.cos(startAngle * Math.PI / 180);
+    const endX = SUP_CENTER + r * Math.sin(endAngle * Math.PI / 180);
+    const endY = SUP_CENTER + r * Math.cos(endAngle * Math.PI / 180);
+
+    const largeArc = Math.abs(angleDeg) > 180 ? 1 : 0;
+    const sweep = angleDeg > 0 ? 0 : 1;  // 호가 안쪽(타겟 방향)으로 그려지도록
+
+    const d = `M ${startX.toFixed(1)} ${startY.toFixed(1)} A ${r} ${r} 0 ${largeArc} ${sweep} ${endX.toFixed(1)} ${endY.toFixed(1)}`;
+    document.getElementById('supAngleArc').setAttribute('d', d);
+
+    // 각도 라벨 위치 (호의 중간)
+    const midAngle = angleDeg / 2;
+    const labelR = r + 14;
+    const labelX = SUP_CENTER + labelR * Math.sin(midAngle * Math.PI / 180);
+    const labelY = SUP_CENTER + labelR * Math.cos(midAngle * Math.PI / 180);
+    const label = document.getElementById('supAngleLabel');
+    label.setAttribute('x', labelX.toFixed(1));
+    label.setAttribute('y', (labelY + 4).toFixed(1));
+    label.textContent = `${angleDeg}°`;
+}
+
+
+// ===== 이벤트 리스너 =====
+document.getElementById('fm_role').addEventListener('change', updateAllUI);
+
+// 이동 편대 입력 → SVG 실시간 업데이트
+['fm_offset_right', 'fm_offset_behind', 'fm_offset_above'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateNavSvg);
+});
+
+// 진압 편대 입력 → SVG 실시간 업데이트
+['fm_suppress_dist', 'fm_suppress_angle'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateSuppressSvg);
+});
+
+// 이동 편대 저장
+document.getElementById('navFormationForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    saveFormation();
+});
+
+// 진압 편대 저장
+document.getElementById('suppressFormationForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    saveFormation();
+});
+
+function saveFormation() {
+    const role = document.getElementById('fm_role').value;
+    const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
+    const data = {
+        role: role,
+        leader_namespace: preset.leader_ns,
+        ros_namespace: preset.namespace,
+        offset_right: parseInt(document.getElementById('fm_offset_right').value) || 0,
+        offset_behind: parseInt(document.getElementById('fm_offset_behind').value) || 0,
+        offset_above: parseInt(document.getElementById('fm_offset_above').value) || 0,
+        suppress_distance: parseInt(document.getElementById('fm_suppress_dist').value) || 30,
+        suppress_angle: parseInt(document.getElementById('fm_suppress_angle').value) || 0,
+    };
+
+    fetch('/api/formation-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -103,12 +675,14 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
     .then(r => r.json())
     .then(result => {
         showToast(result.message, result.success ? 'success' : 'danger');
-        if (result.success) loadConfig();
+        if (result.success) loadFormationConfig();
     })
     .catch(err => showToast('저장 실패: ' + err, 'danger'));
-});
+}
 
-// 페이지 로드 시 설정 불러오기
+
+// ===== 초기화 =====
 loadConfig();
+loadFormationConfig();
 </script>
 {% endblock %}

@@ -3178,6 +3178,55 @@ def api_set_offboard_config():
         return jsonify({"success": False, "message": str(e)})
 
 
+## ========== 편대 비행 설정 API ==========
+
+@app.route('/api/formation-config', methods=['GET'])
+def api_get_formation_config():
+    """편대 비행 설정 읽기 (device_config.env에서)"""
+    try:
+        return jsonify({
+            "success": True,
+            "config": {
+                "role": config_manager.get("ROLE", "Leader"),
+                "drone_id": config_manager.get_drone_id(),
+                "leader_namespace": config_manager.get("LEADER_NAMESPACE", "drone1"),
+                "offset_right": int(config_manager.get("FORMATION_OFFSET_RIGHT", "0")),
+                "offset_behind": int(config_manager.get("FORMATION_OFFSET_BEHIND", "0")),
+                "offset_above": int(config_manager.get("FORMATION_OFFSET_ABOVE", "0")),
+                "suppress_distance": int(config_manager.get("SUPPRESS_DISTANCE", "30")),
+                "suppress_angle": int(config_manager.get("SUPPRESS_ANGLE", "0")),
+            }
+        })
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/formation-config', methods=['POST'])
+def api_set_formation_config():
+    """편대 비행 설정 저장 (device_config.env에)"""
+    try:
+        data = request.json
+        role = data.get("role", "Leader")
+        config_manager.set("ROLE", role)
+        config_manager.set("LEADER_NAMESPACE", data.get("leader_namespace", "drone1"))
+        # 역할에 따라 ROS_NAMESPACE 자동 설정
+        ros_ns = data.get("ros_namespace", "")
+        if ros_ns:
+            config_manager.set("ROS_NAMESPACE", ros_ns)
+        config_manager.set("FORMATION_OFFSET_RIGHT", str(int(data.get("offset_right", 0))))
+        config_manager.set("FORMATION_OFFSET_BEHIND", str(int(data.get("offset_behind", 0))))
+        config_manager.set("FORMATION_OFFSET_ABOVE", str(int(data.get("offset_above", 0))))
+        config_manager.set("SUPPRESS_DISTANCE", str(int(data.get("suppress_distance", 30))))
+        config_manager.set("SUPPRESS_ANGLE", str(int(data.get("suppress_angle", 0))))
+
+        if config_manager.save_device_config():
+            return jsonify({"success": True, "message": "편대 설정이 저장되었습니다. 애플리케이션 재시작 시 적용됩니다."})
+        else:
+            return jsonify({"success": False, "message": "설정 저장 실패"})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 if __name__ == '__main__':
     print("=" * 50)
     print("Humiro Fire Suppression - Web GUI")

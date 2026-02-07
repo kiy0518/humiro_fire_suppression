@@ -146,6 +146,21 @@ class ConfigManager:
         else:  # separate (기본값)
             gcs_port = 14550 + (drone_id - 1) * 10  # 1번=14550, 2번=14560, 3번=14570
 
+        # 역할 및 편대 기본값 (DRONE_ID 기반)
+        # 1=Leader, 2=Follower_L(좌측), 3=Follower_R(우측)
+        role_map = {1: "Leader", 2: "Follower_L", 3: "Follower_R"}
+        role = role_map.get(drone_id, f"Follower_L" if drone_id % 2 == 0 else "Follower_R")
+
+        # 편대 오프셋 기본값 (cm)
+        # Follower_L: 좌후방 6m (-600, 600)
+        # Follower_R: 우후방 6m (+600, 600)
+        formation_defaults = {
+            "Leader":     {"right": "0", "behind": "0", "above": "0", "sup_dist": "10", "sup_angle": "0"},
+            "Follower_L": {"right": "-600", "behind": "600", "above": "0", "sup_dist": "10", "sup_angle": "-30"},
+            "Follower_R": {"right": "600", "behind": "600", "above": "0", "sup_dist": "10", "sup_angle": "30"},
+        }
+        fm = formation_defaults.get(role, formation_defaults["Follower_L"])
+
         return {
             "DRONE_ID": str(drone_id),
             "ETH0_IP": f"10.0.0.{base_offset + 1}",
@@ -154,13 +169,19 @@ class ConfigManager:
             "ROS_NAMESPACE": f"drone{drone_id}",
             "MAV_SYS_ID": str(drone_id),
             "MAV_COMP_ID": "191",
-            "EXTERNAL_UDP_PORT": "15001",  # 고정 (mavlink-router Application 포트, IP로 기체 구분)
+            "EXTERNAL_UDP_PORT": "15001",
             "ROS_DOMAIN_ID": "0",
             "QGC_UDP_PORT": str(gcs_port),
             "FC_MAVLINK_PORT": "14540",
             "XRCE_DDS_PORT": "8888",
-            "ROLE": "Leader" if drone_id == 1 else "Follower",
+            "ROLE": role,
             "GCS_PORT_MODE": gcs_port_mode,
+            "LEADER_NAMESPACE": "drone1",
+            "FORMATION_OFFSET_RIGHT": fm["right"],
+            "FORMATION_OFFSET_BEHIND": fm["behind"],
+            "FORMATION_OFFSET_ABOVE": fm["above"],
+            "SUPPRESS_DISTANCE": fm["sup_dist"],
+            "SUPPRESS_ANGLE": fm["sup_angle"],
         }
 
     @staticmethod

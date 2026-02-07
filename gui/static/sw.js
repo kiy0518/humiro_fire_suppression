@@ -1,5 +1,5 @@
 // Service Worker for Easy System PWA
-const CACHE_NAME = 'easy-system-v1';
+const CACHE_NAME = 'easy-system-v3';
 
 // 캐시할 리소스
 const urlsToCache = [

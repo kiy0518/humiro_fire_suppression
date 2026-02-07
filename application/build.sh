@@ -162,6 +162,11 @@ if [ -f "$PROJECT_ROOT/workspaces/px4_ros2_ws/install/setup.bash" ]; then
     # CMAKE_PREFIX_PATH에 px4_ros2_ws 추가 (CMake가 px4_msgs를 찾을 수 있도록)
     export CMAKE_PREFIX_PATH="$PROJECT_ROOT/workspaces/px4_ros2_ws/install:$CMAKE_PREFIX_PATH"
 fi
+# humiro_msgs (편대 비행 메시지)
+if [ -f "$PROJECT_ROOT/install/humiro_msgs/share/humiro_msgs/local_setup.bash" ]; then
+    source "$PROJECT_ROOT/install/setup.bash" > /dev/null 2>&1
+    export CMAKE_PREFIX_PATH="$PROJECT_ROOT/install:$CMAKE_PREFIX_PATH"
+fi
 
 # ROS2 자동 감지 및 활성화
 ENABLE_ROS2_FLAG=""

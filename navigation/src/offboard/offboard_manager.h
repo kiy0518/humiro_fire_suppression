@@ -104,6 +104,21 @@ public:
      */
     void resetToIdle();
 
+    // ========== 위치/속도 Getter (FormationController용) ==========
+    double getCurrentLat() const { return current_lat_.load(); }
+    double getCurrentLon() const { return current_lon_.load(); }
+    float getCurrentAltAmsl() const { return current_alt_amsl_.load(); }
+    float getCurrentYaw() const { return current_yaw_.load(); }
+    float getCurrentLocalX() const { return current_local_x_.load(); }
+    float getCurrentLocalY() const { return current_local_y_.load(); }
+    float getCurrentLocalZ() const { return current_local_z_.load(); }
+    float getCurrentVx() const { return prev_vx_; }
+    float getCurrentVy() const { return prev_vy_; }
+    float getCurrentSpeed() const {
+        float vx = prev_vx_, vy = prev_vy_;
+        return std::sqrt(vx * vx + vy * vy);
+    }
+
 private:
     // ========== 타이머 콜백 (핵심!) ==========
     void timerCallback();

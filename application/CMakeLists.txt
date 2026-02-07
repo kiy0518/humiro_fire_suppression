@@ -141,7 +141,9 @@ if(ENABLE_ROS2)
     find_package(PCL REQUIRED)
     # PX4 uXRCE-DDS 메시지 (px4_msgs) - 필수
     find_package(px4_msgs REQUIRED)
-    
+    # 편대 비행 커스텀 메시지 (humiro_msgs)
+    find_package(humiro_msgs REQUIRED)
+
     if(NOT px4_msgs_FOUND)
         message(FATAL_ERROR "px4_msgs is required but not found. Please install px4_msgs.")
     endif()
@@ -184,9 +186,10 @@ if(ENABLE_ROS2)
     add_subdirectory(${ROS2_DIR} ${ROS2_BUILD_DIR})
     target_link_libraries(humiro_fire_suppression ros2_comm_lib)
 
-    # OffboardManager 소스 파일 추가 (단순화된 버전 - 단일 파일)
+    # OffboardManager + FormationController 소스 파일 추가
     target_sources(humiro_fire_suppression PRIVATE
         ${NAVIGATION_DIR}/offboard_manager.cpp
+        ${NAVIGATION_DIR}/formation/formation_controller.cpp
     )
 endif()
 
@@ -202,10 +205,11 @@ if(ENABLE_ROS2)
         PCL
     )
     
-    # px4_msgs 링크 (있는 경우)
+    # px4_msgs + humiro_msgs 링크
     if(px4_msgs_FOUND)
         ament_target_dependencies(humiro_fire_suppression px4_msgs)
     endif()
+    ament_target_dependencies(humiro_fire_suppression humiro_msgs)
 endif()
 
 # 컴파일 플래그

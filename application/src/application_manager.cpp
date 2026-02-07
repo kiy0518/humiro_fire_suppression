@@ -29,6 +29,7 @@
 #include "lidar_ros2_publisher.h"
 #include "status_ros2_subscriber.h"
 #include "../../navigation/src/offboard/offboard_manager.h"
+#include "../../navigation/src/offboard/formation/formation_controller.h"
 #endif
 
 // 전역 시그널 핸들러용 포인터
@@ -68,7 +69,8 @@ ApplicationManager::ApplicationManager()
       , ros2_node_(nullptr),
       thermal_ros2_publisher_(nullptr),
       lidar_ros2_publisher_(nullptr),
-      status_ros2_subscriber_(nullptr)
+      status_ros2_subscriber_(nullptr),
+      formation_controller_(nullptr)
 #endif
 {
 }
@@ -112,7 +114,10 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
     // ② OffboardManager 초기화 (ROS2 노드 필요)
     initializeOffboard();
 
-    // ③ MAVLink 커스텀 메시지 초기화 (OffboardManager 필요)
+    // ③ 편대 비행 제어기 초기화 (OffboardManager 필요)
+    initializeFormation();
+
+    // ④ MAVLink 커스텀 메시지 초기화 (OffboardManager 필요)
     initializeCustomMessage();
 
     std::cout << "\n[초기화]" << std::endl;
@@ -171,6 +176,45 @@ void ApplicationManager::initializeOffboard() {
         std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
         offboard_manager_ = new OffboardManager(ros2_node_);
         std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
+    }
+#endif
+}
+
+void ApplicationManager::initializeFormation() {
+#ifdef ENABLE_ROS2
+    if (ros2_node_ && offboard_manager_) {
+        std::cout << "\n[편대 비행 제어기 초기화]" << std::endl;
+
+        // device_config.env에서 ROLE 읽기
+        const char* role_env = getenv("ROLE");
+        std::string role = role_env ? role_env : "Leader";
+        // Follower, Follower_L, Follower_R 모두 FOLLOWER 역할
+        FormationRole fm_role = (role.find("Follower") != std::string::npos) ?
+            FormationRole::FOLLOWER : FormationRole::LEADER;
+
+        formation_controller_ = new FormationController(
+            ros2_node_, offboard_manager_, drone_id_, fm_role);
+
+        if (fm_role == FormationRole::FOLLOWER) {
+            // 오프셋 설정
+            const char* right_env = getenv("FORMATION_OFFSET_RIGHT");
+            const char* behind_env = getenv("FORMATION_OFFSET_BEHIND");
+            const char* above_env = getenv("FORMATION_OFFSET_ABOVE");
+            int16_t right = right_env ? atoi(right_env) : 0;
+            int16_t behind = behind_env ? atoi(behind_env) : 0;
+            int16_t above = above_env ? atoi(above_env) : 0;
+            formation_controller_->setOffset(right, behind, above);
+
+            // 리더 네임스페이스 설정
+            const char* leader_ns_env = getenv("LEADER_NAMESPACE");
+            if (leader_ns_env) {
+                formation_controller_->setLeaderNamespace(leader_ns_env);
+            }
+        }
+
+        // 편대 제어 시작
+        formation_controller_->start();
+        std::cout << "  ✓ FormationController 초기화 완료 (role=" << role << ")" << std::endl;
     }
 #endif
 }
@@ -853,11 +897,16 @@ void ApplicationManager::cleanupComponents() {
 
 void ApplicationManager::cleanupROS2() {
 #ifdef ENABLE_ROS2
+    if (formation_controller_) {
+        formation_controller_->stop();
+        delete formation_controller_;
+    }
     if (offboard_manager_) delete offboard_manager_;
     if (status_ros2_subscriber_) delete status_ros2_subscriber_;
     if (thermal_ros2_publisher_) delete thermal_ros2_publisher_;
     if (lidar_ros2_publisher_) delete lidar_ros2_publisher_;
-    
+
+    formation_controller_ = nullptr;
     offboard_manager_ = nullptr;
     status_ros2_subscriber_ = nullptr;
     thermal_ros2_publisher_ = nullptr;

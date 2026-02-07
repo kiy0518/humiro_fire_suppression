@@ -15,6 +15,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LeaderStatus.msg"
   "msg/LeaderPose.msg"
   "msg/LeaderAimPose.msg"
+  "msg/FollowerStatus.msg"
+  "msg/FormationCommand.msg"
+  "msg/FormationHeartbeat.msg"
   DEPENDENCIES std_msgs
 )
 

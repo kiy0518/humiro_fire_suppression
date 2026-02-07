@@ -30,6 +30,7 @@ class ThermalROS2Publisher;
 class LidarROS2Publisher;
 class StatusROS2Subscriber;
 class OffboardManager;  // 추가: 자율 비행 관리자
+class FormationController;  // 편대 비행 제어기
 #endif
 
 /**
@@ -91,6 +92,7 @@ private:
     LidarROS2Publisher* lidar_ros2_publisher_;
     StatusROS2Subscriber* status_ros2_subscriber_;
     OffboardManager* offboard_manager_;  // 추가: 자율 비행 관리자
+    FormationController* formation_controller_;  // 편대 비행 제어기
 #endif
     
     // 큐
@@ -117,6 +119,7 @@ private:
     // 내부 메서드
     void initializeROS2(int argc, char* argv[]);
     void initializeOffboard();
+    void initializeFormation();
     void initializeComponents();
     void initializeStreaming();
     void initializeCustomMessage();
