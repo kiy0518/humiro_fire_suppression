@@ -192,6 +192,12 @@ public:
             return false;
         }
 
+        // 송신 소켓도 Non-blocking 설정 (QGC 직접 응답 수신용)
+        int send_flags = fcntl(send_socket_fd_, F_GETFL, 0);
+        if (send_flags >= 0) {
+            fcntl(send_socket_fd_, F_SETFL, send_flags | O_NONBLOCK);
+        }
+
         // epoll 생성
         epoll_fd_ = epoll_create1(0);
         if (epoll_fd_ < 0) {
@@ -202,7 +208,7 @@ public:
             send_socket_fd_ = -1;
             return false;
         }
-        
+
         // 수신 소켓을 epoll에 등록
         struct epoll_event ev;
         ev.events = EPOLLIN | EPOLLET;  // Edge-triggered 모드 (더 효율적)
@@ -216,6 +222,18 @@ public:
             receive_socket_fd_ = -1;
             send_socket_fd_ = -1;
             return false;
+        }
+
+        // 송신 소켓도 epoll에 등록 (QGC가 직접 응답하는 커스텀 메시지 수신)
+        // mavlink-router가 커스텀 메시지(60000번대)를 라우팅하지 않으므로 필요
+        struct epoll_event ev_send;
+        ev_send.events = EPOLLIN | EPOLLET;
+        ev_send.data.fd = send_socket_fd_;
+        if (epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, send_socket_fd_, &ev_send) < 0) {
+            std::cerr << "[CustomMessage] 송신 소켓 epoll 등록 실패 (무시): " << strerror(errno) << std::endl;
+            // 실패해도 계속 진행 - 수신 소켓으로는 mavlink-router 경유 메시지 수신 가능
+        } else {
+            std::cout << "[CustomMessage] 송신 소켓 epoll 등록 완료 (QGC 직접 수신 활성화)" << std::endl;
         }
         
         running_ = true;
@@ -441,10 +459,11 @@ private:
             
             // 이벤트 처리 (Edge-triggered 모드이므로 모든 데이터를 읽어야 함)
             for (int i = 0; i < nfds; i++) {
-                if (events[i].data.fd == receive_socket_fd_) {
+                int active_fd = events[i].data.fd;
+                if (active_fd == receive_socket_fd_ || active_fd == send_socket_fd_) {
                     // Edge-triggered 모드: 가능한 모든 데이터를 읽어야 함
                     while (running_) {
-                        ssize_t received = recvfrom(receive_socket_fd_, buffer, sizeof(buffer), 0,
+                        ssize_t received = recvfrom(active_fd, buffer, sizeof(buffer), 0,
                                                    (struct sockaddr*)&client_addr, &client_addr_len);
                         
                         if (received < 0) {

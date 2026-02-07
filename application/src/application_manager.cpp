@@ -984,13 +984,16 @@ void ApplicationManager::rgbCaptureLoop() {
         } else {
             consecutive_failures++;
             if (consecutive_failures >= max_failures) {
-                std::cout << "  ⚠ RGB 카메라 읽기 실패 " << consecutive_failures 
-                          << "회 - 재연결 시도..." << std::endl;
-                if (camera_manager_->reconnect_rgb_camera()) {
-                    consecutive_failures = 0;
-                } else {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                // 첫 실패 후 10회마다 로그 + 재연결 (로그 스팸 방지)
+                if (consecutive_failures == max_failures ||
+                    (consecutive_failures % (max_failures * 10)) == 0) {
+                    std::cout << "  ⚠ RGB 카메라 읽기 실패 " << consecutive_failures
+                              << "회 - 재연결 시도..." << std::endl;
+                    if (camera_manager_->reconnect_rgb_camera()) {
+                        consecutive_failures = 0;
+                    }
                 }
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
             } else {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
@@ -1030,13 +1033,16 @@ void ApplicationManager::thermalCaptureLoop() {
         } else {
             consecutive_failures++;
             if (consecutive_failures >= max_failures) {
-                std::cout << "  ⚠ 열화상 읽기 실패 " << consecutive_failures 
-                          << "회 - 재연결 시도..." << std::endl;
-                if (camera_manager_->reconnect_thermal_camera()) {
-                    consecutive_failures = 0;
-                } else {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                // 첫 실패 후 10회마다 로그 + 재연결 (로그 스팸 방지)
+                if (consecutive_failures == max_failures ||
+                    (consecutive_failures % (max_failures * 10)) == 0) {
+                    std::cout << "  ⚠ 열화상 읽기 실패 " << consecutive_failures
+                              << "회 - 재연결 시도..." << std::endl;
+                    if (camera_manager_->reconnect_thermal_camera()) {
+                        consecutive_failures = 0;
+                    }
                 }
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
             }
         }
         
@@ -1277,9 +1283,9 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         std::cout << "\n[미션 중복 체크] mission_running_=true" << std::endl;
         std::cout << "  - OffboardManager 상태: " << OffboardManager::getStateName(current_state) << std::endl;
 
-        // IDLE 또는 ERROR 상태면 이전 미션이 실패한 것으로 간주하고 리셋
+        // IDLE/ERROR/LANDED/RTL 상태면 이전 미션이 종료된 것으로 간주하고 리셋
         if (current_state == MissionState::IDLE || current_state == MissionState::ERROR ||
-            current_state == MissionState::LANDED) {
+            current_state == MissionState::LANDED || current_state == MissionState::RTL) {
             std::cout << "  ★ 이전 미션 종료 상태 → 강제 리셋 후 재시도" << std::endl;
             finishMission(true);
             expected = false;
@@ -1302,8 +1308,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
 
-            // executeMission3 호출 → 내부에서 updateMissionTarget() 실행
-            offboard_manager_->executeMission3(config);
+            // 미션 진행 중 → 내부에서 updateMissionTarget() 실행
+            if (formation_controller_)
+                offboard_manager_->executeMission4(config);
+            else
+                offboard_manager_->executeMission3(config);
             return;
         }
     }
@@ -1316,7 +1325,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
     if (current_state == MissionState::IDLE) {
         std::cout << "  → IDLE 상태: 미션 시작 가능" << std::endl;
-    } else if (current_state == MissionState::ERROR || current_state == MissionState::LANDED) {
+    } else if (current_state == MissionState::ERROR || current_state == MissionState::LANDED ||
+               current_state == MissionState::RTL) {
         std::cout << "  → " << OffboardManager::getStateName(current_state)
                   << " 상태: 리셋 후 미션 시작" << std::endl;
         offboard_manager_->resetToIdle();
@@ -1379,7 +1389,9 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     std::thread mission_thread([this, config, start]() {
         bool success = false;
         try {
-            success = offboard_manager_->executeMission3(config);
+            success = formation_controller_
+                ? offboard_manager_->executeMission4(config)
+                : offboard_manager_->executeMission3(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();

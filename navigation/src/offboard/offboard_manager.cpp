@@ -158,6 +158,7 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         timer_.reset();
     }
 
+    formation_mode_ = false;
     mission_running_.store(false);
 
     auto final_state = current_state_.load();
@@ -170,6 +171,13 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         RCLCPP_ERROR(node_->get_logger(), "Mission failed (state: %s)", getStateName(final_state).c_str());
         return false;
     }
+}
+
+bool OffboardManager::executeMission4(const MissionConfig& config)
+{
+    RCLCPP_INFO(node_->get_logger(), "[MISSION4] 군집비행 미션 시작 (suppress_hover=30s)");
+    formation_mode_ = true;
+    return executeMission3(config);
 }
 
 void OffboardManager::timerCallback()
@@ -204,10 +212,14 @@ void OffboardManager::timerCallback()
 
     // PX4가 RTL 모드(5)이거나 우리 상태가 RTL/LANDED/ERROR면 heartbeat 발행 안 함
     // nav_state: 5=AUTO_RTL, 14=OFFBOARD
-    // 이렇게 해야 PX4가 RTL 착륙 중에 다시 OFFBOARD로 전환되지 않음
-    if (nav == 5 || state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
+    // 단, PREPARING/OFFBOARD/ARMING 단계에서는 이전 RTL 잔여 상태 무시
+    // (새 미션 시작 직후 PX4가 아직 이전 AUTO_RTL인 경우 방지)
+    bool past_arming = (state != MissionState::PREPARING &&
+                        state != MissionState::OFFBOARD &&
+                        state != MissionState::ARMING);
+    if ((nav == 5 && past_arming) || state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
         // RTL 완료 체크 (착륙 감지)
-        if ((state == MissionState::RTL || nav == 5) && arming_state_.load() == 1) {
+        if ((state == MissionState::RTL || (nav == 5 && past_arming)) && arming_state_.load() == 1) {
             RCLCPP_INFO(node_->get_logger(), "[RTL] Vehicle disarmed, mission complete!");
             current_state_.store(MissionState::LANDED);
             mission_running_.store(false);  // 이후 콜백에서 아무것도 하지 않음
@@ -244,8 +256,10 @@ void OffboardManager::timerCallback()
     // 2. 목표지점 호버링 완료 → RTL 전환
     if (state == MissionState::HOVER_AT_TARGET) {
         uint64_t hover_start = hover_at_target_start_.load();
-        if (counter - hover_start >= TARGET_HOVER_TICKS) {
-            RCLCPP_INFO(node_->get_logger(), "\n[Step 7] 목표지점 호버링 완료! RTL 시작...");
+        uint64_t hover_limit = formation_mode_ ? SUPPRESS_HOVER_TICKS : TARGET_HOVER_TICKS;
+        if (counter - hover_start >= hover_limit) {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 7] 목표지점 호버링 완료! (%.0f초) RTL 시작...",
+                        hover_limit / 10.0);
 
             // 타이머 취소 (heartbeat 발행 없이 종료)
             if (timer_) {

@@ -48,7 +48,14 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     
     std::cout << "  → ROS2 노드 이름: " << node_->get_name() << std::endl;
     std::cout << "  → ROS2 네임스페이스: " << node_->get_namespace() << std::endl;
-    
+
+    // PX4 토픽 네임스페이스 (OffboardManager와 동일한 방식)
+    const char* ns_env = getenv("ROS_NAMESPACE");
+    std::string px4_ns = ns_env ? ("/" + std::string(ns_env)) : "";
+    if (!px4_ns.empty()) {
+        std::cout << "  → PX4 토픽 네임스페이스: " << px4_ns << std::endl;
+    }
+
     // PX4 uXRCE-DDS QoS 설정
     // PX4는 BEST_EFFORT와 TRANSIENT_LOCAL을 사용하므로 구독자도 동일하게 설정
     // History depth를 더 크게 설정 (배터리/GPS 메시지의 payload size 문제 해결)
@@ -64,7 +71,7 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     // PX4 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_status_v1)
     try {
         vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-            "/fmu/out/vehicle_status_v1", px4_qos,
+            px4_ns + "/fmu/out/vehicle_status_v1", px4_qos,
             std::bind(&StatusROS2Subscriber::vehicleStatusCallback, this, std::placeholders::_1));
         std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_status_v1 (uXRCE-DDS, BestEffort QoS)" << std::endl;
         std::cout << "    → QGC에서 비행 모드 변경 시 즉시 반영됩니다" << std::endl;
@@ -77,7 +84,7 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     // 배터리 상태 구독 (uXRCE-DDS: /fmu/out/battery_status)
     try {
         battery_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
-            "/fmu/out/battery_status", px4_qos,
+            px4_ns + "/fmu/out/battery_status", px4_qos,
             std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
         std::cout << "  ✓ ROS2 구독: /fmu/out/battery_status (uXRCE-DDS, BestEffort QoS)" << std::endl;
         std::cout << "    [DEBUG] 구독자 생성 완료: battery_sub_=" << (battery_sub_ ? "OK" : "NULL") << std::endl;
@@ -89,7 +96,7 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     // 실제 메시지 타입은 px4_msgs/msg/SensorGps
     try {
         gps_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
-            "/fmu/out/vehicle_gps_position", px4_qos,
+            px4_ns + "/fmu/out/vehicle_gps_position", px4_qos,
             std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
         std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_gps_position (uXRCE-DDS, SensorGps, BestEffort QoS)" << std::endl;
         std::cout << "    [DEBUG] 구독자 생성 완료: gps_sub_=" << (gps_sub_ ? "OK" : "NULL") << std::endl;

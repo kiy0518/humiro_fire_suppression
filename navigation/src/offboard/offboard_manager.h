@@ -68,6 +68,12 @@ public:
     bool executeMission3(const MissionConfig& config);
 
     /**
+     * @brief 군집비행 미션 (executeMission3 + 진압 대기 30초)
+     * HOVER_AT_TARGET에서 30초간 진압 편대 유지 후 RTL
+     */
+    bool executeMission4(const MissionConfig& config);
+
+    /**
      * @brief 미션 진행 중 목표 좌표 업데이트 (경로 변경)
      * @param new_target 새 목표 GPS 좌표
      * @return 업데이트 성공 여부 (미션 진행 중일 때만 true)
@@ -211,6 +217,10 @@ private:
     static constexpr uint64_t MOVE_START = 180;      // 18초: 이동 시작
     // RTL_TIMEOUT 제거 - 미션 시간 제한 없음 (미션 완료 또는 수동 개입으로만 RTL)
     static constexpr uint64_t TARGET_HOVER_TICKS = 50; // 5초: 목표지점 호버링 (10Hz)
+    static constexpr uint64_t SUPPRESS_HOVER_TICKS = 300; // 30초: 진압 편대 대기 (10Hz)
+
+    // ========== 군집비행 모드 ==========
+    bool formation_mode_{false};
 
     // ========== 드론 식별 ==========
     uint8_t target_system_{1};  // PX4 MAV_SYS_ID (VehicleCommand target)
