@@ -93,7 +93,7 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
                 if (eq == std::string::npos) continue;
                 std::string key = line.substr(0, eq);
                 std::string val = line.substr(eq + 1);
-                setenv(key.c_str(), val.c_str(), 1);  // 1 = overwrite
+                setenv(key.c_str(), val.c_str(), 1);
                 loaded++;
             }
             std::cout << "[Config] device_config.env 로드: " << loaded << "개 항목" << std::endl;

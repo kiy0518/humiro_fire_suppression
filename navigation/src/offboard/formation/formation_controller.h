@@ -142,7 +142,6 @@ private:
     FollowerPhase follower_phase_{FollowerPhase::IDLE};
     int16_t suppress_distance_m_{10};
     int16_t suppress_angle_deg_{0};
-    float suppress_altitude_{-1.0f};   // 진압 고도 (offboard_config.json에서 로드)
 
     // === 편대 상태 (리더) ===
     uint8_t formation_drone_count_{1};
@@ -183,18 +182,15 @@ private:
     std::mutex followers_mutex_;
     std::map<uint8_t, FollowerInfo> followers_;
 
-    // === L/R 오프셋 미러링 (위치 기반 충돌 방지) ===
-    // 팔로워와 오프셋 타겟이 리더→목적지 경로 반대편에 있으면 미러링
+    // === L/R 오프셋 미러링 (첫 calculateOffsetTarget 호출 시 1회 판정) ===
     bool lateral_offset_mirrored_{false}; // 현재 미러링 상태
-    float approach_bearing_deg_{0.0f};    // 리더→목적지 방위각
-
-    // === 진압 위치 사전 계산 (calculateOffsetTarget에서 10Hz 갱신) ===
-    double precomputed_suppress_lat_{0.0};
-    double precomputed_suppress_lon_{0.0};
-    bool precomputed_suppress_valid_{false};
-
-    // === 미션 목적지 (CMD_FOLLOW에서 수신, 미러링 판정용) ===
-    double mission_dest_lat_{0.0};
+    bool mirror_decided_{false};          // 미러링 판정 완료 여부
+    double last_leader_lat_{0.0};         // 최근 수신 리더 위치
+    double last_leader_lon_{0.0};
+    double mirror_leader_lat_{0.0};       // CMD_FOLLOW 시점 리더 위치 (미러링 기준점)
+    double mirror_leader_lon_{0.0};
+    bool mirror_leader_set_{false};       // CMD_FOLLOW 시점 리더 위치 저장 여부
+    double mission_dest_lat_{0.0};        // 미션 목적지 (미러링 판정용)
     double mission_dest_lon_{0.0};
     bool mission_dest_set_{false};
 
