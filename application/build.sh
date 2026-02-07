@@ -48,6 +48,14 @@ echo ""
 
 # 클린 수행
 if [ "$CLEAN_BUILD" = true ] || [ "$CLEAN_ONLY" = true ]; then
+    echo "[클린] 관련 서비스 중지 중..."
+    for SVC in micro-ros-agent mavlink-router; do
+        if systemctl is-active --quiet "$SVC" 2>/dev/null; then
+            sudo systemctl stop "$SVC"
+            echo "  → $SVC 서비스 중지"
+        fi
+    done
+
     echo "[클린] 기존 프로세스 종료 중..."
     # 실행 중인 humiro_fire_suppression 프로세스 종료
     EXEC_NAME="humiro_fire_suppression"

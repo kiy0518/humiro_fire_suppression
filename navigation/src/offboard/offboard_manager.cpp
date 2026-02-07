@@ -9,12 +9,22 @@
  */
 
 #include "offboard_manager.h"
+#include <cstdlib>
 
 using namespace std::chrono_literals;
 
 OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
     : node_(node)
 {
+    // ========== PX4 토픽 네임스페이스 (멀티 드론 충돌 방지) ==========
+    // PX4 uXRCE-DDS client가 -n droneN 옵션으로 시작되면
+    // 토픽이 /droneN/fmu/in/... 형태로 발행됨
+    const char* ns_env = getenv("ROS_NAMESPACE");
+    std::string px4_ns = ns_env ? ("/" + std::string(ns_env)) : "";
+    if (!px4_ns.empty()) {
+        RCLCPP_INFO(node_->get_logger(), "PX4 topic namespace: %s", px4_ns.c_str());
+    }
+
     // ========== PX4 호환 QoS 설정 (매우 중요!) ==========
     // PX4는 Best Effort + Volatile 조합을 요구
     // sensor_data 프로파일 = BEST_EFFORT + VOLATILE + KEEP_LAST
@@ -23,26 +33,33 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
 
     // ========== Publishers ==========
     offboard_control_mode_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
-        "/fmu/in/offboard_control_mode", qos);
+        px4_ns + "/fmu/in/offboard_control_mode", qos);
     trajectory_setpoint_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
-        "/fmu/in/trajectory_setpoint", qos);
+        px4_ns + "/fmu/in/trajectory_setpoint", qos);
     vehicle_command_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-        "/fmu/in/vehicle_command", qos);
+        px4_ns + "/fmu/in/vehicle_command", qos);
 
     // ========== Subscribers ==========
     vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-        "/fmu/out/vehicle_status_v1", qos,  // PX4 uXRCE-DDS uses _v1 suffix
+        px4_ns + "/fmu/out/vehicle_status_v1", qos,
         std::bind(&OffboardManager::vehicleStatusCallback, this, std::placeholders::_1));
 
     vehicle_local_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-        "/fmu/out/vehicle_local_position", qos,
+        px4_ns + "/fmu/out/vehicle_local_position", qos,
         std::bind(&OffboardManager::vehicleLocalPositionCallback, this, std::placeholders::_1));
 
     vehicle_global_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
-        "/fmu/out/vehicle_global_position", qos,
+        px4_ns + "/fmu/out/vehicle_global_position", qos,
         std::bind(&OffboardManager::vehicleGlobalPositionCallback, this, std::placeholders::_1));
 
-    RCLCPP_INFO(node_->get_logger(), "OffboardManager initialized (simplified version)");
+    // ========== 드론 ID (MAV_SYS_ID) ==========
+    const char* drone_id_env = getenv("DRONE_ID");
+    if (drone_id_env) {
+        target_system_ = static_cast<uint8_t>(atoi(drone_id_env));
+    }
+
+    RCLCPP_INFO(node_->get_logger(), "OffboardManager initialized (ns=%s, target_sys=%d)",
+                px4_ns.empty() ? "none" : px4_ns.c_str(), (int)target_system_);
 }
 
 OffboardManager::~OffboardManager()
@@ -56,8 +73,20 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
 {
     // 이미 미션 실행 중이면 좌표만 업데이트 (경로 변경)
     if (mission_running_.load()) {
-        RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
-        return updateMissionTarget(config.target_waypoint);
+        // PX4가 DISARMED인데 미션 진행 중이면 → 이전 미션 비정상 종료, 상태 리셋
+        if (arming_state_.load() != 2) {  // 2 = ARMED
+            RCLCPP_WARN(node_->get_logger(),
+                "[MISSION] Stale mission state detected! (mission_running=true, armed=OFF, state=%s) → Resetting",
+                getStateName(current_state_.load()).c_str());
+            mission_running_.store(false);
+            current_state_.store(MissionState::IDLE);
+            abort_requested_.store(false);
+            if (timer_) timer_->cancel();
+            // 아래로 흘러서 새 미션 시작
+        } else {
+            RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
+            return updateMissionTarget(config.target_waypoint);
+        }
     }
 
     // 미션 설정 저장
@@ -525,9 +554,9 @@ void OffboardManager::publishVehicleCommand(uint16_t command, float param1, floa
     msg.param1 = param1;
     msg.param2 = param2;
     msg.param3 = param3;
-    msg.target_system = 1;
+    msg.target_system = target_system_;
     msg.target_component = 1;
-    msg.source_system = 1;
+    msg.source_system = target_system_;
     msg.source_component = 1;
     msg.from_external = true;
 

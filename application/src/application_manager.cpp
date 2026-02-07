@@ -210,6 +210,29 @@ void ApplicationManager::initializeFormation() {
             if (leader_ns_env) {
                 formation_controller_->setLeaderNamespace(leader_ns_env);
             }
+
+            // 진압 파라미터 설정
+            const char* sup_dist = getenv("SUPPRESS_DISTANCE");
+            const char* sup_angle = getenv("SUPPRESS_ANGLE");
+            formation_controller_->setSuppressParams(
+                sup_dist ? atoi(sup_dist) : 10,
+                sup_angle ? atoi(sup_angle) : 0);
+
+            // 팔로워 명령 콜백: CMD_FOLLOW 수신 시 자체 미션 시작
+            formation_controller_->setCommandCallback(
+                [this](uint8_t cmd, double lat, double lon) {
+                    if (cmd == humiro_msgs::msg::FormationCommand::CMD_FOLLOW
+                        && !mission_running_.load()) {
+                        std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작" << std::endl;
+                        custom_message::FireMissionStart start{};
+                        start.target_lat = (int32_t)(lat * 1e7);
+                        start.target_lon = (int32_t)(lon * 1e7);
+                        start.target_alt = readTargetAltitudeFromConfig();
+                        start.flight_speed = 5.0f;
+                        start.auto_fire = 0;
+                        executeMission(start);
+                    }
+                });
         }
 
         // 편대 제어 시작
@@ -1399,6 +1422,18 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
     // 스레드 분리 (백그라운드 실행)
     mission_thread.detach();
+
+    // 리더: 편대에 미션 시작 통보 (CMD_FOLLOW + 리더 현재 위치)
+    if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+        formation_controller_->setMissionTarget(
+            config.target_waypoint.latitude, config.target_waypoint.longitude);
+        formation_controller_->setFormationPhase("NAVIGATE");
+        formation_controller_->sendCommand(0,
+            humiro_msgs::msg::FormationCommand::CMD_FOLLOW,
+            offboard_manager_->getCurrentLat(),
+            offboard_manager_->getCurrentLon());
+        std::cout << "[FormationController] 리더 미션 시작 → 팔로워 CMD_FOLLOW 전송" << std::endl;
+    }
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif

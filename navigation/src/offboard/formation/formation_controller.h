@@ -35,6 +35,14 @@ enum class FormationRole {
     FOLLOWER
 };
 
+enum class FollowerPhase {
+    IDLE,           // 미션 대기
+    FOLLOWING,      // 리더 추적 (이동 편대)
+    SUPPRESSING,    // 진압 위치 비행 (타겟 중심)
+    HOLD,           // 현재 위치 유지
+    RTL             // 귀환
+};
+
 class FormationController {
 public:
     FormationController(rclcpp::Node::SharedPtr node,
@@ -53,14 +61,17 @@ public:
     void setFormationPhase(const std::string& phase);
     void sendCommand(uint8_t target_drone_id, uint8_t command,
                      double target_lat = 0.0, double target_lon = 0.0);
+    void setMissionTarget(double lat, double lon);
 
     // === 팔로워 전용 ===
     void setOffset(int16_t right_cm, int16_t behind_cm, int16_t above_cm);
     void setLeaderNamespace(const std::string& ns);
+    void setSuppressParams(int16_t distance_m, int16_t angle_deg);
 
     // 상태 조회
     FormationRole getRole() const { return role_; }
     uint8_t getDroneId() const { return drone_id_; }
+    FollowerPhase getFollowerPhase() const { return follower_phase_; }
 
     // 명령 수신 콜백 (ApplicationManager에서 설정)
     using CommandCallback = std::function<void(uint8_t command, double lat, double lon)>;
@@ -85,6 +96,10 @@ private:
 
     // === 오프셋 계산 ===
     GPSCoordinate calculateOffsetTarget(const humiro_msgs::msg::LeaderPose& leader_pose);
+
+    // === 리더: SUPPRESS 전환 ===
+    void triggerSuppressPhase();
+    static std::string followerPhaseToString(FollowerPhase phase);
 
     // === ROS2 노드 ===
     rclcpp::Node::SharedPtr node_;
@@ -124,9 +139,16 @@ private:
     int16_t offset_above_cm_{0};
     std::string leader_namespace_;
 
+    // === 팔로워 상태 머신 ===
+    FollowerPhase follower_phase_{FollowerPhase::IDLE};
+    int16_t suppress_distance_m_{10};
+    int16_t suppress_angle_deg_{0};
+
     // === 편대 상태 (리더) ===
     uint8_t formation_drone_count_{1};
     std::string formation_phase_{"IDLE"};
+    double mission_target_lat_{0.0};
+    double mission_target_lon_{0.0};
 
     // === 리더 하트비트 타임아웃 (팔로워) ===
     std::chrono::steady_clock::time_point last_heartbeat_time_;

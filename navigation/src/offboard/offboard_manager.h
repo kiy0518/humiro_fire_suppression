@@ -212,6 +212,9 @@ private:
     // RTL_TIMEOUT 제거 - 미션 시간 제한 없음 (미션 완료 또는 수동 개입으로만 RTL)
     static constexpr uint64_t TARGET_HOVER_TICKS = 50; // 5초: 목표지점 호버링 (10Hz)
 
+    // ========== 드론 식별 ==========
+    uint8_t target_system_{1};  // PX4 MAV_SYS_ID (VehicleCommand target)
+
     // ========== 제어 파라미터 ==========
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s, ~28.6 deg/s)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f; // 도착 판정 거리 (m)

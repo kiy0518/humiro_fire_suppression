@@ -5,6 +5,7 @@
 
 #include "formation_controller.h"
 #include "../offboard_manager.h"
+#include <thread>
 
 using namespace std::chrono_literals;
 
@@ -238,6 +239,30 @@ void FormationController::leaderStatusTimerCallback() {
     msg.progress = 0;
 
     leader_status_pub_->publish(msg);
+
+    // HOVER_AT_TARGET 도달 시 → SUPPRESS 자동 전환
+    MissionState current = offboard_mgr_->getCurrentState();
+    if (current == MissionState::HOVER_AT_TARGET && formation_phase_ != "SUPPRESS") {
+        triggerSuppressPhase();
+    }
+
+    // RTL 상태 시 → 팔로워들에게 RTL 명령
+    if (current == MissionState::RTL && formation_phase_ != "RTL") {
+        formation_phase_ = "RTL";
+        sendCommand(0, humiro_msgs::msg::FormationCommand::CMD_RTL);
+        std::cout << "[FormationController] 리더 RTL → 팔로워 RTL 명령 전송" << std::endl;
+    }
+
+    // SUPPRESS 상태에서 아직 SUPPRESSING 아닌 팔로워에게 재전송 (1Hz)
+    if (formation_phase_ == "SUPPRESS") {
+        std::lock_guard<std::mutex> lock(followers_mutex_);
+        for (auto& [id, info] : followers_) {
+            if (info.mission_state != "SUPPRESSING") {
+                sendCommand(id, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
+                            mission_target_lat_, mission_target_lon_);
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -311,6 +336,9 @@ void FormationController::onLeaderPose(const humiro_msgs::msg::LeaderPose::Share
 
     last_leader_pose_time_ = std::chrono::steady_clock::now();
 
+    // FOLLOWING 상태일 때만 리더 추적 (SUPPRESSING/HOLD/RTL에서는 무시)
+    if (follower_phase_ != FollowerPhase::FOLLOWING) return;
+
     // 미션이 실행 중일 때만 오프셋 추적
     if (!offboard_mgr_->isMissionRunning()) return;
 
@@ -340,11 +368,25 @@ void FormationController::onHeartbeat(const humiro_msgs::msg::FormationHeartbeat
     last_heartbeat_time_ = std::chrono::steady_clock::now();
     leader_alive_.store(true);
 
-    // 리더 ID 업데이트 (리더 선출 시 변경될 수 있음)
-    if (!leader_namespace_.empty()) return;
-
     // leader_namespace가 설정되지 않은 경우, heartbeat에서 자동 설정
-    leader_namespace_ = "drone" + std::to_string(msg->leader_id);
+    if (leader_namespace_.empty()) {
+        leader_namespace_ = "drone" + std::to_string(msg->leader_id);
+    }
+
+    // 팔로워 phase 복구 (CMD 패킷 유실 대응)
+    if (msg->formation_phase == "SUPPRESS" && follower_phase_ == FollowerPhase::FOLLOWING) {
+        // SUPPRESS 명령을 놓침 → HOLD로 전환 (리더가 1Hz 재전송할 때 SUPPRESS로 전환됨)
+        follower_phase_ = FollowerPhase::HOLD;
+        std::cout << "[FormationController] Heartbeat로 SUPPRESS phase 감지 → HOLD 전환" << std::endl;
+    }
+    if (msg->formation_phase == "RTL" && follower_phase_ != FollowerPhase::RTL) {
+        // RTL 명령을 놓침 → 즉시 RTL
+        follower_phase_ = FollowerPhase::RTL;
+        if (offboard_mgr_) {
+            offboard_mgr_->emergencyRTL();
+        }
+        std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 즉시 RTL" << std::endl;
+    }
 }
 
 // ============================================================================
@@ -368,13 +410,18 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
     // 명령 처리
     switch (msg->command) {
         case humiro_msgs::msg::FormationCommand::CMD_HOLD:
-            // 현재 위치 유지 (updateMissionTarget 중지)
+            follower_phase_ = FollowerPhase::HOLD;
             std::cout << "  → HOLD: 현재 위치 유지" << std::endl;
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_FOLLOW:
+            follower_phase_ = FollowerPhase::FOLLOWING;
             std::cout << "  → FOLLOW: 리더 추적 시작" << std::endl;
-            break;
+            // 외부 콜백으로 ApplicationManager에 미션 시작 요청
+            if (command_callback_) {
+                command_callback_(msg->command, msg->target_latitude, msg->target_longitude);
+            }
+            return;  // 콜백 중복 호출 방지
 
         case humiro_msgs::msg::FormationCommand::CMD_GOTO:
             if (offboard_mgr_ && msg->target_latitude != 0.0) {
@@ -388,22 +435,45 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_RTL:
+            follower_phase_ = FollowerPhase::RTL;
             if (offboard_mgr_) {
                 offboard_mgr_->emergencyRTL();
                 std::cout << "  → RTL: 귀환 명령" << std::endl;
             }
             break;
 
-        case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS:
-            std::cout << "  → SUPPRESS: 화재 진압 명령" << std::endl;
+        case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS: {
+            follower_phase_ = FollowerPhase::SUPPRESSING;
+            std::cout << "  → SUPPRESS: 진압 편대 전환" << std::endl;
+
+            // 타겟 GPS + 자신의 SUPPRESS_DISTANCE/ANGLE로 진압 위치 계산
+            if (offboard_mgr_ && msg->target_latitude != 0.0) {
+                double angle_rad = suppress_angle_deg_ * M_PI / 180.0;
+                double dist = (double)suppress_distance_m_;
+                double target_lat_rad = msg->target_latitude * M_PI / 180.0;
+                double cos_lat = std::cos(target_lat_rad);
+
+                GPSCoordinate suppress_pos;
+                suppress_pos.latitude = msg->target_latitude
+                    + (dist * std::cos(angle_rad)) / DEG_TO_M_LAT;
+                suppress_pos.longitude = msg->target_longitude
+                    + (dist * std::sin(angle_rad)) / (DEG_TO_M_LAT * cos_lat);
+                suppress_pos.altitude = offboard_mgr_->getCurrentAltAmsl();
+
+                offboard_mgr_->updateMissionTarget(suppress_pos);
+                std::cout << "  → 진압 위치: " << suppress_pos.latitude << ", "
+                          << suppress_pos.longitude << " (dist=" << dist
+                          << "m, angle=" << suppress_angle_deg_ << "°)" << std::endl;
+            }
             break;
+        }
 
         default:
             std::cout << "  → 알 수 없는 명령: " << (int)msg->command << std::endl;
             break;
     }
 
-    // 외부 콜백
+    // 외부 콜백 (CMD_FOLLOW는 위에서 이미 호출)
     if (command_callback_) {
         command_callback_(msg->command, msg->target_latitude, msg->target_longitude);
     }
@@ -423,7 +493,7 @@ void FormationController::followerStatusTimerCallback() {
     msg.longitude = offboard_mgr_->getCurrentLon();
     msg.altitude = offboard_mgr_->getCurrentAltAmsl();
     msg.offset_error = 0.0f;  // TODO: 실제 오프셋 오차 계산
-    msg.mission_state = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
+    msg.mission_state = followerPhaseToString(follower_phase_);
     msg.battery_percent = 0;  // TODO: StatusROS2Subscriber에서 가져오기
     msg.ammo_count = 6;       // TODO: 실제 소화탄 수
 
@@ -443,13 +513,62 @@ void FormationController::leaderTimeoutTimerCallback() {
 
     if (elapsed > LEADER_TIMEOUT_SEC && leader_alive_.load()) {
         leader_alive_.store(false);
+        follower_phase_ = FollowerPhase::HOLD;
         std::cout << "[FormationController] ⚠ 리더 하트비트 타임아웃! ("
-                  << elapsed << "초)" << std::endl;
+                  << elapsed << "초) → HOLD" << std::endl;
+    }
+}
 
-        // 현재 위치 유지 (HOLD)
-        // TODO: 리더 선출 로직 구현
-        // 가장 낮은 DRONE_ID가 새 리더가 됨
-        std::cout << "  → 현재 위치에서 HOLD" << std::endl;
+// ============================================================================
+// 리더: 미션 타겟 설정
+// ============================================================================
+
+void FormationController::setMissionTarget(double lat, double lon) {
+    mission_target_lat_ = lat;
+    mission_target_lon_ = lon;
+    std::cout << "[FormationController] 미션 타겟 설정: " << lat << ", " << lon << std::endl;
+}
+
+// ============================================================================
+// 팔로워: 진압 파라미터 설정
+// ============================================================================
+
+void FormationController::setSuppressParams(int16_t distance_m, int16_t angle_deg) {
+    suppress_distance_m_ = distance_m;
+    suppress_angle_deg_ = angle_deg;
+    std::cout << "[FormationController] 진압 파라미터: distance=" << distance_m
+              << "m, angle=" << angle_deg << "°" << std::endl;
+}
+
+// ============================================================================
+// 리더: SUPPRESS phase 전환 (CMD_SUPPRESS 3회 전송)
+// ============================================================================
+
+void FormationController::triggerSuppressPhase() {
+    formation_phase_ = "SUPPRESS";
+    std::cout << "[FormationController] SUPPRESS phase 전환! target=("
+              << mission_target_lat_ << ", " << mission_target_lon_ << ")" << std::endl;
+
+    // WiFi 유실 대비 3회 전송
+    for (int i = 0; i < 3; i++) {
+        sendCommand(0, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
+                    mission_target_lat_, mission_target_lon_);
+        std::this_thread::sleep_for(100ms);
+    }
+}
+
+// ============================================================================
+// FollowerPhase → 문자열 변환
+// ============================================================================
+
+std::string FormationController::followerPhaseToString(FollowerPhase phase) {
+    switch (phase) {
+        case FollowerPhase::IDLE:        return "IDLE";
+        case FollowerPhase::FOLLOWING:   return "FOLLOWING";
+        case FollowerPhase::SUPPRESSING: return "SUPPRESSING";
+        case FollowerPhase::HOLD:        return "HOLD";
+        case FollowerPhase::RTL:         return "RTL";
+        default:                         return "UNKNOWN";
     }
 }
 
