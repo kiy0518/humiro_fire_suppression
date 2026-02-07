@@ -25,3 +25,6 @@ float32 z  # Down (m, 음수가 위)
 float32 vx  # North 속도 (m/s)
 float32 vy  # East 속도 (m/s)
 float32 vz  # Down 속도 (m/s)
+
+# 미션 상태 (IDLE, PREPARING, OFFBOARD, ARMING, TAKEOFF, HOVER, ROTATE, NAVIGATE, HOVER_AT_TARGET, RTL, LANDED)
+string mission_state

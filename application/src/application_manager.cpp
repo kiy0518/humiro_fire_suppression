@@ -196,6 +196,11 @@ void ApplicationManager::initializeFormation() {
             ros2_node_, offboard_manager_, drone_id_, fm_role);
 
         if (fm_role == FormationRole::FOLLOWER) {
+            // 팔로워: 연속 업데이트 모드 (10Hz LeaderPose 추적 시 ROTATE 리셋 방지)
+            if (offboard_manager_) {
+                offboard_manager_->setContinuousUpdateMode(true);
+            }
+
             // 오프셋 설정
             const char* right_env = getenv("FORMATION_OFFSET_RIGHT");
             const char* behind_env = getenv("FORMATION_OFFSET_BEHIND");
@@ -223,12 +228,15 @@ void ApplicationManager::initializeFormation() {
                 [this](uint8_t cmd, double lat, double lon) {
                     if (cmd == humiro_msgs::msg::FormationCommand::CMD_FOLLOW
                         && !mission_running_.load()) {
-                        std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작" << std::endl;
+                        float alt = formation_controller_->getReceivedAltitude();
+                        float spd = formation_controller_->getReceivedSpeed();
+                        std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작"
+                                  << " (alt=" << alt << "m, speed=" << spd << "m/s)" << std::endl;
                         custom_message::FireMissionStart start{};
                         start.target_lat = (int32_t)(lat * 1e7);
                         start.target_lon = (int32_t)(lon * 1e7);
-                        start.target_alt = readTargetAltitudeFromConfig();
-                        start.flight_speed = 5.0f;
+                        start.target_alt = alt;
+                        start.flight_speed = spd;
                         start.auto_fire = 0;
                         executeMission(start);
                     }
@@ -1308,6 +1316,12 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
 
+            // 리더: FormationController 미션 타겟도 업데이트 (CMD_SUPPRESS 좌표)
+            if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+                formation_controller_->setMissionTarget(
+                    config.target_waypoint.latitude, config.target_waypoint.longitude);
+            }
+
             // 미션 진행 중 → 내부에서 updateMissionTarget() 실행
             if (formation_controller_)
                 offboard_manager_->executeMission4(config);
@@ -1351,8 +1365,12 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.takeoff_altitude = start.target_alt;
     config.flight_speed = start.flight_speed;
 
-    // 목표지점 고도 (GUI offboard 설정에서 읽기)
-    config.target_altitude = readTargetAltitudeFromConfig();
+    // 목표지점 고도: 팔로워는 takeoff_altitude로 통일, 리더는 GUI 설정
+    if (formation_controller_ && formation_controller_->getRole() != FormationRole::LEADER) {
+        config.target_altitude = -1.0f;  // 팔로워: takeoff_altitude로 비행
+    } else {
+        config.target_altitude = readTargetAltitudeFromConfig();
+    }
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -1435,16 +1453,13 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     // 스레드 분리 (백그라운드 실행)
     mission_thread.detach();
 
-    // 리더: 편대에 미션 시작 통보 (CMD_FOLLOW + 리더 현재 위치)
+    // 리더: 미션 파라미터 전달 (CMD_FOLLOW는 HOVER 도달 시 자동 전송)
     if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
         formation_controller_->setMissionTarget(
             config.target_waypoint.latitude, config.target_waypoint.longitude);
+        formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
         formation_controller_->setFormationPhase("NAVIGATE");
-        formation_controller_->sendCommand(0,
-            humiro_msgs::msg::FormationCommand::CMD_FOLLOW,
-            offboard_manager_->getCurrentLat(),
-            offboard_manager_->getCurrentLon());
-        std::cout << "[FormationController] 리더 미션 시작 → 팔로워 CMD_FOLLOW 전송" << std::endl;
+        std::cout << "[FormationController] 리더 미션 시작 (CMD_FOLLOW는 HOVER 후 자동 전송)" << std::endl;
     }
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;

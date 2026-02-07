@@ -6,7 +6,7 @@
  * 팔로워: 리더 토픽을 구독하여 오프셋 위치로 추적
  *
  * 통신: ROS2 DDS over WiFi (FastDDS)
- * 메시지: humiro_msgs (LeaderPose, LeaderStatus, FollowerStatus 등)
+ * 메시지: humiro_msgs (LeaderPose(+mission_state), FollowerStatus 등)
  */
 
 #ifndef FORMATION_CONTROLLER_H
@@ -14,7 +14,6 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <humiro_msgs/msg/leader_pose.hpp>
-#include <humiro_msgs/msg/leader_status.hpp>
 #include <humiro_msgs/msg/leader_aim_pose.hpp>
 #include <humiro_msgs/msg/follower_status.hpp>
 #include <humiro_msgs/msg/formation_command.hpp>
@@ -62,6 +61,7 @@ public:
     void sendCommand(uint8_t target_drone_id, uint8_t command,
                      double target_lat = 0.0, double target_lon = 0.0);
     void setMissionTarget(double lat, double lon);
+    void setMissionParams(float takeoff_alt, float flight_speed);
 
     // === 팔로워 전용 ===
     void setOffset(int16_t right_cm, int16_t behind_cm, int16_t above_cm);
@@ -72,6 +72,8 @@ public:
     FormationRole getRole() const { return role_; }
     uint8_t getDroneId() const { return drone_id_; }
     FollowerPhase getFollowerPhase() const { return follower_phase_; }
+    float getReceivedAltitude() const { return received_takeoff_altitude_; }
+    float getReceivedSpeed() const { return received_flight_speed_; }
 
     // 명령 수신 콜백 (ApplicationManager에서 설정)
     using CommandCallback = std::function<void(uint8_t command, double lat, double lon)>;
@@ -80,15 +82,14 @@ public:
 private:
     // === 리더 기능 ===
     void initLeader();
-    void leaderPoseTimerCallback();       // 5Hz
-    void leaderStatusTimerCallback();     // 1Hz
+    void leaderPoseTimerCallback();       // 10Hz (위치+mission_state)
+    void leaderStatusTimerCallback();     // 1Hz (편대 동기화 체크)
     void heartbeatTimerCallback();        // 1Hz
     void onFollowerStatus(const humiro_msgs::msg::FollowerStatus::SharedPtr msg);
 
     // === 팔로워 기능 ===
     void initFollower();
-    void onLeaderPose(const humiro_msgs::msg::LeaderPose::SharedPtr msg);
-    void onLeaderStatus(const humiro_msgs::msg::LeaderStatus::SharedPtr msg);
+    void onLeaderPose(const humiro_msgs::msg::LeaderPose::SharedPtr msg);  // 위치+상태 수신
     void onHeartbeat(const humiro_msgs::msg::FormationHeartbeat::SharedPtr msg);
     void onFormationCommand(const humiro_msgs::msg::FormationCommand::SharedPtr msg);
     void followerStatusTimerCallback();   // 2Hz
@@ -110,7 +111,6 @@ private:
 
     // === 리더 Publishers ===
     rclcpp::Publisher<humiro_msgs::msg::LeaderPose>::SharedPtr leader_pose_pub_;
-    rclcpp::Publisher<humiro_msgs::msg::LeaderStatus>::SharedPtr leader_status_pub_;
     rclcpp::Publisher<humiro_msgs::msg::FormationHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<humiro_msgs::msg::FormationCommand>::SharedPtr command_pub_;
 
@@ -122,13 +122,12 @@ private:
 
     // === 팔로워 Subscribers ===
     rclcpp::Subscription<humiro_msgs::msg::LeaderPose>::SharedPtr leader_pose_sub_;
-    rclcpp::Subscription<humiro_msgs::msg::LeaderStatus>::SharedPtr leader_status_sub_;
     rclcpp::Subscription<humiro_msgs::msg::FormationHeartbeat>::SharedPtr heartbeat_sub_;
     rclcpp::Subscription<humiro_msgs::msg::FormationCommand>::SharedPtr command_sub_;
 
     // === 타이머 ===
-    rclcpp::TimerBase::SharedPtr leader_pose_timer_;      // 5Hz
-    rclcpp::TimerBase::SharedPtr leader_status_timer_;    // 1Hz
+    rclcpp::TimerBase::SharedPtr leader_pose_timer_;      // 10Hz (위치+상태)
+    rclcpp::TimerBase::SharedPtr leader_status_timer_;    // 1Hz (편대 동기화)
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;        // 1Hz
     rclcpp::TimerBase::SharedPtr follower_status_timer_;  // 2Hz
     rclcpp::TimerBase::SharedPtr leader_timeout_timer_;   // 1Hz 타임아웃 체크
@@ -150,6 +149,19 @@ private:
     double mission_target_lat_{0.0};
     double mission_target_lon_{0.0};
 
+    // === 미션 파라미터 (리더→팔로워 전달) ===
+    float mission_takeoff_altitude_{10.0f};
+    float mission_flight_speed_{5.0f};
+    bool cmd_follow_sent_{false};
+
+    // === 편대 동기화 (리더: OffboardManager 게이트 제어) ===
+    bool formation_ready_to_rotate_notified_{false};
+    bool formation_ready_to_navigate_notified_{false};
+
+    // === 팔로워가 CMD_FOLLOW에서 수신한 파라미터 ===
+    float received_takeoff_altitude_{10.0f};
+    float received_flight_speed_{5.0f};
+
     // === 리더 하트비트 타임아웃 (팔로워) ===
     std::chrono::steady_clock::time_point last_heartbeat_time_;
     std::chrono::steady_clock::time_point last_leader_pose_time_;
@@ -170,6 +182,11 @@ private:
     std::mutex followers_mutex_;
     std::map<uint8_t, FollowerInfo> followers_;
 
+    // === 팔로워 오프셋 추적 (offset_error 계산용) ===
+    double last_target_lat_{0.0};
+    double last_target_lon_{0.0};
+    bool last_offset_valid_{false};
+
     // === 마지막 수신 리더 상태 (팔로워) ===
     std::string leader_phase_{"IDLE"};
     std::atomic<bool> leader_alive_{false};
@@ -179,6 +196,10 @@ private:
 
     // === GPS 변환 상수 ===
     static constexpr double DEG_TO_M_LAT = 111320.0;
+
+    // === 편대 동기화 상수 ===
+    static constexpr float SAFETY_RADIUS_M = 5.0f;                 // 리더 안전 반경 (m)
+    static constexpr float FORMATION_COMPLETE_THRESHOLD_M = 5.0f;  // 편대 배치 완료 기준 (m)
 };
 
 #endif // FORMATION_CONTROLLER_H

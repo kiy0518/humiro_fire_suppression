@@ -94,6 +94,8 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     mission_running_.store(true);
     abort_requested_.store(false);
     setpoint_counter_.store(0);
+    formation_ready_to_rotate_.store(false);
+    formation_ready_to_navigate_.store(false);
     prev_vx_ = 0.0f;
     prev_vy_ = 0.0f;
 
@@ -337,17 +339,59 @@ void OffboardManager::timerCallback()
                     target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
 
     } else if (counter == ROTATE_START) {
-        // 회전 시작
-        RCLCPP_INFO(node_->get_logger(), "\n[Step 4] 목표 방향으로 회전 시작...");
-        current_state_.store(MissionState::ROTATE);
+        // ROTATE 진입 직전: 현재 yaw를 initial_yaw로 갱신 (ARM~HOVER 사이 yaw 드리프트 보정)
+        initial_yaw_ = current_yaw_.load();
+
+        // 편대 모드(리더): 팔로워 이륙 확인 전까지 HOVER 유지
+        bool needs_gate = formation_mode_ && !continuous_update_mode_.load();
+        if (needs_gate && !formation_ready_to_rotate_.load()) {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 4] 편대 모드: 팔로워 이륙 대기중 (HOVER 유지)...");
+        } else {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 4] 목표 방향으로 회전 시작 (initial_yaw=%.1f°, target_yaw=%.1f°)...",
+                        initial_yaw_ * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
+            current_state_.store(MissionState::ROTATE);
+        }
 
     } else if (counter == ROTATE_END) {
         // 회전 완료
         RCLCPP_INFO(node_->get_logger(), "\n[Step 5] 회전 완료, 이동 시작...");
 
     } else if (counter == MOVE_START) {
-        // 이동 시작
-        current_state_.store(MissionState::NAVIGATE);
+        // 편대 모드(리더): 편대 배치 완료 전까지 ROTATE 유지
+        bool needs_gate = formation_mode_ && !continuous_update_mode_.load();
+        if (needs_gate && !formation_ready_to_navigate_.load()) {
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 편대 모드: 편대 배치 대기중 (ROTATE 유지)...");
+        } else {
+            current_state_.store(MissionState::NAVIGATE);
+        }
+    }
+
+    // === 편대 모드: 지연 상태 전환 (게이트 통과 후) ===
+    if (formation_mode_ && !continuous_update_mode_.load()) {
+        // HOVER 유지 중: 팔로워 이륙 확인 시 → ROTATE 전환
+        if (state == MissionState::HOVER && counter > ROTATE_START) {
+            if (formation_ready_to_rotate_.load()) {
+                initial_yaw_ = current_yaw_.load();  // 현재 yaw로 갱신
+                RCLCPP_INFO(node_->get_logger(),
+                    "[FORMATION] 팔로워 이륙 확인! ROTATE 시작 (대기: %.1fs, yaw=%.1f°→%.1f°)",
+                    (counter - ROTATE_START) / 10.0f,
+                    initial_yaw_ * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
+                setpoint_counter_.store(ROTATE_START);
+                current_state_.store(MissionState::ROTATE);
+            } else if (counter % 50 == 0) {
+                RCLCPP_INFO(node_->get_logger(), "[FORMATION] HOVER 대기: 팔로워 이륙 대기중...");
+            }
+        }
+        // ROTATE 유지 중: 편대 배치 완료 시 → NAVIGATE 전환
+        if (state == MissionState::ROTATE && counter > MOVE_START) {
+            if (formation_ready_to_navigate_.load()) {
+                RCLCPP_INFO(node_->get_logger(), "[FORMATION] 편대 배치 완료! NAVIGATE 시작");
+                setpoint_counter_.store(MOVE_START);
+                current_state_.store(MissionState::NAVIGATE);
+            } else if (counter % 50 == 0) {
+                RCLCPP_INFO(node_->get_logger(), "[FORMATION] ROTATE 대기: 팔로워 편대 배치 대기중...");
+            }
+        }
     }
 
     // 진행 상황 로깅 (2초마다) - 목표 도달/타임아웃 체크는 위에서 heartbeat 전에 수행됨
@@ -471,7 +515,7 @@ void OffboardManager::publishTrajectorySetpoint()
         // 현재 실제 피드포워드 속도 계산
         float current_ff_speed = std::sqrt(prev_vx_ * prev_vx_ + prev_vy_ * prev_vy_);
         float speed = mission_config_.flight_speed;
-        constexpr float DECEL_RADIUS = 60.0f;  // 감속 시작 거리 (m) - 45kg기체 12m/s 기준
+        constexpr float DECEL_RADIUS = 80.0f;  // 감속 시작 거리 (m) - 45kg기체 12m/s 기준
         if (dist < DECEL_RADIUS) {
             // 거리 비례 감속, 단 현재 속도보다 높으면 현재 속도로 제한
             float decel_speed = speed * (dist / DECEL_RADIUS);
@@ -693,7 +737,7 @@ void OffboardManager::emergencyRTL()
     current_state_.store(MissionState::RTL);
 }
 
-bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
+bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float yaw_override)
 {
     if (!mission_running_.load()) {
         RCLCPP_WARN(node_->get_logger(), "[UPDATE] No mission running, cannot update target");
@@ -702,11 +746,20 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
 
     auto state = current_state_.load();
 
-    // RTL/LANDED/ERROR/HOVER_AT_TARGET 상태에서는 업데이트 불가
+    // RTL/LANDED/ERROR 상태에서는 업데이트 불가
     if (state == MissionState::RTL || state == MissionState::LANDED ||
-        state == MissionState::ERROR || state == MissionState::HOVER_AT_TARGET) {
+        state == MissionState::ERROR) {
         RCLCPP_WARN(node_->get_logger(), "[UPDATE] Cannot update target in %s state", getStateName(state).c_str());
         return false;
+    }
+
+    // HOVER_AT_TARGET: 새 목표 수신 시 NAVIGATE 복귀 (리더/팔로워 모두)
+    if (state == MissionState::HOVER_AT_TARGET) {
+        RCLCPP_INFO(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET → NAVIGATE (new target received%s)",
+                    continuous_update_mode_.load() ? ", continuous" : "");
+        current_state_.store(MissionState::NAVIGATE);
+        setpoint_counter_.store(MOVE_START + 1);
+        state = MissionState::NAVIGATE;
     }
 
     // 미션 설정 업데이트
@@ -736,39 +789,58 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
     target_ned_y_ = start_local_y_ + offset_east;
     target_ned_z_ = -mission_config_.takeoff_altitude;  // 고도 재설정
 
-    // 새 목표 방향 계산
-    target_yaw_ = calculateTargetYaw(offset_north, offset_east);
+    // 새 목표 방향 계산 (yaw_override가 있으면 리더 헤딩 사용)
+    if (!std::isnan(yaw_override)) {
+        target_yaw_ = yaw_override;
+    } else {
+        target_yaw_ = calculateTargetYaw(offset_north, offset_east);
+    }
 
     // HOVER 상태에서 현재 yaw 유지 (initial_yaw_ 업데이트)
     initial_yaw_ = current_yaw_.load();
 
-    RCLCPP_INFO(node_->get_logger(), "==============================================");
-    RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target - Smooth Turn (No Stop)");
-    RCLCPP_INFO(node_->get_logger(), "  Current State: %s", getStateName(state).c_str());
-    RCLCPP_INFO(node_->get_logger(), "  Current Position (NED): (%.1f, %.1f, %.1f)",
-                start_local_x_, start_local_y_, start_local_z_);
-    RCLCPP_INFO(node_->get_logger(), "  Old Target NED: (%.1f, %.1f)", old_x, old_y);
-    RCLCPP_INFO(node_->get_logger(), "  New Target GPS: (%.7f, %.7f)", new_target.latitude, new_target.longitude);
-    RCLCPP_INFO(node_->get_logger(), "  New Target NED: (%.1f, %.1f, %.1f)", target_ned_x_, target_ned_y_, target_ned_z_);
-    RCLCPP_INFO(node_->get_logger(), "  New Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
-    RCLCPP_INFO(node_->get_logger(), "==============================================");
+    // 로깅 (continuous_update_mode에서는 5초마다만)
+    bool should_log = true;
+    if (continuous_update_mode_.load()) {
+        static uint32_t continuous_log_count = 0;
+        should_log = (continuous_log_count++ % 50 == 0);
+    }
+
+    if (should_log) {
+        RCLCPP_INFO(node_->get_logger(), "==============================================");
+        RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target%s",
+                    continuous_update_mode_.load() ? " (continuous)" : " - Smooth Turn");
+        RCLCPP_INFO(node_->get_logger(), "  State: %s | GPS: (%.7f, %.7f) | NED: (%.1f, %.1f, %.1f)",
+                    getStateName(state).c_str(), new_target.latitude, new_target.longitude,
+                    target_ned_x_, target_ned_y_, target_ned_z_);
+        RCLCPP_INFO(node_->get_logger(), "  Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
+        RCLCPP_INFO(node_->get_logger(), "==============================================");
+    }
 
     // ★★★ 상태별 목적지 업데이트 처리 ★★★
-    if (state == MissionState::NAVIGATE) {
+    if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
+        state == MissionState::ARMING || state == MissionState::TAKEOFF) {
+        // ARM/이륙 전: 목표 좌표만 저장, 상태 전환 안 함 (시퀀스 유지)
+        if (should_log) RCLCPP_INFO(node_->get_logger(), "  → Target saved, state unchanged (%s)", getStateName(state).c_str());
+    } else if (state == MissionState::NAVIGATE) {
         // NAVIGATE 중: 정지 없이 새 target으로 부드럽게 선회하면서 이동
-        RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
+        if (should_log) RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
     } else if (state == MissionState::ROTATE || state == MissionState::HOVER) {
-        // ROTATE/HOVER 중: 새 목적지로 헤딩 정렬 재시작
-        setpoint_counter_.store(ROTATE_START);
-        current_state_.store(MissionState::ROTATE);
-        RCLCPP_INFO(node_->get_logger(), "  → ROTATE restart for new target (heading realign)");
+        if (continuous_update_mode_.load()) {
+            // 팔로워 연속 추적 모드: 좌표만 업데이트, 상태 전환 안 함 (카운터 진행 유지)
+            if (should_log) RCLCPP_INFO(node_->get_logger(), "  → Target updated, state unchanged (continuous)");
+        } else {
+            // ROTATE/HOVER 중: 새 목적지로 헤딩 정렬 재시작
+            setpoint_counter_.store(ROTATE_START);
+            current_state_.store(MissionState::ROTATE);
+            RCLCPP_INFO(node_->get_logger(), "  → ROTATE restart for new target (heading realign)");
+        }
     } else {
-        // TAKEOFF 등 기타: NAVIGATE로 즉시 전환
+        // 기타: NAVIGATE로 전환
         setpoint_counter_.store(MOVE_START + 1);
         current_state_.store(MissionState::NAVIGATE);
         RCLCPP_INFO(node_->get_logger(), "  → State changed to NAVIGATE (immediate move)");
     }
-    RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
     return true;
 }
@@ -789,6 +861,21 @@ void OffboardManager::resetToIdle()
     }
 
     RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE (home_set_ cleared)");
+}
+
+void OffboardManager::setFormationReadyToRotate(bool ready) {
+    formation_ready_to_rotate_.store(ready);
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] ready_to_rotate = %s", ready ? "true" : "false");
+}
+
+void OffboardManager::setFormationReadyToNavigate(bool ready) {
+    formation_ready_to_navigate_.store(ready);
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] ready_to_navigate = %s", ready ? "true" : "false");
+}
+
+void OffboardManager::setContinuousUpdateMode(bool enabled) {
+    continuous_update_mode_.store(enabled);
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] continuous_update_mode = %s", enabled ? "true" : "false");
 }
 
 std::string OffboardManager::getStateName(MissionState state)

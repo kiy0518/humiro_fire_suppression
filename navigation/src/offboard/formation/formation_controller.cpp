@@ -81,11 +81,12 @@ void FormationController::initLeader() {
     qos_reliable.reliability(rclcpp::ReliabilityPolicy::Reliable);
     qos_reliable.durability(rclcpp::DurabilityPolicy::Volatile);
 
-    // Publishers (네임스페이스 자동 적용됨)
+    // ROS_NAMESPACE 기반 토픽 경로 (노드가 root namespace에 있으므로 수동 prefix)
+    const char* ns_env = getenv("ROS_NAMESPACE");
+    std::string ns_prefix = ns_env ? ("/" + std::string(ns_env)) : "";
+
     leader_pose_pub_ = node_->create_publisher<humiro_msgs::msg::LeaderPose>(
-        "formation/leader_pose", qos_best_effort);
-    leader_status_pub_ = node_->create_publisher<humiro_msgs::msg::LeaderStatus>(
-        "formation/leader_status", qos_reliable);
+        ns_prefix + "/formation/leader_pose", qos_best_effort);
     heartbeat_pub_ = node_->create_publisher<humiro_msgs::msg::FormationHeartbeat>(
         "/formation/heartbeat", qos_best_effort);
     command_pub_ = node_->create_publisher<humiro_msgs::msg::FormationCommand>(
@@ -98,15 +99,14 @@ void FormationController::initLeader() {
 
     // 타이머
     leader_pose_timer_ = node_->create_wall_timer(
-        200ms, std::bind(&FormationController::leaderPoseTimerCallback, this));
+        100ms, std::bind(&FormationController::leaderPoseTimerCallback, this));
     leader_status_timer_ = node_->create_wall_timer(
-        1000ms, std::bind(&FormationController::leaderStatusTimerCallback, this));
+        1000ms, std::bind(&FormationController::leaderStatusTimerCallback, this));  // 편대 동기화 1Hz
     heartbeat_timer_ = node_->create_wall_timer(
         1000ms, std::bind(&FormationController::heartbeatTimerCallback, this));
 
     std::cout << "[FormationController] 리더 초기화 완료" << std::endl;
-    std::cout << "  - 발행: formation/leader_pose (5Hz)" << std::endl;
-    std::cout << "  - 발행: formation/leader_status (1Hz)" << std::endl;
+    std::cout << "  - 발행: " << ns_prefix << "/formation/leader_pose (10Hz, mission_state 포함)" << std::endl;
     std::cout << "  - 발행: /formation/heartbeat (1Hz)" << std::endl;
     std::cout << "  - 발행: /formation/command (이벤트)" << std::endl;
     std::cout << "  - 구독: /formation/follower_status" << std::endl;
@@ -130,14 +130,10 @@ void FormationController::initFollower() {
     // 리더 네임스페이스 기반 토픽 구독
     std::string leader_ns = leader_namespace_.empty() ? "drone1" : leader_namespace_;
     std::string leader_pose_topic = "/" + leader_ns + "/formation/leader_pose";
-    std::string leader_status_topic = "/" + leader_ns + "/formation/leader_status";
 
     leader_pose_sub_ = node_->create_subscription<humiro_msgs::msg::LeaderPose>(
         leader_pose_topic, qos_best_effort,
         std::bind(&FormationController::onLeaderPose, this, std::placeholders::_1));
-    leader_status_sub_ = node_->create_subscription<humiro_msgs::msg::LeaderStatus>(
-        leader_status_topic, qos_reliable,
-        std::bind(&FormationController::onLeaderStatus, this, std::placeholders::_1));
     heartbeat_sub_ = node_->create_subscription<humiro_msgs::msg::FormationHeartbeat>(
         "/formation/heartbeat", qos_best_effort,
         std::bind(&FormationController::onHeartbeat, this, std::placeholders::_1));
@@ -156,8 +152,7 @@ void FormationController::initFollower() {
         1000ms, std::bind(&FormationController::leaderTimeoutTimerCallback, this));
 
     std::cout << "[FormationController] 팔로워 초기화 완료" << std::endl;
-    std::cout << "  - 구독: " << leader_pose_topic << " (5Hz)" << std::endl;
-    std::cout << "  - 구독: " << leader_status_topic << " (1Hz)" << std::endl;
+    std::cout << "  - 구독: " << leader_pose_topic << " (10Hz, mission_state 포함)" << std::endl;
     std::cout << "  - 구독: /formation/heartbeat (1Hz)" << std::endl;
     std::cout << "  - 구독: /formation/command (이벤트)" << std::endl;
     std::cout << "  - 발행: /formation/follower_status (2Hz)" << std::endl;
@@ -220,28 +215,100 @@ void FormationController::leaderPoseTimerCallback() {
     msg.vy = offboard_mgr_->getCurrentVy();
     msg.vz = 0.0f;
 
+    // 미션 상태 (10Hz로 팔로워에게 실시간 전달)
+    msg.mission_state = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
+
     leader_pose_pub_->publish(msg);
 }
 
 // ============================================================================
-// 리더: LeaderStatus 발행 (1Hz)
+// 리더: 편대 동기화 체크 (1Hz) — LeaderStatus는 LeaderPose에 통합 (10Hz)
 // ============================================================================
 
 void FormationController::leaderStatusTimerCallback() {
     if (!running_.load() || !offboard_mgr_) return;
 
-    auto msg = humiro_msgs::msg::LeaderStatus();
-    msg.header.stamp = node_->now();
-    msg.phase = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
-    msg.mission_active = offboard_mgr_->isMissionRunning();
-    msg.altitude = offboard_mgr_->getCurrentAltAmsl();
-    msg.shot_number = 0;
-    msg.progress = 0;
+    // 미션 시작 즉시 → CMD_FOLLOW 전송 (리더/팔로워 동시 시동+이륙)
+    MissionState current = offboard_mgr_->getCurrentState();
+    if (offboard_mgr_->isMissionRunning() && !cmd_follow_sent_) {
+        cmd_follow_sent_ = true;
 
-    leader_status_pub_->publish(msg);
+        // 네트워크 팔로워 로그
+        {
+            std::lock_guard<std::mutex> lock(followers_mutex_);
+            std::cout << "[Formation] 네트워크 팔로워: " << followers_.size() << "대" << std::endl;
+            for (auto& [id, info] : followers_) {
+                std::cout << "  - drone" << (int)id << " state=" << info.mission_state << std::endl;
+            }
+        }
+
+        // CMD_FOLLOW 3회 전송 (WiFi 유실 대비, 고도/속도 포함)
+        for (int i = 0; i < 3; i++) {
+            auto cmd_msg = humiro_msgs::msg::FormationCommand();
+            cmd_msg.header.stamp = node_->now();
+            cmd_msg.target_drone_id = 0;
+            cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_FOLLOW;
+            cmd_msg.target_latitude = offboard_mgr_->getCurrentLat();
+            cmd_msg.target_longitude = offboard_mgr_->getCurrentLon();
+            cmd_msg.takeoff_altitude = mission_takeoff_altitude_;
+            cmd_msg.flight_speed = mission_flight_speed_;
+            command_pub_->publish(cmd_msg);
+            if (i < 2) std::this_thread::sleep_for(100ms);
+        }
+        std::cout << "[Formation] CMD_FOLLOW 전송 완료 (alt=" << mission_takeoff_altitude_
+                  << "m, speed=" << mission_flight_speed_ << "m/s)" << std::endl;
+    }
+
+    // === 편대 동기화 체크 (1Hz) ===
+    if (cmd_follow_sent_ && offboard_mgr_) {
+        // 체크 1: 팔로워 이륙 확인 → ROTATE 허가
+        if (!formation_ready_to_rotate_notified_) {
+            std::lock_guard<std::mutex> lock(followers_mutex_);
+            bool all_airborne = !followers_.empty();
+            for (auto& [id, info] : followers_) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - info.last_update).count();
+                // "FOLLOWING" = 이륙 완료(HOVER 이상), "TAKEOFF" = 이륙 중
+                if (elapsed > 5 || info.mission_state != "FOLLOWING") {
+                    all_airborne = false;
+                    std::cout << "[Formation] 대기: drone" << (int)id
+                              << " state=" << info.mission_state
+                              << " (elapsed=" << elapsed << "s)" << std::endl;
+                    break;
+                }
+            }
+            if (all_airborne) {
+                offboard_mgr_->setFormationReadyToRotate(true);
+                formation_ready_to_rotate_notified_ = true;
+                std::cout << "[Formation] 모든 팔로워 이륙 확인 → ROTATE 허가" << std::endl;
+            }
+        }
+
+        // 체크 2: 팔로워 편대 배치 완료 → NAVIGATE 허가
+        if (formation_ready_to_rotate_notified_ && !formation_ready_to_navigate_notified_) {
+            std::lock_guard<std::mutex> lock(followers_mutex_);
+            bool all_in_position = !followers_.empty();
+            for (auto& [id, info] : followers_) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::steady_clock::now() - info.last_update).count();
+                if (elapsed > 5 || info.mission_state != "FOLLOWING" ||
+                    info.offset_error > FORMATION_COMPLETE_THRESHOLD_M) {
+                    all_in_position = false;
+                    std::cout << "[Formation] 대기: drone" << (int)id
+                              << " offset_error=" << info.offset_error
+                              << "m (threshold=" << FORMATION_COMPLETE_THRESHOLD_M << "m)" << std::endl;
+                    break;
+                }
+            }
+            if (all_in_position) {
+                offboard_mgr_->setFormationReadyToNavigate(true);
+                formation_ready_to_navigate_notified_ = true;
+                std::cout << "[Formation] 모든 팔로워 편대 배치 완료 → NAVIGATE 허가" << std::endl;
+            }
+        }
+    }
 
     // HOVER_AT_TARGET 도달 시 → SUPPRESS 자동 전환
-    MissionState current = offboard_mgr_->getCurrentState();
     if (current == MissionState::HOVER_AT_TARGET && formation_phase_ != "SUPPRESS") {
         triggerSuppressPhase();
     }
@@ -336,26 +403,42 @@ void FormationController::onLeaderPose(const humiro_msgs::msg::LeaderPose::Share
 
     last_leader_pose_time_ = std::chrono::steady_clock::now();
 
+    // 리더 미션 상태 실시간 업데이트 (10Hz, onLeaderStatus 대체)
+    if (!msg->mission_state.empty()) {
+        leader_phase_ = msg->mission_state;
+    }
+
     // FOLLOWING 상태일 때만 리더 추적 (SUPPRESSING/HOLD/RTL에서는 무시)
     if (follower_phase_ != FollowerPhase::FOLLOWING) return;
 
     // 미션이 실행 중일 때만 오프셋 추적
     if (!offboard_mgr_->isMissionRunning()) return;
 
+    // 충돌 방지: 리더 안전 반경 체크
+    double follower_lat = offboard_mgr_->getCurrentLat();
+    double follower_lon = offboard_mgr_->getCurrentLon();
+    double cos_lat_check = std::cos(follower_lat * M_PI / 180.0);
+    double d_lat = (msg->latitude - follower_lat) * DEG_TO_M_LAT;
+    double d_lon = (msg->longitude - follower_lon) * DEG_TO_M_LAT * cos_lat_check;
+    float dist_to_leader = std::sqrt(d_lat * d_lat + d_lon * d_lon);
+
+    if (dist_to_leader < SAFETY_RADIUS_M) {
+        static std::chrono::steady_clock::time_point last_safety_log{};
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_safety_log).count() >= 2) {
+            std::cout << "[Formation] 안전거리 미확보 (" << dist_to_leader
+                      << "m < " << SAFETY_RADIUS_M << "m) - 대기" << std::endl;
+            last_safety_log = now;
+        }
+        return;  // 리더에 너무 가까움 - 목표 업데이트 안함 (현재 위치 유지)
+    }
+
     // 오프셋 목표 GPS 계산
     GPSCoordinate target = calculateOffsetTarget(*msg);
 
-    // OffboardManager에 새 목표 전달
-    offboard_mgr_->updateMissionTarget(target);
-}
-
-// ============================================================================
-// 팔로워: LeaderStatus 수신
-// ============================================================================
-
-void FormationController::onLeaderStatus(const humiro_msgs::msg::LeaderStatus::SharedPtr msg) {
-    if (!running_.load()) return;
-    leader_phase_ = msg->phase;
+    // OffboardManager에 새 목표 전달 (리더 yaw로 헤딩 정렬)
+    float leader_yaw_rad = msg->yaw_deg * M_PI / 180.0f;
+    offboard_mgr_->updateMissionTarget(target, leader_yaw_rad);
 }
 
 // ============================================================================
@@ -416,7 +499,10 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_FOLLOW:
             follower_phase_ = FollowerPhase::FOLLOWING;
-            std::cout << "  → FOLLOW: 리더 추적 시작" << std::endl;
+            received_takeoff_altitude_ = msg->takeoff_altitude;
+            received_flight_speed_ = msg->flight_speed;
+            std::cout << "  → FOLLOW: alt=" << received_takeoff_altitude_
+                      << "m, speed=" << received_flight_speed_ << "m/s" << std::endl;
             // 외부 콜백으로 ApplicationManager에 미션 시작 요청
             if (command_callback_) {
                 command_callback_(msg->command, msg->target_latitude, msg->target_longitude);
@@ -492,8 +578,32 @@ void FormationController::followerStatusTimerCallback() {
     msg.latitude = offboard_mgr_->getCurrentLat();
     msg.longitude = offboard_mgr_->getCurrentLon();
     msg.altitude = offboard_mgr_->getCurrentAltAmsl();
-    msg.offset_error = 0.0f;  // TODO: 실제 오프셋 오차 계산
-    msg.mission_state = followerPhaseToString(follower_phase_);
+
+    // 오프셋 오차 계산 (목표 편대 위치와의 거리)
+    if (last_offset_valid_) {
+        double cur_lat = offboard_mgr_->getCurrentLat();
+        double cur_lon = offboard_mgr_->getCurrentLon();
+        double cos_lat = std::cos(cur_lat * M_PI / 180.0);
+        double err_lat = (last_target_lat_ - cur_lat) * DEG_TO_M_LAT;
+        double err_lon = (last_target_lon_ - cur_lon) * DEG_TO_M_LAT * cos_lat;
+        msg.offset_error = static_cast<float>(std::sqrt(err_lat * err_lat + err_lon * err_lon));
+    } else {
+        msg.offset_error = 999.0f;  // 아직 목표 없음
+    }
+
+    // 미션 상태: 리더가 이해할 수 있는 상세 상태
+    if (follower_phase_ == FollowerPhase::FOLLOWING && offboard_mgr_->isMissionRunning()) {
+        MissionState ms = offboard_mgr_->getCurrentState();
+        if (ms == MissionState::HOVER || ms == MissionState::ROTATE ||
+            ms == MissionState::NAVIGATE || ms == MissionState::HOVER_AT_TARGET) {
+            msg.mission_state = "FOLLOWING";  // 이륙 완료, 편대 추적 중
+        } else {
+            msg.mission_state = "TAKEOFF";    // 아직 이륙 중
+        }
+    } else {
+        msg.mission_state = followerPhaseToString(follower_phase_);
+    }
+
     msg.battery_percent = 0;  // TODO: StatusROS2Subscriber에서 가져오기
     msg.ammo_count = 6;       // TODO: 실제 소화탄 수
 
@@ -527,6 +637,16 @@ void FormationController::setMissionTarget(double lat, double lon) {
     mission_target_lat_ = lat;
     mission_target_lon_ = lon;
     std::cout << "[FormationController] 미션 타겟 설정: " << lat << ", " << lon << std::endl;
+}
+
+void FormationController::setMissionParams(float takeoff_alt, float flight_speed) {
+    mission_takeoff_altitude_ = takeoff_alt;
+    mission_flight_speed_ = flight_speed;
+    cmd_follow_sent_ = false;
+    formation_ready_to_rotate_notified_ = false;
+    formation_ready_to_navigate_notified_ = false;
+    std::cout << "[FormationController] 미션 파라미터: alt=" << takeoff_alt
+              << "m, speed=" << flight_speed << "m/s" << std::endl;
 }
 
 // ============================================================================
@@ -595,6 +715,11 @@ GPSCoordinate FormationController::calculateOffsetTarget(
     target.latitude = leader_pose.latitude + (double)ned_x / DEG_TO_M_LAT;
     target.longitude = leader_pose.longitude + (double)ned_y / (DEG_TO_M_LAT * cos_lat);
     target.altitude = leader_pose.altitude + (float)offset_above_cm_ / 100.0f;
+
+    // 오프셋 목표 저장 (offset_error 계산용)
+    last_target_lat_ = target.latitude;
+    last_target_lon_ = target.longitude;
+    last_offset_valid_ = true;
 
     return target;
 }

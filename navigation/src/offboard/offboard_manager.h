@@ -76,9 +76,10 @@ public:
     /**
      * @brief 미션 진행 중 목표 좌표 업데이트 (경로 변경)
      * @param new_target 새 목표 GPS 좌표
+     * @param yaw_override 헤딩 오버라이드 (rad). NAN이면 목표방향 자동계산
      * @return 업데이트 성공 여부 (미션 진행 중일 때만 true)
      */
-    bool updateMissionTarget(const GPSCoordinate& new_target);
+    bool updateMissionTarget(const GPSCoordinate& new_target, float yaw_override = NAN);
 
     /**
      * @brief 미션 진행 중인지 확인
@@ -109,6 +110,11 @@ public:
      * @brief IDLE 상태로 리셋
      */
     void resetToIdle();
+
+    // ========== 편대 비행 게이트 (FormationController 연동) ==========
+    void setFormationReadyToRotate(bool ready);
+    void setFormationReadyToNavigate(bool ready);
+    void setContinuousUpdateMode(bool enabled);
 
     // ========== 위치/속도 Getter (FormationController용) ==========
     double getCurrentLat() const { return current_lat_.load(); }
@@ -221,6 +227,9 @@ private:
 
     // ========== 군집비행 모드 ==========
     bool formation_mode_{false};
+    std::atomic<bool> formation_ready_to_rotate_{false};
+    std::atomic<bool> formation_ready_to_navigate_{false};
+    std::atomic<bool> continuous_update_mode_{false};
 
     // ========== 드론 식별 ==========
     uint8_t target_system_{1};  // PX4 MAV_SYS_ID (VehicleCommand target)
