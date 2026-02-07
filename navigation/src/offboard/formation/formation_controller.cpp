@@ -494,11 +494,13 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
     switch (msg->command) {
         case humiro_msgs::msg::FormationCommand::CMD_HOLD:
             follower_phase_ = FollowerPhase::HOLD;
+            reference_yaw_set_ = false;  // FOLLOWING 해제: 기준 yaw 리셋
             std::cout << "  → HOLD: 현재 위치 유지" << std::endl;
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_FOLLOW:
             follower_phase_ = FollowerPhase::FOLLOWING;
+            reference_yaw_set_ = false;  // 새 미션: 기준 yaw 리셋
             received_takeoff_altitude_ = msg->takeoff_altitude;
             received_flight_speed_ = msg->flight_speed;
             std::cout << "  → FOLLOW: alt=" << received_takeoff_altitude_
@@ -522,6 +524,7 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_RTL:
             follower_phase_ = FollowerPhase::RTL;
+            reference_yaw_set_ = false;  // FOLLOWING 해제: 기준 yaw 리셋
             if (offboard_mgr_) {
                 offboard_mgr_->emergencyRTL();
                 std::cout << "  → RTL: 귀환 명령" << std::endl;
@@ -699,16 +702,44 @@ std::string FormationController::followerPhaseToString(FollowerPhase phase) {
 GPSCoordinate FormationController::calculateOffsetTarget(
     const humiro_msgs::msg::LeaderPose& leader_pose) {
 
-    // 1. 리더 바디프레임 오프셋 (cm → m)
+    // 0. 기준 yaw 설정 (최초 FOLLOWING 진입 시)
+    if (!reference_yaw_set_) {
+        reference_yaw_deg_ = leader_pose.yaw_deg;
+        reference_yaw_set_ = true;
+        lateral_offset_mirrored_ = false;
+        std::cout << "[Formation] 기준 yaw 설정: " << reference_yaw_deg_ << "°" << std::endl;
+    }
+
+    // 1. 리더 heading 변화량 계산 (기준 대비)
+    float delta = leader_pose.yaw_deg - reference_yaw_deg_;
+    while (delta > 180.0f) delta -= 360.0f;
+    while (delta < -180.0f) delta += 360.0f;
+    float abs_delta = std::fabs(delta);
+
+    // 2. 히스테리시스 기반 L/R 미러링 판정
+    if (!lateral_offset_mirrored_ && abs_delta > MIRROR_THRESHOLD_DEG) {
+        lateral_offset_mirrored_ = true;
+        std::cout << "[Formation] L/R 미러링 ON (delta=" << abs_delta << "°)" << std::endl;
+    } else if (lateral_offset_mirrored_ && abs_delta < UNMIRROR_THRESHOLD_DEG) {
+        lateral_offset_mirrored_ = false;
+        std::cout << "[Formation] L/R 미러링 OFF (delta=" << abs_delta << "°)" << std::endl;
+    }
+
+    // 3. 리더 바디프레임 오프셋 (cm → m)
     float body_x = -(float)offset_behind_cm_ / 100.0f;   // 뒤 = 음의 전방
     float body_y = (float)offset_right_cm_ / 100.0f;     // 우측
 
-    // 2. NED 프레임으로 회전 (리더 yaw 기준)
+    // 4. 미러링 적용 (lateral만 반전 - 충돌 방지)
+    if (lateral_offset_mirrored_) {
+        body_y = -body_y;
+    }
+
+    // 5. NED 프레임으로 회전 (리더 yaw 기준)
     float yaw_rad = leader_pose.yaw_deg * M_PI / 180.0f;
     float ned_x = std::cos(yaw_rad) * body_x - std::sin(yaw_rad) * body_y;  // North
     float ned_y = std::sin(yaw_rad) * body_x + std::cos(yaw_rad) * body_y;  // East
 
-    // 3. GPS 좌표로 변환
+    // 6. GPS 좌표로 변환
     double cos_lat = std::cos(leader_pose.latitude * M_PI / 180.0);
 
     GPSCoordinate target;

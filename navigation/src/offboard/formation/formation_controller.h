@@ -182,6 +182,14 @@ private:
     std::mutex followers_mutex_;
     std::map<uint8_t, FollowerInfo> followers_;
 
+    // === L/R 오프셋 미러링 (heading 변화 시 충돌 방지) ===
+    float reference_yaw_deg_{0.0f};      // FOLLOWING 시작 시 리더 yaw 기준값
+    bool reference_yaw_set_{false};       // 기준값 설정 여부
+    bool lateral_offset_mirrored_{false}; // 현재 미러링 상태
+
+    static constexpr float MIRROR_THRESHOLD_DEG = 120.0f;   // 미러링 활성화 임계각
+    static constexpr float UNMIRROR_THRESHOLD_DEG = 60.0f;   // 미러링 해제 임계각 (히스테리시스)
+
     // === 팔로워 오프셋 추적 (offset_error 계산용) ===
     double last_target_lat_{0.0};
     double last_target_lon_{0.0};
