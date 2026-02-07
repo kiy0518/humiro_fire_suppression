@@ -116,6 +116,7 @@ private:
     
     // 내부 메서드
     void initializeROS2(int argc, char* argv[]);
+    void initializeOffboard();
     void initializeComponents();
     void initializeStreaming();
     void initializeCustomMessage();

@@ -168,7 +168,6 @@ private:
     // ========== 미션 설정 ==========
     MissionConfig mission_config_;
     float initial_yaw_{0.0f};           // 이륙 시점 헤딩
-    float prev_yaw_diff_{0.0f};         // PD 제어용
 
     // ========== 시작 위치 (미션 시작 시점 로컬 NED) ==========
     float start_local_x_{0.0f};
@@ -199,10 +198,8 @@ private:
     static constexpr uint64_t TARGET_HOVER_TICKS = 50; // 5초: 목표지점 호버링 (10Hz)
 
     // ========== 제어 파라미터 ==========
-    static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s)
+    static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s, ~28.6 deg/s)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f; // 도착 판정 거리 (m)
-    static constexpr float K_P = 1.5f;               // PD 제어 비례 게인
-    static constexpr float K_D = 0.9f;               // PD 제어 미분 게인
 
 };
 

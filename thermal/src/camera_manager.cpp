@@ -564,7 +564,7 @@ bool CameraManager::read_thermal_frame(cv::Mat& frame) {
 
 bool CameraManager::reconnect_rgb_camera() {
     std::cout << "  → RGB 카메라 재연결 시도..." << std::endl;
-    
+
     // 기존 연결 해제 (예외 처리)
     if (cap_rgb_.isOpened()) {
         try {
@@ -574,9 +574,19 @@ bool CameraManager::reconnect_rgb_camera() {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-    
+
+    // 카메라 ID가 유효하지 않으면 다시 찾기
+    if (rgb_camera_id_ < 0) {
+        if (!find_rgb_camera()) {
+            std::cout << "    ✗ RGB 카메라 장치를 찾을 수 없음" << std::endl;
+            return false;
+        }
+    }
+
     // 재연결 (안전한 방식)
     if (!safe_open_camera(rgb_camera_id_, cap_rgb_)) {
+        // 열기 실패 시 ID 리셋 (다음 시도 때 다시 찾기)
+        rgb_camera_id_ = -1;
         std::cout << "    ✗ RGB 카메라 재연결 실패" << std::endl;
         return false;
     }
@@ -626,7 +636,7 @@ bool CameraManager::reconnect_rgb_camera() {
 
 bool CameraManager::reconnect_thermal_camera() {
     std::cout << "  → 열화상 카메라 재연결 시도..." << std::endl;
-    
+
     // 기존 연결 해제 (예외 처리)
     if (cap_thermal_.isOpened()) {
         try {
@@ -636,9 +646,19 @@ bool CameraManager::reconnect_thermal_camera() {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-    
+
+    // 카메라 ID가 유효하지 않으면 다시 찾기
+    if (thermal_camera_id_ < 0) {
+        if (!find_thermal_camera()) {
+            std::cout << "    ✗ 열화상 카메라 장치를 찾을 수 없음" << std::endl;
+            return false;
+        }
+    }
+
     // 재연결 (안전한 방식)
     if (!safe_open_camera(thermal_camera_id_, cap_thermal_)) {
+        // 열기 실패 시 ID 리셋 (다음 시도 때 다시 찾기)
+        thermal_camera_id_ = -1;
         std::cout << "    ✗ 열화상 카메라 재연결 실패" << std::endl;
         return false;
     }

@@ -106,23 +106,29 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
     // GStreamer 초기화
     gst_init(&argc, &argv);
     
-    // ROS2 초기화
+    // ① ROS2 초기화
     initializeROS2(argc, argv);
-    
+
+    // ② OffboardManager 초기화 (ROS2 노드 필요)
+    initializeOffboard();
+
+    // ③ MAVLink 커스텀 메시지 초기화 (OffboardManager 필요)
+    initializeCustomMessage();
+
     std::cout << "\n[초기화]" << std::endl;
-    
+
     // 카메라 프로세스 확인
     check_camera_processes();
     kill_existing_processes();
-    
+
 #if RESET_USB_CAMERAS_ON_START
     reset_all_usb_cameras();
 #endif
-    
-    // 컴포넌트 초기화
+
+    // ④ 카메라/센서 컴포넌트 초기화
     initializeComponents();
-    
-    // 스트리밍 초기화
+
+    // ⑤ 스트리밍 초기화
     initializeStreaming();
     
     return true;
@@ -156,6 +162,16 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
 #else
     std::cout << "\n[ROS2 비활성화]" << std::endl;
     std::cout << "  ⚠ ROS2가 비활성화되어 있습니다" << std::endl;
+#endif
+}
+
+void ApplicationManager::initializeOffboard() {
+#ifdef ENABLE_ROS2
+    if (ros2_node_) {
+        std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
+        offboard_manager_ = new OffboardManager(ros2_node_);
+        std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
+    }
 #endif
 }
 
@@ -214,13 +230,10 @@ void ApplicationManager::initializeComponents() {
                 [this](uint8_t old_nav_state, uint8_t new_nav_state) {
                     if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
                         if (new_nav_state == 5) {
-                            // RTL(nav_state=5) 전환은 미션이 정상적으로 RTL 단계를 실행한 것이므로 abort하지 않음
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → AUTO_RTL: 정상 RTL 전환 (무시)" << std::endl;
                         } else if (new_nav_state == 4) {
-                            // HOLD/LOITER(nav_state=4) 전환은 일시정지로 간주하여 미션 유지
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → HOLD: 일시정지 (미션 유지)" << std::endl;
                         } else if (new_nav_state == 18) {
-                            // AUTO_LAND(nav_state=18) 전환은 미션이 정상적으로 착륙 단계를 실행한 것이므로 abort하지 않음
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → AUTO_LAND: 정상 착륙 전환 (무시)" << std::endl;
                         } else {
                             std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state << " (비정상 종료)" << std::endl;
@@ -230,19 +243,11 @@ void ApplicationManager::initializeComponents() {
                 }
             );
             std::cout << "  ✓ 모드 변경 콜백 설정 완료 (OFFBOARD 종료 시 미션 플래그 리셋)" << std::endl;
-
-            // OffboardManager 생성
-            std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
-            offboard_manager_ = new OffboardManager(ros2_node_);
-            std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
-
-            // 새 OffboardManager는 내부에서 직접 VehicleStatus 구독
-            // (StatusROS2Subscriber → ArmHandler 연동 불필요)
             std::cout << "  ✓ ROS2 상태 구독자 활성화" << std::endl;
         }
     }
 #endif
-    
+
     // 라이다 초기화
     std::cout << "\n[라이다 초기화]" << std::endl;
     LidarConfig lidar_config = LidarConfig::createUartEConfig();
@@ -252,9 +257,6 @@ void ApplicationManager::initializeComponents() {
     } else {
         std::cout << "  ⚠ 라이다 연결 실패" << std::endl;
     }
-    
-    // 커스텀 메시지 초기화
-    initializeCustomMessage();
 }
 
 void ApplicationManager::initializeCustomMessage() {

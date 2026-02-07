@@ -65,7 +65,6 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     mission_running_.store(true);
     abort_requested_.store(false);
     setpoint_counter_.store(0);
-    prev_yaw_diff_ = 0.0f;
     prev_vx_ = 0.0f;
     prev_vy_ = 0.0f;
 
@@ -367,7 +366,7 @@ void OffboardManager::publishTrajectorySetpoint()
 
     } else if (state == MissionState::ROTATE ||
                (counter >= ROTATE_START && counter < ROTATE_END)) {
-        // 2단계: 회전 (yawspeed 사용)
+        // 2단계: 회전 (yawspeed 사용 - 감속 프로파일)
         sp_x = start_local_x_;
         sp_y = start_local_y_;
         sp_z = -mission_config_.takeoff_altitude;
@@ -380,20 +379,20 @@ void OffboardManager::publishTrajectorySetpoint()
         while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
         while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
-        // PD 제어
-        constexpr float dt = 0.1f;  // 100ms (10Hz)
-        float yaw_diff_deriv = (yaw_diff - prev_yaw_diff_) / dt;
-        prev_yaw_diff_ = yaw_diff;
+        // 감속 프로파일: 각도 차이 비례 (오버슈팅 방지)
+        constexpr float YAW_DECEL_ANGLE = 0.5f;  // 감속 시작 각도 (rad, ~28.6도)
+        float abs_yaw_diff = std::fabs(yaw_diff);
 
-        yawspeed = K_P * yaw_diff + K_D * yaw_diff_deriv;
-
-        // 최대 속도 제한
-        if (yawspeed > MAX_YAW_RATE) yawspeed = MAX_YAW_RATE;
-        if (yawspeed < -MAX_YAW_RATE) yawspeed = -MAX_YAW_RATE;
-
-        // Dead zone
-        if (std::fabs(yaw_diff) < 0.02f) {  // ~1도 이내
+        if (abs_yaw_diff < 0.02f) {  // ~1도 이내: 정지
             yawspeed = 0.0f;
+        } else if (abs_yaw_diff < YAW_DECEL_ANGLE) {
+            // 감속 구간: 각도 비례 (최소 0.1 rad/s)
+            float speed = MAX_YAW_RATE * (abs_yaw_diff / YAW_DECEL_ANGLE);
+            speed = std::max(0.1f, speed);
+            yawspeed = (yaw_diff > 0) ? speed : -speed;
+        } else {
+            // 최대 속도 구간
+            yawspeed = (yaw_diff > 0) ? MAX_YAW_RATE : -MAX_YAW_RATE;
         }
 
         yaw_setpoint = NAN;  // yawspeed 사용 시 yaw는 NAN
@@ -454,12 +453,23 @@ void OffboardManager::publishTrajectorySetpoint()
         prev_vx_ = ff_vx;
         prev_vy_ = ff_vy;
 
-        // yaw 제어
+        // yaw 제어 (감속 프로파일)
         float current_yaw = current_yaw_.load();
         float yaw_diff = target_yaw_ - current_yaw;
         while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
         while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
-        yawspeed = std::clamp(yaw_diff * 0.5f, -MAX_YAW_RATE, MAX_YAW_RATE);
+
+        constexpr float YAW_DECEL_ANGLE = 0.5f;  // 감속 시작 각도 (rad, ~28.6도)
+        float abs_yaw_diff = std::fabs(yaw_diff);
+        if (abs_yaw_diff < 0.02f) {
+            yawspeed = 0.0f;
+        } else if (abs_yaw_diff < YAW_DECEL_ANGLE) {
+            float speed = MAX_YAW_RATE * (abs_yaw_diff / YAW_DECEL_ANGLE);
+            speed = std::max(0.1f, speed);
+            yawspeed = (yaw_diff > 0) ? speed : -speed;
+        } else {
+            yawspeed = (yaw_diff > 0) ? MAX_YAW_RATE : -MAX_YAW_RATE;
+        }
 
         // Position + Velocity 동시 전송 (피드포워드 제어)
         px4_msgs::msg::TrajectorySetpoint msg{};
@@ -689,9 +699,6 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
     // HOVER 상태에서 현재 yaw 유지 (initial_yaw_ 업데이트)
     initial_yaw_ = current_yaw_.load();
 
-    // PD 제어 초기화
-    prev_yaw_diff_ = 0.0f;
-
     RCLCPP_INFO(node_->get_logger(), "==============================================");
     RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target - Smooth Turn (No Stop)");
     RCLCPP_INFO(node_->get_logger(), "  Current State: %s", getStateName(state).c_str());
@@ -711,7 +718,6 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target)
         // ROTATE/HOVER 중: 새 목적지로 헤딩 정렬 재시작
         setpoint_counter_.store(ROTATE_START);
         current_state_.store(MissionState::ROTATE);
-        prev_yaw_diff_ = 0.0f;  // PD 제어 초기화
         RCLCPP_INFO(node_->get_logger(), "  → ROTATE restart for new target (heading realign)");
     } else {
         // TAKEOFF 등 기타: NAVIGATE로 즉시 전환
