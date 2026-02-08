@@ -144,6 +144,9 @@ private:
     // offboard 설정 파일에서 target_altitude 읽기
     float readTargetAltitudeFromConfig() const;
 
+    // offboard 설정 파일에서 mission_mode 읽기 (true=formation, false=solo)
+    bool readMissionModeFromConfig() const;
+
     // 미션 종료 통합 정리 (mission_running_ 리셋 + OffboardManager 정리)
     void finishMission(bool reset_offboard = true);
 

@@ -1343,15 +1343,18 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
 
+            // 비행 모드 결정
+            bool use_formation = formation_controller_ && readMissionModeFromConfig();
+
             // 리더: FormationController 미션 타겟 + 파라미터 업데이트
-            if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+            if (use_formation && formation_controller_->getRole() == FormationRole::LEADER) {
                 formation_controller_->setMissionTarget(
                     config.target_waypoint.latitude, config.target_waypoint.longitude);
                 formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
             }
 
             // 미션 진행 중 → 내부에서 updateMissionTarget() 실행
-            if (formation_controller_)
+            if (use_formation)
                 offboard_manager_->executeMission4(config);
             else
                 offboard_manager_->executeMission3(config);
@@ -1429,10 +1432,14 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
               << config.target_waypoint.longitude << "), 고도: " << config.target_waypoint.altitude << " m" << std::endl;
     std::cout << "  - 자동 격발: " << (start.auto_fire ? "ON" : "OFF") << std::endl;
 
+    // 비행 모드 결정: formation_controller 존재 + offboard_config.json의 mission_mode
+    bool use_formation = formation_controller_ && readMissionModeFromConfig();
+    std::cout << "  - 비행 모드: " << (use_formation ? "편대비행 (formation)" : "단독비행 (solo)") << std::endl;
+
     // ★★★ 리더: CMD_FOLLOW 타겟 먼저 설정 (미션 스레드 시작 전!) ★★★
     // mission_running_=true 후 1Hz 타이머가 CMD_FOLLOW 전송할 때
     // mission_target_lat_이 0.0이면 팔로워가 heading을 계산 못함 → 오프셋 회전 안됨
-    if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+    if (use_formation && formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
         formation_controller_->setMissionTarget(
             config.target_waypoint.latitude, config.target_waypoint.longitude);
         formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
@@ -1443,10 +1450,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     }
 
     // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
-    std::thread mission_thread([this, config, start]() {
+
+    std::thread mission_thread([this, config, start, use_formation]() {
         bool success = false;
         try {
-            success = formation_controller_
+            success = use_formation
                 ? offboard_manager_->executeMission4(config)
                 : offboard_manager_->executeMission3(config);
         } catch (const std::runtime_error& e) {
@@ -1547,4 +1555,29 @@ float ApplicationManager::readTargetAltitudeFromConfig() const {
         }
     }
     return -1.0f;
+}
+
+bool ApplicationManager::readMissionModeFromConfig() const {
+    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
+    std::ifstream file(config_path);
+    if (!file.is_open()) {
+        std::cout << "[Config] offboard_config.json 없음 → 기본값: formation" << std::endl;
+        return true;  // 기본값: formation
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        auto pos = line.find("\"mission_mode\"");
+        if (pos != std::string::npos) {
+            if (line.find("\"solo\"") != std::string::npos) {
+                std::cout << "[Config] mission_mode: solo (단독비행)" << std::endl;
+                return false;
+            } else {
+                std::cout << "[Config] mission_mode: formation (편대비행)" << std::endl;
+                return true;
+            }
+        }
+    }
+    std::cout << "[Config] mission_mode 필드 없음 → 기본값: formation" << std::endl;
+    return true;  // 기본값: formation
 }

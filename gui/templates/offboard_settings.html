@@ -70,6 +70,21 @@
         <form id="offboardForm">
             <div class="row g-2">
                 <div class="col-auto">
+                    <label class="form-label">비행 모드</label>
+                    <div class="d-flex gap-3 mt-1">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="mission_mode"
+                                   id="mode_formation" value="formation" checked>
+                            <label class="form-check-label" for="mode_formation">편대비행</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="mission_mode"
+                                   id="mode_solo" value="solo">
+                            <label class="form-check-label" for="mode_solo">단독비행</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-auto">
                     <label class="form-label">목표지점 고도 (m)</label>
                     <input type="number" class="form-control" id="target_altitude"
                            step="0.5" min="1" max="120" placeholder="10.0">
@@ -341,6 +356,12 @@ function loadConfig() {
                     const el = document.getElementById(field);
                     if (el && config[field] !== undefined) el.value = config[field];
                 });
+                // mission_mode 라디오 복원
+                if (config.mission_mode) {
+                    const radio = document.getElementById(
+                        config.mission_mode === 'solo' ? 'mode_solo' : 'mode_formation');
+                    if (radio) radio.checked = true;
+                }
                 if (config.updated_at)
                     document.getElementById('lastUpdated').textContent = config.updated_at;
             }
@@ -357,7 +378,8 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
     }
 
     // 오프보드 기본 설정 + 편대 기본 설정 동시 저장
-    const offboardData = { target_altitude: altitude };
+    const missionMode = document.querySelector('input[name="mission_mode"]:checked').value;
+    const offboardData = { target_altitude: altitude, mission_mode: missionMode };
     const role = document.getElementById('fm_role').value;
     const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
     const formationData = {
