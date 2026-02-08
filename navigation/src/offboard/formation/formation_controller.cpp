@@ -415,30 +415,50 @@ void FormationController::onLeaderPose(const humiro_msgs::msg::LeaderPose::Share
     // FOLLOWING 상태일 때만 리더 추적 (SUPPRESSING/HOLD/RTL에서는 무시)
     if (follower_phase_ != FollowerPhase::FOLLOWING) return;
 
+    // ★★★ 지연 heading 계산: CMD_FOLLOW가 LeaderPose보다 먼저 도착한 경우 ★★★
+    // CMD_FOLLOW 시점에 last_leader_lat_==0이면 heading 미계산 (fixed_heading_set_=false)
+    // 첫 LeaderPose 수신 시 여기서 계산
+    if (!fixed_heading_set_ && mission_dest_set_) {
+        leader_start_lat_ = msg->latitude;
+        leader_start_lon_ = msg->longitude;
+
+        double cos_lat = std::cos(leader_start_lat_ * M_PI / 180.0);
+        double path_n = (mission_dest_lat_ - leader_start_lat_) * DEG_TO_M_LAT;
+        double path_e = (mission_dest_lon_ - leader_start_lon_) * DEG_TO_M_LAT * cos_lat;
+        fixed_heading_rad_ = static_cast<float>(std::atan2(path_e, path_n));
+        fixed_heading_set_ = true;
+
+        // 미러링 재판정
+        if (offboard_mgr_ && offset_right_cm_ != 0) {
+            double fw_n = (offboard_mgr_->getCurrentLat() - leader_start_lat_) * DEG_TO_M_LAT;
+            double fw_e = (offboard_mgr_->getCurrentLon() - leader_start_lon_) * DEG_TO_M_LAT * cos_lat;
+            double cross = path_n * fw_e - path_e * fw_n;
+            lateral_mirrored_ = (cross * (double)offset_right_cm_ < 0.0);
+        }
+
+        std::cout << "[Formation] ★ 지연 heading 계산 (첫 LeaderPose): heading="
+                  << (fixed_heading_rad_ * 180.0f / M_PI) << "°, leader_start=("
+                  << leader_start_lat_ << "," << leader_start_lon_
+                  << "), 미러링=" << (lateral_mirrored_ ? "Y" : "N") << std::endl;
+    }
+
     // 미션이 실행 중일 때만 오프셋 추적
     if (!offboard_mgr_->isMissionRunning()) return;
 
-    // 충돌 방지: 리더 안전 반경 체크
-    double follower_lat = offboard_mgr_->getCurrentLat();
-    double follower_lon = offboard_mgr_->getCurrentLon();
-    double cos_lat_check = std::cos(follower_lat * M_PI / 180.0);
-    double d_lat = (msg->latitude - follower_lat) * DEG_TO_M_LAT;
-    double d_lon = (msg->longitude - follower_lon) * DEG_TO_M_LAT * cos_lat_check;
-    float dist_to_leader = std::sqrt(d_lat * d_lat + d_lon * d_lon);
-
-    if (dist_to_leader < SAFETY_RADIUS_M) {
-        static std::chrono::steady_clock::time_point last_safety_log{};
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_safety_log).count() >= 2) {
-            std::cout << "[Formation] 안전거리 미확보 (" << dist_to_leader
-                      << "m < " << SAFETY_RADIUS_M << "m) - 대기" << std::endl;
-            last_safety_log = now;
-        }
-        return;  // 리더에 너무 가까움 - 목표 업데이트 안함 (현재 위치 유지)
-    }
-
     // 오프셋 목표 GPS 계산
     GPSCoordinate target = calculateOffsetTarget(*msg);
+
+    // 최초 오프셋 적용 로그
+    static bool first_offset_applied = false;
+    if (!first_offset_applied) {
+        MissionState ms = offboard_mgr_->getCurrentState();
+        std::cout << "[Formation] ★ 최초 오프셋 적용! state="
+                  << OffboardManager::getStateName(ms)
+                  << ", target=(" << target.latitude << "," << target.longitude
+                  << "), leader=(" << msg->latitude << "," << msg->longitude << ")"
+                  << std::endl;
+        first_offset_applied = true;
+    }
 
     // OffboardManager에 새 목표 전달 (리더 yaw로 헤딩 정렬)
     float leader_yaw_rad = msg->yaw_deg * M_PI / 180.0f;
@@ -498,32 +518,53 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
     switch (msg->command) {
         case humiro_msgs::msg::FormationCommand::CMD_HOLD:
             follower_phase_ = FollowerPhase::HOLD;
-            lateral_offset_mirrored_ = false;
             std::cout << "  → HOLD: 현재 위치 유지" << std::endl;
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_FOLLOW: {
             follower_phase_ = FollowerPhase::FOLLOWING;
-            lateral_offset_mirrored_ = false;
-            mirror_decided_ = false;
             last_offset_valid_ = false;
+            lateral_mirrored_ = false;
+            fixed_heading_set_ = false;
             received_takeoff_altitude_ = msg->takeoff_altitude;
             received_flight_speed_ = msg->flight_speed;
 
-            // 미션 목적지 저장 (미러링 판정용 - 실제 판정은 이륙 후 첫 calculateOffsetTarget에서)
+            // 미션 목적지 저장
             if (msg->target_latitude != 0.0) {
                 mission_dest_lat_ = msg->target_latitude;
                 mission_dest_lon_ = msg->target_longitude;
                 mission_dest_set_ = true;
             }
 
-            // CMD_FOLLOW 시점 리더 위치 저장 (미러링 기준점 - 고정 참조)
-            if (last_leader_lat_ != 0.0) {
-                mirror_leader_lat_ = last_leader_lat_;
-                mirror_leader_lon_ = last_leader_lon_;
-                mirror_leader_set_ = true;
-                std::cout << "  → 미러링 기준 리더 위치: " << mirror_leader_lat_
-                          << ", " << mirror_leader_lon_ << std::endl;
+            // ★ 고정 기준점: 리더 이륙 위치 저장
+            leader_start_lat_ = last_leader_lat_;
+            leader_start_lon_ = last_leader_lon_;
+
+            // ★ 고정 heading 계산 (리더 이륙 위치 → 목적지)
+            // CMD_FOLLOW가 LeaderPose보다 먼저 도착하면 leader_start=(0,0) → heading이 완전히 틀림
+            // 이 경우 fixed_heading_set_=false 유지, 첫 LeaderPose에서 재계산
+            if (leader_start_lat_ == 0.0 && leader_start_lon_ == 0.0) {
+                std::cout << "[Formation] WARNING: leader position not yet received, "
+                          << "heading will be computed on first LeaderPose" << std::endl;
+                fixed_heading_set_ = false;
+            } else if (mission_dest_set_) {
+                double cos_lat = std::cos(leader_start_lat_ * M_PI / 180.0);
+                double path_n = (mission_dest_lat_ - leader_start_lat_) * DEG_TO_M_LAT;
+                double path_e = (mission_dest_lon_ - leader_start_lon_) * DEG_TO_M_LAT * cos_lat;
+                fixed_heading_rad_ = static_cast<float>(std::atan2(path_e, path_n));
+                fixed_heading_set_ = true;
+
+                // ★ 미러링 판정: 팔로워가 고정 경로선의 어느 쪽인지
+                if (offboard_mgr_ && offset_right_cm_ != 0) {
+                    double fw_n = (offboard_mgr_->getCurrentLat() - leader_start_lat_) * DEG_TO_M_LAT;
+                    double fw_e = (offboard_mgr_->getCurrentLon() - leader_start_lon_) * DEG_TO_M_LAT * cos_lat;
+                    double cross = path_n * fw_e - path_e * fw_n;
+                    lateral_mirrored_ = (cross * (double)offset_right_cm_ < 0.0);
+                }
+
+                std::cout << "[Formation] 고정 경로선: heading=" << (fixed_heading_rad_ * 180.0f / M_PI)
+                          << "°, leader_start=(" << leader_start_lat_ << "," << leader_start_lon_
+                          << "), 미러링=" << (lateral_mirrored_ ? "Y" : "N") << std::endl;
             }
 
             std::cout << "  → FOLLOW: alt=" << received_takeoff_altitude_
@@ -548,7 +589,6 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_RTL:
             follower_phase_ = FollowerPhase::RTL;
-            lateral_offset_mirrored_ = false;
             if (offboard_mgr_) {
                 offboard_mgr_->emergencyRTL();
                 std::cout << "  → RTL: 귀환 명령" << std::endl;
@@ -557,6 +597,7 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 
         case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS: {
             follower_phase_ = FollowerPhase::SUPPRESSING;
+            suppress_detour_active_ = false;
             std::cout << "  → SUPPRESS: 진압 편대 전환" << std::endl;
 
             // 타겟 GPS + 자신의 SUPPRESS_DISTANCE/ANGLE로 진압 위치 계산
@@ -572,6 +613,39 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
                 suppress_pos.longitude = msg->target_longitude
                     + (dist * std::sin(angle_rad)) / (DEG_TO_M_LAT * cos_lat);
                 suppress_pos.altitude = offboard_mgr_->getCurrentAltAmsl();
+
+                // ★★★ 횡단 방지: 진압 위치가 경로 반대쪽이면 cross-track 미러링 ★★★
+                if (fixed_heading_set_) {
+                    float h_cos = std::cos(fixed_heading_rad_);
+                    float h_sin = std::sin(fixed_heading_rad_);
+                    double cos_lat2 = std::cos(offboard_mgr_->getCurrentLat() * M_PI / 180.0);
+
+                    // 팔로워의 경로선 수직 거리
+                    double fw_n = (offboard_mgr_->getCurrentLat() - leader_start_lat_) * DEG_TO_M_LAT;
+                    double fw_e = (offboard_mgr_->getCurrentLon() - leader_start_lon_) * DEG_TO_M_LAT * cos_lat2;
+                    double fw_cross = -fw_n * h_sin + fw_e * h_cos;
+
+                    // 진압 위치의 경로선 기준 분해
+                    double sp_n = (suppress_pos.latitude - leader_start_lat_) * DEG_TO_M_LAT;
+                    double sp_e = (suppress_pos.longitude - leader_start_lon_) * DEG_TO_M_LAT * cos_lat2;
+                    double sp_along = sp_n * h_cos + sp_e * h_sin;
+                    double sp_cross = -sp_n * h_sin + sp_e * h_cos;
+
+                    // 반대쪽이면 cross-track 부호 반전 (미러링)
+                    if (fw_cross * sp_cross < 0 && std::abs(fw_cross) > 2.0 && std::abs(sp_cross) > 2.0) {
+                        double mirrored_cross = -sp_cross;
+
+                        // 미러링된 위치 재구성 (along-track 유지, cross-track 반전)
+                        double new_n = sp_along * (double)h_cos + mirrored_cross * (double)(-h_sin);
+                        double new_e = sp_along * (double)h_sin + mirrored_cross * (double)h_cos;
+                        suppress_pos.latitude = leader_start_lat_ + new_n / DEG_TO_M_LAT;
+                        suppress_pos.longitude = leader_start_lon_ + new_e / (DEG_TO_M_LAT * cos_lat2);
+
+                        std::cout << "  → ★ 횡단 방지 미러링: fw_cross=" << fw_cross
+                                  << "m, sp_cross=" << sp_cross << "m → " << mirrored_cross << "m"
+                                  << std::endl;
+                    }
+                }
 
                 offboard_mgr_->updateMissionTarget(suppress_pos);
                 std::cout << "  → 진압 위치: " << suppress_pos.latitude << ", "
@@ -599,6 +673,8 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
 void FormationController::followerStatusTimerCallback() {
     if (!running_.load() || !offboard_mgr_) return;
 
+    // (suppress_detour_active_ 우회 로직 제거됨 - 미러링으로 대체)
+
     auto msg = humiro_msgs::msg::FollowerStatus();
     msg.header.stamp = node_->now();
     msg.drone_id = drone_id_;
@@ -619,13 +695,17 @@ void FormationController::followerStatusTimerCallback() {
     }
 
     // 미션 상태: 리더가 이해할 수 있는 상세 상태
-    if (follower_phase_ == FollowerPhase::FOLLOWING && offboard_mgr_->isMissionRunning()) {
-        MissionState ms = offboard_mgr_->getCurrentState();
-        if (ms == MissionState::HOVER || ms == MissionState::ROTATE ||
-            ms == MissionState::NAVIGATE || ms == MissionState::HOVER_AT_TARGET) {
-            msg.mission_state = "FOLLOWING";  // 이륙 완료, 편대 추적 중
+    if (follower_phase_ == FollowerPhase::FOLLOWING) {
+        if (offboard_mgr_->isMissionRunning()) {
+            MissionState ms = offboard_mgr_->getCurrentState();
+            if (ms == MissionState::HOVER || ms == MissionState::ROTATE ||
+                ms == MissionState::NAVIGATE || ms == MissionState::HOVER_AT_TARGET) {
+                msg.mission_state = "FOLLOWING";  // 이륙 완료, 편대 추적 중
+            } else {
+                msg.mission_state = "TAKEOFF";    // 이륙 중
+            }
         } else {
-            msg.mission_state = "TAKEOFF";    // 아직 이륙 중
+            msg.mission_state = "PREPARING";  // CMD_FOLLOW 수신, 미션 시작 대기
         }
     } else {
         msg.mission_state = followerPhaseToString(follower_phase_);
@@ -663,7 +743,9 @@ void FormationController::leaderTimeoutTimerCallback() {
 void FormationController::setMissionTarget(double lat, double lon) {
     mission_target_lat_ = lat;
     mission_target_lon_ = lon;
-    std::cout << "[FormationController] 미션 타겟 설정: " << lat << ", " << lon << std::endl;
+    cmd_follow_sent_ = false;  // 목적지 변경 → CMD_FOLLOW 재전송 → 팔로워 고정선 재계산
+    std::cout << "[FormationController] 미션 타겟 변경: " << lat << ", " << lon
+              << " (CMD_FOLLOW 재전송 예정)" << std::endl;
 }
 
 void FormationController::setMissionParams(float takeoff_alt, float flight_speed) {
@@ -726,50 +808,98 @@ std::string FormationController::followerPhaseToString(FollowerPhase phase) {
 GPSCoordinate FormationController::calculateOffsetTarget(
     const humiro_msgs::msg::LeaderPose& leader_pose) {
 
-    // 1. 미러링 판정 (첫 호출 시 1회 — CMD_FOLLOW 시점 리더 위치 기준)
-    if (!mirror_decided_ && mission_dest_set_ && mirror_leader_set_ && offboard_mgr_) {
-        double cos_lat = std::cos(mirror_leader_lat_ * M_PI / 180.0);
-        // 경로선: CMD_FOLLOW 시점 리더 위치 → 미션 목적지
-        double travel_n = (mission_dest_lat_ - mirror_leader_lat_) * DEG_TO_M_LAT;
-        double travel_e = (mission_dest_lon_ - mirror_leader_lon_) * DEG_TO_M_LAT * cos_lat;
-        // 팔로워 상대위치: CMD_FOLLOW 시점 리더 위치 → 팔로워 현재 위치
-        double foll_n = (offboard_mgr_->getCurrentLat() - mirror_leader_lat_) * DEG_TO_M_LAT;
-        double foll_e = (offboard_mgr_->getCurrentLon() - mirror_leader_lon_) * DEG_TO_M_LAT * cos_lat;
-        // 외적: 양수=팔로워가 경로 우측, 음수=좌측
-        double cross = travel_n * foll_e - travel_e * foll_n;
-        // 팔로워가 offset 배치 방향 반대쪽에 있으면 미러링
-        if (offset_right_cm_ != 0 && cross * (double)offset_right_cm_ < 0) {
-            lateral_offset_mirrored_ = true;
-        }
-        mirror_decided_ = true;
-        std::cout << "[Formation] 미러링 판정: leader_ref=(" << mirror_leader_lat_
-                  << ", " << mirror_leader_lon_ << "), dest=(" << mission_dest_lat_
-                  << ", " << mission_dest_lon_ << "), cross=" << cross
-                  << ", offset_right=" << offset_right_cm_
-                  << " → " << (lateral_offset_mirrored_ ? "ON" : "OFF") << std::endl;
-    }
+    // 1. heading: 고정값 사용 (CMD_FOLLOW 시점 계산, fallback: yaw)
+    float heading_rad = fixed_heading_set_
+        ? fixed_heading_rad_
+        : leader_pose.yaw_deg * M_PI / 180.0f;
 
-    // 2. 리더 바디프레임 오프셋 (cm → m)
+    // 2. 바디프레임 오프셋 (cm → m)
     float body_x = -(float)offset_behind_cm_ / 100.0f;   // 뒤 = 음의 전방
     float body_y = (float)offset_right_cm_ / 100.0f;     // 우측
+    if (lateral_mirrored_) body_y = -body_y;              // 미러링: 팔로워 시작 쪽 유지
 
-    // 3. 미러링 적용 (lateral만 반전 - 경로 횡단 방지)
-    if (lateral_offset_mirrored_) {
-        body_y = -body_y;
-    }
+    // 3. NED 프레임으로 회전 (경로 heading 기준)
+    float ned_x = std::cos(heading_rad) * body_x - std::sin(heading_rad) * body_y;
+    float ned_y = std::sin(heading_rad) * body_x + std::cos(heading_rad) * body_y;
 
-    // 4. NED 프레임으로 회전 (리더 yaw 기준)
-    float yaw_rad = leader_pose.yaw_deg * M_PI / 180.0f;
-    float ned_x = std::cos(yaw_rad) * body_x - std::sin(yaw_rad) * body_y;  // North
-    float ned_y = std::sin(yaw_rad) * body_x + std::cos(yaw_rad) * body_y;  // East
-
-    // 6. GPS 좌표로 변환
+    // 4. GPS 좌표로 변환 (리더 현재 위치 기준)
     double cos_lat = std::cos(leader_pose.latitude * M_PI / 180.0);
-
     GPSCoordinate target;
     target.latitude = leader_pose.latitude + (double)ned_x / DEG_TO_M_LAT;
     target.longitude = leader_pose.longitude + (double)ned_y / (DEG_TO_M_LAT * cos_lat);
     target.altitude = leader_pose.altitude + (float)offset_above_cm_ / 100.0f;
+
+    // ★★★ 경로 횡단 방지 (2단계 클램프) ★★★
+    // 1단계: cross-track 미도달 → along-track을 진행률에 비례 제한 (편대 합류)
+    //        진행률 0%(경로 위) → 순수 횡이동, 80%+ → 제한 해제
+    // 2단계: cross-track 도달 후 along < -2 → cross-track만 유지 (역추적 방지)
+    bool along_clamped = false;
+    double cross_progress = 1.0;  // 1.0 = 제한 없음
+    if (offboard_mgr_ && fixed_heading_set_) {
+        double fw_lat = offboard_mgr_->getCurrentLat();
+        double fw_lon = offboard_mgr_->getCurrentLon();
+
+        // 경로 방향 단위벡터
+        float h_cos = std::cos(heading_rad);
+        float h_sin = std::sin(heading_rad);
+
+        // 팔로워 → 타겟 벡터 (NED, meters)
+        double d_north = (target.latitude - fw_lat) * DEG_TO_M_LAT;
+        double d_east = (target.longitude - fw_lon) * DEG_TO_M_LAT * cos_lat;
+        double along = d_north * h_cos + d_east * h_sin;
+        double cross = -d_north * h_sin + d_east * h_cos;
+
+        // 팔로워의 경로선(leader_start→목적지) 수직 거리
+        double fw_n = (fw_lat - leader_start_lat_) * DEG_TO_M_LAT;
+        double fw_e = (fw_lon - leader_start_lon_) * DEG_TO_M_LAT * cos_lat;
+        double fw_cross = -fw_n * h_sin + fw_e * h_cos;
+
+        // 원하는 cross-track 위치 (오프셋의 횡방향 성분)
+        double desired_cross = -(double)ned_x * h_sin + (double)ned_y * h_cos;
+        double cross_error = std::abs(fw_cross - desired_cross);
+
+        // 1단계: cross-track 진행률 기반 along-track 제한
+        if (std::abs(desired_cross) > 1.0) {
+            // 진행률 = 1.0 - (오차 / 목표거리), 0~1로 클램프
+            cross_progress = 1.0 - (cross_error / std::max(1.0, std::abs(desired_cross)));
+            if (cross_progress < 0.0) cross_progress = 0.0;
+            if (cross_progress >= 0.8) cross_progress = 1.0;  // 80% 도달 시 제한 해제
+        }
+
+        if (cross_progress < 1.0) {
+            // 편대 합류 중: along-track을 진행률에 비례 제한
+            double adjusted_along = along * cross_progress;
+            double new_n = adjusted_along * (double)h_cos + cross * (double)(-h_sin);
+            double new_e = adjusted_along * (double)h_sin + cross * (double)h_cos;
+            target.latitude = fw_lat + new_n / DEG_TO_M_LAT;
+            target.longitude = fw_lon + new_e / (DEG_TO_M_LAT * cos_lat);
+            along_clamped = true;
+        } else if (along < -2.0) {
+            // 2단계: cross-track 도달 후 역방향 → cross-track만 유지
+            double clamped_n = cross * (double)(-h_sin);
+            double clamped_e = cross * (double)(h_cos);
+            target.latitude = fw_lat + clamped_n / DEG_TO_M_LAT;
+            target.longitude = fw_lon + clamped_e / (DEG_TO_M_LAT * cos_lat);
+            along_clamped = true;
+        }
+    }
+
+    // 진단 로그 (3초마다 - 횡단 디버깅용)
+    static std::chrono::steady_clock::time_point last_offset_log{};
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::seconds>(now - last_offset_log).count() >= 3) {
+        std::cout << "[Offset] heading=" << (heading_rad * 180.0f / M_PI)
+                  << "° (fixed=" << (fixed_heading_set_ ? "Y" : "N")
+                  << "), mirror=" << (lateral_mirrored_ ? "Y" : "N")
+                  << ", body=(" << body_x << "," << body_y
+                  << "), ned=(" << ned_x << "," << ned_y
+                  << "), leader=(" << leader_pose.latitude << "," << leader_pose.longitude
+                  << "), target=(" << target.latitude << "," << target.longitude
+                  << "), clamp=" << (along_clamped ? "Y" : "N")
+                  << ", progress=" << (int)(cross_progress * 100.0) << "%"
+                  << std::endl;
+        last_offset_log = now;
+    }
 
     // 오프셋 목표 저장 (offset_error 계산용)
     last_target_lat_ = target.latitude;

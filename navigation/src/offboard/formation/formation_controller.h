@@ -143,6 +143,12 @@ private:
     int16_t suppress_distance_m_{10};
     int16_t suppress_angle_deg_{0};
 
+    // === SUPPRESS 우회 경로 (횡단 방지) ===
+    double suppress_final_lat_{0.0};            // 최종 진압 위치
+    double suppress_final_lon_{0.0};
+    float suppress_final_alt_{0.0f};
+    bool suppress_detour_active_{false};        // 중간 경유점 사용 중
+
     // === 편대 상태 (리더) ===
     uint8_t formation_drone_count_{1};
     std::string formation_phase_{"IDLE"};
@@ -182,17 +188,19 @@ private:
     std::mutex followers_mutex_;
     std::map<uint8_t, FollowerInfo> followers_;
 
-    // === L/R 오프셋 미러링 (첫 calculateOffsetTarget 호출 시 1회 판정) ===
-    bool lateral_offset_mirrored_{false}; // 현재 미러링 상태
-    bool mirror_decided_{false};          // 미러링 판정 완료 여부
+    // === 경로 기반 오프셋 ===
     double last_leader_lat_{0.0};         // 최근 수신 리더 위치
     double last_leader_lon_{0.0};
-    double mirror_leader_lat_{0.0};       // CMD_FOLLOW 시점 리더 위치 (미러링 기준점)
-    double mirror_leader_lon_{0.0};
-    bool mirror_leader_set_{false};       // CMD_FOLLOW 시점 리더 위치 저장 여부
-    double mission_dest_lat_{0.0};        // 미션 목적지 (미러링 판정용)
+    double mission_dest_lat_{0.0};        // 미션 목적지
     double mission_dest_lon_{0.0};
     bool mission_dest_set_{false};
+
+    // === 고정 경로선 (CMD_FOLLOW 시점 확정, 목적지 변경 시 재계산) ===
+    double leader_start_lat_{0.0};        // 리더 이륙(고정) 위치
+    double leader_start_lon_{0.0};
+    float fixed_heading_rad_{0.0f};       // 고정 경로 heading (리더이륙→목적지)
+    bool fixed_heading_set_{false};       // 고정 heading 설정 여부
+    bool lateral_mirrored_{false};        // offset_right 부호 반전 (팔로워 시작 쪽 유지)
 
     // === 팔로워 오프셋 추적 (offset_error 계산용) ===
     double last_target_lat_{0.0};

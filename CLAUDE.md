@@ -2,8 +2,8 @@
 
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
-**버전**: v3.0 (2026-02-05)
-**최신 태그**: v0.13.5
+**버전**: v3.1 (2026-02-08)
+**최신 태그**: v0.15.7
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -107,7 +107,7 @@ ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
 - OpenCV + GStreamer
 - MAVLink 커스텀 메시지 (60000-60003)
 
-**현재 상태** (2026-02-06, v0.13.5):
+**현재 상태** (2026-02-08, v0.15.7):
 - 열화상 시스템
 - LiDAR 거리 측정
 - 스트리밍 시스템 (HTTP/RTSP)
@@ -115,6 +115,7 @@ ls -1 /home/khadas/humiro_fire_suppression/work-plan/*.md
 - VIM4 자율 제어 (OFFBOARD 미션, velocity 기반 부드러운 선회, 목표지점 호버링)
 - MAVLink 커스텀 메시지 (미션 시작/중지/RTL)
 - 웹 GUI 관리 도구 (오프보드 설정 페이지 포함)
+- ROS2 DDS 기반 편대비행 (리더/팔로워, 고정 경로선 오프셋, SUPPRESS 미러링)
 
 ---
 

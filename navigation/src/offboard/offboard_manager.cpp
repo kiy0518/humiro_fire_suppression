@@ -307,42 +307,49 @@ void OffboardManager::timerCallback()
         }
 
     } else if (counter == TAKEOFF_STABLE) {
-        // 이륙 안정화 완료, HOVER로 전환
-        RCLCPP_INFO(node_->get_logger(), "\n[Step 3] 이륙 완료, 호버링 시작 (%.1f초)...",
-                    mission_config_.hover_duration_sec);
-        current_state_.store(MissionState::HOVER);
+        if (continuous_update_mode_.load()) {
+            // ★★★ 팔로워: HOVER/ROTATE 건너뛰고 바로 NAVIGATE ★★★
+            // 이륙 직후 오프셋 추적 시작 — HOVER/ROTATE 중 표류/간섭 원천 차단
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 3] 이륙 완료 → 편대 추적 즉시 시작 (NAVIGATE direct)");
+            RCLCPP_INFO(node_->get_logger(), "[NAV-DIRECT] target_ned=(%.1f, %.1f), GPS target=(%.7f, %.7f)",
+                        target_ned_x_, target_ned_y_,
+                        mission_config_.target_waypoint.latitude,
+                        mission_config_.target_waypoint.longitude);
+            current_state_.store(MissionState::NAVIGATE);
+            setpoint_counter_.store(MOVE_START + 1);  // ROTATE/MOVE 카운터 건너뛰기
+        } else {
+            // 리더/단독: 정상 HOVER → ROTATE → NAVIGATE 시퀀스
+            RCLCPP_INFO(node_->get_logger(), "\n[Step 3] 이륙 완료, 호버링 시작 (%.1f초)...",
+                        mission_config_.hover_duration_sec);
+            current_state_.store(MissionState::HOVER);
 
-        // 목표 좌표 계산: 현재 GPS → 목표 GPS 오프셋을 시작 위치에 더함
-        double cur_lat = current_lat_.load();
-        double cur_lon = current_lon_.load();
-        double tgt_lat = mission_config_.target_waypoint.latitude;
-        double tgt_lon = mission_config_.target_waypoint.longitude;
+            // 목표 좌표 계산: 현재 GPS → 목표 GPS 오프셋을 시작 위치에 더함
+            double cur_lat = current_lat_.load();
+            double cur_lon = current_lon_.load();
+            double tgt_lat = mission_config_.target_waypoint.latitude;
+            double tgt_lon = mission_config_.target_waypoint.longitude;
 
-        // GPS 오프셋 계산 (미터 단위)
-        constexpr double DEG_TO_M_LAT = 111320.0;
-        double deg_to_m_lon = 111320.0 * std::cos(cur_lat * M_PI / 180.0);
-        float offset_north = static_cast<float>((tgt_lat - cur_lat) * DEG_TO_M_LAT);
-        float offset_east = static_cast<float>((tgt_lon - cur_lon) * deg_to_m_lon);
+            constexpr double DEG_TO_M_LAT = 111320.0;
+            double deg_to_m_lon = 111320.0 * std::cos(cur_lat * M_PI / 180.0);
+            float offset_north = static_cast<float>((tgt_lat - cur_lat) * DEG_TO_M_LAT);
+            float offset_east = static_cast<float>((tgt_lon - cur_lon) * deg_to_m_lon);
 
-        // 목표 NED = 시작 위치 + GPS 오프셋
-        target_ned_x_ = start_local_x_ + offset_north;
-        target_ned_y_ = start_local_y_ + offset_east;
-        target_ned_z_ = -mission_config_.takeoff_altitude;
+            target_ned_x_ = start_local_x_ + offset_north;
+            target_ned_y_ = start_local_y_ + offset_east;
+            target_ned_z_ = -mission_config_.takeoff_altitude;
+            target_yaw_ = calculateTargetYaw(offset_north, offset_east);
 
-        // 목표 방향 계산 (시작 위치 기준)
-        target_yaw_ = calculateTargetYaw(offset_north, offset_east);
-
-        RCLCPP_INFO(node_->get_logger(), "[NAV] Current GPS: (%.7f, %.7f)", cur_lat, cur_lon);
-        RCLCPP_INFO(node_->get_logger(), "[NAV] Target GPS: (%.7f, %.7f)", tgt_lat, tgt_lon);
-        RCLCPP_INFO(node_->get_logger(), "[NAV] GPS offset: North=%.1fm, East=%.1fm", offset_north, offset_east);
-        RCLCPP_INFO(node_->get_logger(), "[NAV] Target NED: (%.1f, %.1f, %.1f), Yaw: %.1f deg",
-                    target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
+            RCLCPP_INFO(node_->get_logger(), "[NAV] Current GPS: (%.7f, %.7f)", cur_lat, cur_lon);
+            RCLCPP_INFO(node_->get_logger(), "[NAV] Target GPS: (%.7f, %.7f)", tgt_lat, tgt_lon);
+            RCLCPP_INFO(node_->get_logger(), "[NAV] GPS offset: North=%.1fm, East=%.1fm", offset_north, offset_east);
+            RCLCPP_INFO(node_->get_logger(), "[NAV] Target NED: (%.1f, %.1f, %.1f), Yaw: %.1f deg",
+                        target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
+        }
 
     } else if (counter == ROTATE_START) {
-        // ROTATE 진입 직전: 현재 yaw를 initial_yaw로 갱신 (ARM~HOVER 사이 yaw 드리프트 보정)
+        // continuous_update_mode는 이미 NAVIGATE 상태이므로 여기 도달 안 함
         initial_yaw_ = current_yaw_.load();
 
-        // 편대 모드(리더): 팔로워 이륙 확인 전까지 HOVER 유지
         bool needs_gate = formation_mode_ && !continuous_update_mode_.load();
         if (needs_gate && !formation_ready_to_rotate_.load()) {
             RCLCPP_INFO(node_->get_logger(), "\n[Step 4] 편대 모드: 팔로워 이륙 대기중 (HOVER 유지)...");
@@ -353,11 +360,9 @@ void OffboardManager::timerCallback()
         }
 
     } else if (counter == ROTATE_END) {
-        // 회전 완료
         RCLCPP_INFO(node_->get_logger(), "\n[Step 5] 회전 완료, 이동 시작...");
 
     } else if (counter == MOVE_START) {
-        // 편대 모드(리더): 편대 배치 완료 전까지 ROTATE 유지
         bool needs_gate = formation_mode_ && !continuous_update_mode_.load();
         if (needs_gate && !formation_ready_to_navigate_.load()) {
             RCLCPP_INFO(node_->get_logger(), "\n[Step 6] 편대 모드: 편대 배치 대기중 (ROTATE 유지)...");
@@ -558,19 +563,27 @@ void OffboardManager::publishTrajectorySetpoint()
             yawspeed = (yaw_diff > 0) ? MAX_YAW_RATE : -MAX_YAW_RATE;
         }
 
-        // Position + Velocity 동시 전송 (피드포워드 제어)
+        // Position + Velocity 전송
         px4_msgs::msg::TrajectorySetpoint msg{};
         msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
         msg.position = {target_ned_x_, target_ned_y_, -mission_config_.takeoff_altitude};  // 항상 목표 위치
-        msg.velocity = {ff_vx, ff_vy, NAN};  // 피드포워드 속도 (목표 근처에서 0)
+        if (continuous_update_mode_.load()) {
+            msg.velocity = {NAN, NAN, NAN};  // 연속 추적 모드: position only (FF 간섭 방지)
+        } else {
+            msg.velocity = {ff_vx, ff_vy, NAN};  // 단독 비행: 피드포워드 속도
+        }
         msg.yaw = NAN;
         msg.yawspeed = yawspeed;
         trajectory_setpoint_pub_->publish(msg);
 
         if (counter % 10 == 0) {
             RCLCPP_INFO(node_->get_logger(),
-                        "[NAVIGATE] Pos+Vel FF | Vel(%.1f, %.1f) Speed=%.1f | Dist=%.1f m | Yaw: %.1f° → %.1f°",
-                        ff_vx, ff_vy, speed, dist,
+                        "[NAVIGATE] tgtNED=(%.1f,%.1f) curNED=(%.1f,%.1f) curGPS=(%.7f,%.7f) tgtGPS=(%.7f,%.7f) dist=%.1f yaw=%.1f→%.1f",
+                        target_ned_x_, target_ned_y_, cur_x, cur_y,
+                        current_lat_.load(), current_lon_.load(),
+                        mission_config_.target_waypoint.latitude,
+                        mission_config_.target_waypoint.longitude,
+                        dist,
                         current_yaw * 180.0f / M_PI, target_yaw_ * 180.0f / M_PI);
         }
         return;  // 이미 메시지 발행했으므로 아래 코드 스킵
@@ -765,10 +778,12 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     // 미션 설정 업데이트
     mission_config_.target_waypoint = new_target;
 
-    // ★★★ 현재 위치를 새 시작 위치로 저장 (일시 정지 지점) ★★★
-    start_local_x_ = current_local_x_.load();
-    start_local_y_ = current_local_y_.load();
-    start_local_z_ = current_local_z_.load();
+    // ★★★ start_local 보존: HOVER/ROTATE 위치 유지를 위해 start_local을 리셋하지 않음 ★★★
+    // start_local_x/y는 executeMission3()에서 1회 설정 (이륙 위치)
+    // HOVER/ROTATE에서 start_local을 hover 기준점으로 사용하므로,
+    // 여기서 리셋하면 position hold가 무력화됨 (위치오차=0 → 보정력=0 → 바람에 표류)
+    float ref_local_x = current_local_x_.load();
+    float ref_local_y = current_local_y_.load();
 
     // 현재 GPS 위치 기준으로 새 목표 NED 좌표 계산
     double cur_lat = current_lat_.load();
@@ -781,12 +796,12 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     float offset_north = static_cast<float>((new_target.latitude - cur_lat) * DEG_TO_M_LAT);
     float offset_east = static_cast<float>((new_target.longitude - cur_lon) * deg_to_m_lon);
 
-    // 현재 로컬 위치 + 오프셋 = 새 목표 NED
+    // 현재 로컬 위치 + 오프셋 = 새 목표 NED (start_local 대신 현재 로컬 좌표 사용)
     float old_x = target_ned_x_;
     float old_y = target_ned_y_;
 
-    target_ned_x_ = start_local_x_ + offset_north;
-    target_ned_y_ = start_local_y_ + offset_east;
+    target_ned_x_ = ref_local_x + offset_north;
+    target_ned_y_ = ref_local_y + offset_east;
     target_ned_z_ = -mission_config_.takeoff_altitude;  // 고도 재설정
 
     // 새 목표 방향 계산 (yaw_override가 있으면 리더 헤딩 사용)
@@ -796,8 +811,7 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
         target_yaw_ = calculateTargetYaw(offset_north, offset_east);
     }
 
-    // HOVER 상태에서 현재 yaw 유지 (initial_yaw_ 업데이트)
-    initial_yaw_ = current_yaw_.load();
+    // initial_yaw_도 보존: HOVER에서 yaw_setpoint로 사용됨, 리셋하면 yaw hold도 무력화
 
     // 로깅 (continuous_update_mode에서는 5초마다만)
     bool should_log = true;
