@@ -9,6 +9,7 @@
  */
 
 #include "offboard_manager.h"
+#include "collision/collision_avoidance.h"
 #include <cstdlib>
 
 using namespace std::chrono_literals;
@@ -407,6 +408,28 @@ void OffboardManager::timerCallback()
         RCLCPP_INFO(node_->get_logger(), "[NAV] Distance to target: %.1f m", dist);
     }
 
+    // ========== 충돌 방지 체크 (10Hz, ARM 이후) ==========
+    if (collision_avoidance_ && arming_state_.load() == 2) {
+        bool should_hold = collision_avoidance_->checkAndUpdate();
+        if (should_hold && !was_collision_hold_) {
+            // hold 진입: 현재 위치 캡처 (이 위치에서 호버링)
+            hold_x_ = current_local_x_.load();
+            hold_y_ = current_local_y_.load();
+            hold_z_ = current_local_z_.load();
+            hold_yaw_ = current_yaw_.load();
+            RCLCPP_WARN(node_->get_logger(),
+                "[COLLISION] HOLD at (%.1f, %.1f, %.1f) - threat drone %d",
+                hold_x_, hold_y_, -hold_z_,
+                collision_avoidance_->getThreatId());
+        } else if (!should_hold && was_collision_hold_) {
+            RCLCPP_INFO(node_->get_logger(),
+                "[COLLISION] RESUME - threat cleared, continuing %s",
+                getStateName(state).c_str());
+        }
+        collision_hold_.store(should_hold);
+        was_collision_hold_ = should_hold;
+    }
+
     // TrajectorySetpoint 발행 (ARM 이후)
     if (counter > ARM_COUNT && state != MissionState::RTL) {
         publishTrajectorySetpoint();
@@ -441,6 +464,22 @@ void OffboardManager::publishOffboardControlMode()
 
 void OffboardManager::publishTrajectorySetpoint()
 {
+    // ========== 충돌 방지 hold: 캡처된 위치에서 호버링 ==========
+    if (collision_hold_.load()) {
+        px4_msgs::msg::TrajectorySetpoint msg{};
+        msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+        msg.position = {hold_x_, hold_y_, hold_z_};
+        msg.velocity = {NAN, NAN, NAN};
+        msg.yaw = hold_yaw_;
+        msg.yawspeed = 0.0f;
+        trajectory_setpoint_pub_->publish(msg);
+
+        // 피드포워드 속도 리셋 (재개 시 급가속 방지)
+        prev_vx_ = 0.0f;
+        prev_vy_ = 0.0f;
+        return;
+    }
+
     auto state = current_state_.load();
     uint64_t counter = setpoint_counter_.load();
 
@@ -690,6 +729,9 @@ void OffboardManager::vehicleLocalPositionCallback(const px4_msgs::msg::VehicleL
     current_local_y_.store(msg->y);
     current_local_z_.store(msg->z);
     current_yaw_.store(msg->heading);
+    actual_vx_.store(msg->vx);
+    actual_vy_.store(msg->vy);
+    actual_vz_.store(msg->vz);
     position_received_.store(true);
 }
 
@@ -741,6 +783,8 @@ void OffboardManager::abortMission()
 {
     RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission abort requested!");
     abort_requested_.store(true);
+    collision_hold_.store(false);
+    was_collision_hold_ = false;
 }
 
 void OffboardManager::emergencyRTL()
@@ -874,6 +918,8 @@ void OffboardManager::resetToIdle()
     mission_running_.store(false);
     abort_requested_.store(false);
     setpoint_counter_.store(0);
+    collision_hold_.store(false);
+    was_collision_hold_ = false;
 
     // Home 위치 리셋 (다음 미션에서 현재 위치 기준으로 재설정)
     home_set_ = false;

@@ -695,7 +695,9 @@ void FormationController::followerStatusTimerCallback() {
     }
 
     // 미션 상태: 리더가 이해할 수 있는 상세 상태
-    if (follower_phase_ == FollowerPhase::FOLLOWING) {
+    if (offboard_mgr_->isCollisionHold()) {
+        msg.mission_state = "COLLISION_HOLD";  // 충돌 방지 정지 중
+    } else if (follower_phase_ == FollowerPhase::FOLLOWING) {
         if (offboard_mgr_->isMissionRunning()) {
             MissionState ms = offboard_mgr_->getCurrentState();
             if (ms == MissionState::HOVER || ms == MissionState::ROTATE ||

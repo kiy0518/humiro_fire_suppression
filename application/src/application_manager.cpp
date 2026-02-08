@@ -30,6 +30,7 @@
 #include "status_ros2_subscriber.h"
 #include "../../navigation/src/offboard/offboard_manager.h"
 #include "../../navigation/src/offboard/formation/formation_controller.h"
+#include "../../navigation/src/offboard/collision/collision_avoidance.h"
 #endif
 
 // 전역 시그널 핸들러용 포인터
@@ -70,7 +71,8 @@ ApplicationManager::ApplicationManager()
       thermal_ros2_publisher_(nullptr),
       lidar_ros2_publisher_(nullptr),
       status_ros2_subscriber_(nullptr),
-      formation_controller_(nullptr)
+      formation_controller_(nullptr),
+      collision_avoidance_(nullptr)
 #endif
 {
 }
@@ -273,6 +275,15 @@ void ApplicationManager::initializeFormation() {
         // 편대 제어 시작
         formation_controller_->start();
         std::cout << "  ✓ FormationController 초기화 완료 (role=" << role << ")" << std::endl;
+    }
+
+    // ========== 충돌 방지 초기화 (formation 유무와 무관하게 항상 동작) ==========
+    if (ros2_node_ && offboard_manager_) {
+        std::cout << "\n[충돌 방지 초기화]" << std::endl;
+        collision_avoidance_ = new CollisionAvoidance(ros2_node_, offboard_manager_, drone_id_);
+        offboard_manager_->setCollisionAvoidance(collision_avoidance_);
+        collision_avoidance_->start();
+        std::cout << "  ✓ CollisionAvoidance 초기화 완료 (drone_id=" << (int)drone_id_ << ")" << std::endl;
     }
 #endif
 }
@@ -955,6 +966,10 @@ void ApplicationManager::cleanupComponents() {
 
 void ApplicationManager::cleanupROS2() {
 #ifdef ENABLE_ROS2
+    if (collision_avoidance_) {
+        collision_avoidance_->stop();
+        delete collision_avoidance_;
+    }
     if (formation_controller_) {
         formation_controller_->stop();
         delete formation_controller_;
@@ -964,6 +979,7 @@ void ApplicationManager::cleanupROS2() {
     if (thermal_ros2_publisher_) delete thermal_ros2_publisher_;
     if (lidar_ros2_publisher_) delete lidar_ros2_publisher_;
 
+    collision_avoidance_ = nullptr;
     formation_controller_ = nullptr;
     offboard_manager_ = nullptr;
     status_ros2_subscriber_ = nullptr;

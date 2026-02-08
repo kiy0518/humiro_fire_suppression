@@ -124,12 +124,17 @@ public:
     float getCurrentLocalX() const { return current_local_x_.load(); }
     float getCurrentLocalY() const { return current_local_y_.load(); }
     float getCurrentLocalZ() const { return current_local_z_.load(); }
-    float getCurrentVx() const { return prev_vx_; }
-    float getCurrentVy() const { return prev_vy_; }
+    float getCurrentVx() const { return actual_vx_.load(); }
+    float getCurrentVy() const { return actual_vy_.load(); }
+    float getCurrentVz() const { return actual_vz_.load(); }
     float getCurrentSpeed() const {
-        float vx = prev_vx_, vy = prev_vy_;
+        float vx = actual_vx_.load(), vy = actual_vy_.load();
         return std::sqrt(vx * vx + vy * vy);
     }
+
+    // ========== 충돌 방지 ==========
+    void setCollisionAvoidance(class CollisionAvoidance* ca) { collision_avoidance_ = ca; }
+    bool isCollisionHold() const { return collision_hold_.load(); }
 
 private:
     // ========== 타이머 콜백 (핵심!) ==========
@@ -185,6 +190,9 @@ private:
     std::atomic<double> current_lon_{0.0};
     std::atomic<float> current_alt_amsl_{0.0f};
     std::atomic<bool> position_received_{false};
+    std::atomic<float> actual_vx_{0.0f};    // PX4 실제 NED 속도
+    std::atomic<float> actual_vy_{0.0f};
+    std::atomic<float> actual_vz_{0.0f};
 
     // ========== Home 위치 ==========
     double home_lat_{0.0};
@@ -237,6 +245,12 @@ private:
     // ========== 제어 파라미터 ==========
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s, ~28.6 deg/s)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f; // 도착 판정 거리 (m)
+
+    // ========== 충돌 방지 ==========
+    class CollisionAvoidance* collision_avoidance_{nullptr};
+    std::atomic<bool> collision_hold_{false};
+    bool was_collision_hold_{false};
+    float hold_x_{0.0f}, hold_y_{0.0f}, hold_z_{0.0f}, hold_yaw_{0.0f};
 
 };
 
