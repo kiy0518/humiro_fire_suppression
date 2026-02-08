@@ -802,7 +802,18 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
 
     target_ned_x_ = ref_local_x + offset_north;
     target_ned_y_ = ref_local_y + offset_east;
-    target_ned_z_ = -mission_config_.takeoff_altitude;  // 고도 재설정
+
+    // 고도 설정: AMSL 고도가 유효하면 home 기준 NED 변환, 아니면 설정값 사용
+    if (new_target.altitude > 0.0f && home_set_) {
+        // AMSL → NED Z 변환 (팔로워: 리더 고도 추적, SUPPRESS: 현재 고도 유지)
+        target_ned_z_ = -(new_target.altitude - home_alt_amsl_);
+    } else {
+        // 리더/단독: 설정된 목표고도 사용 (target_altitude > 0이면 사용, 아니면 takeoff_altitude)
+        float effective_alt = (mission_config_.target_altitude > 0.0f)
+                              ? mission_config_.target_altitude
+                              : mission_config_.takeoff_altitude;
+        target_ned_z_ = -effective_alt;
+    }
 
     // 새 목표 방향 계산 (yaw_override가 있으면 리더 헤딩 사용)
     if (!std::isnan(yaw_override)) {

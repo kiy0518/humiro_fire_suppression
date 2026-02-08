@@ -223,7 +223,7 @@ void ApplicationManager::initializeFormation() {
                 offboard_manager_->setContinuousUpdateMode(true);
             }
 
-            // 오프셋 설정
+            // 오프셋 설정 (device_config.env → 환경변수)
             const char* right_env = getenv("FORMATION_OFFSET_RIGHT");
             const char* behind_env = getenv("FORMATION_OFFSET_BEHIND");
             const char* above_env = getenv("FORMATION_OFFSET_ABOVE");
@@ -231,19 +231,24 @@ void ApplicationManager::initializeFormation() {
             int16_t behind = behind_env ? atoi(behind_env) : 0;
             int16_t above = above_env ? atoi(above_env) : 0;
             formation_controller_->setOffset(right, behind, above);
+            std::cout << "  [설정] 편대 오프셋: right=" << right
+                      << "cm, behind=" << behind << "cm, above=" << above << "cm" << std::endl;
 
             // 리더 네임스페이스 설정
             const char* leader_ns_env = getenv("LEADER_NAMESPACE");
             if (leader_ns_env) {
                 formation_controller_->setLeaderNamespace(leader_ns_env);
+                std::cout << "  [설정] 리더 네임스페이스: " << leader_ns_env << std::endl;
             }
 
             // 진압 파라미터 설정
             const char* sup_dist = getenv("SUPPRESS_DISTANCE");
             const char* sup_angle = getenv("SUPPRESS_ANGLE");
-            formation_controller_->setSuppressParams(
-                sup_dist ? atoi(sup_dist) : 10,
-                sup_angle ? atoi(sup_angle) : 0);
+            int16_t sd = sup_dist ? atoi(sup_dist) : 10;
+            int16_t sa = sup_angle ? atoi(sup_angle) : 0;
+            formation_controller_->setSuppressParams(sd, sa);
+            std::cout << "  [설정] 진압 파라미터: distance=" << sd
+                      << "m, angle=" << sa << "°" << std::endl;
 
             // 팔로워 명령 콜백: CMD_FOLLOW 수신 시 자체 미션 시작
             formation_controller_->setCommandCallback(
@@ -1338,10 +1343,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
 
-            // 리더: FormationController 미션 타겟도 업데이트 (CMD_SUPPRESS 좌표)
+            // 리더: FormationController 미션 타겟 + 파라미터 업데이트
             if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
                 formation_controller_->setMissionTarget(
                     config.target_waypoint.latitude, config.target_waypoint.longitude);
+                formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
             }
 
             // 미션 진행 중 → 내부에서 updateMissionTarget() 실행
@@ -1387,12 +1393,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.takeoff_altitude = start.target_alt;
     config.flight_speed = start.flight_speed;
 
-    // 목표지점 고도: 팔로워는 takeoff_altitude로 통일, 리더는 GUI 설정
-    if (formation_controller_ && formation_controller_->getRole() != FormationRole::LEADER) {
-        config.target_altitude = -1.0f;  // 팔로워: takeoff_altitude로 비행
-    } else {
-        config.target_altitude = readTargetAltitudeFromConfig();
-    }
+    // 목표지점 고도: GUI offboard_config.json에서 읽기 (리더/팔로워 공통)
+    config.target_altitude = readTargetAltitudeFromConfig();
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -1420,6 +1422,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     }
 
     std::cout << "  - 이륙 고도: " << config.takeoff_altitude << " m" << std::endl;
+    std::cout << "  - 목표지점 고도: " << config.target_altitude << " m"
+              << (config.target_altitude < 0 ? " (이륙고도 사용)" : " (offboard_config.json)") << std::endl;
     std::cout << "  - 비행 속도: " << config.flight_speed << " m/s" << std::endl;
     std::cout << "  - 목표 위치: (" << config.target_waypoint.latitude << ", "
               << config.target_waypoint.longitude << "), 고도: " << config.target_waypoint.altitude << " m" << std::endl;
