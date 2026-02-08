@@ -1429,6 +1429,19 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
               << config.target_waypoint.longitude << "), 고도: " << config.target_waypoint.altitude << " m" << std::endl;
     std::cout << "  - 자동 격발: " << (start.auto_fire ? "ON" : "OFF") << std::endl;
 
+    // ★★★ 리더: CMD_FOLLOW 타겟 먼저 설정 (미션 스레드 시작 전!) ★★★
+    // mission_running_=true 후 1Hz 타이머가 CMD_FOLLOW 전송할 때
+    // mission_target_lat_이 0.0이면 팔로워가 heading을 계산 못함 → 오프셋 회전 안됨
+    if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+        formation_controller_->setMissionTarget(
+            config.target_waypoint.latitude, config.target_waypoint.longitude);
+        formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
+        formation_controller_->setFormationPhase("NAVIGATE");
+        std::cout << "[FormationController] 리더 미션 타겟 사전 설정: ("
+                  << config.target_waypoint.latitude << ", " << config.target_waypoint.longitude
+                  << ") alt=" << config.takeoff_altitude << "m" << std::endl;
+    }
+
     // OffboardManager로 미션 실행 (별도 스레드에서 비동기 실행)
     std::thread mission_thread([this, config, start]() {
         bool success = false;
@@ -1479,14 +1492,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     // 스레드 분리 (백그라운드 실행)
     mission_thread.detach();
 
-    // 리더: 미션 파라미터 전달 (CMD_FOLLOW는 HOVER 도달 시 자동 전송)
-    if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
-        formation_controller_->setMissionTarget(
-            config.target_waypoint.latitude, config.target_waypoint.longitude);
-        formation_controller_->setMissionParams(config.takeoff_altitude, config.flight_speed);
-        formation_controller_->setFormationPhase("NAVIGATE");
-        std::cout << "[FormationController] 리더 미션 시작 (CMD_FOLLOW는 HOVER 후 자동 전송)" << std::endl;
-    }
+    // (리더 미션 타겟은 미션 스레드 시작 전에 이미 설정됨 - race condition 방지)
 #else
     std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
 #endif

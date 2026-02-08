@@ -566,7 +566,7 @@ void OffboardManager::publishTrajectorySetpoint()
         // Position + Velocity 전송
         px4_msgs::msg::TrajectorySetpoint msg{};
         msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-        msg.position = {target_ned_x_, target_ned_y_, -mission_config_.takeoff_altitude};  // 항상 목표 위치
+        msg.position = {target_ned_x_, target_ned_y_, target_ned_z_};  // updateMissionTarget에서 설정된 고도 사용
         if (continuous_update_mode_.load()) {
             msg.velocity = {NAN, NAN, NAN};  // 연속 추적 모드: position only (FF 간섭 방지)
         } else {
