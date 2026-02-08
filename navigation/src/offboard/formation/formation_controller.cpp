@@ -248,8 +248,8 @@ void FormationController::leaderStatusTimerCallback() {
             cmd_msg.header.stamp = node_->now();
             cmd_msg.target_drone_id = 0;
             cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_FOLLOW;
-            cmd_msg.target_latitude = offboard_mgr_->getCurrentLat();
-            cmd_msg.target_longitude = offboard_mgr_->getCurrentLon();
+            cmd_msg.target_latitude = mission_target_lat_;   // 미션 목적지 (팔로워 미러링 판정용)
+            cmd_msg.target_longitude = mission_target_lon_;
             cmd_msg.takeoff_altitude = mission_takeoff_altitude_;
             cmd_msg.flight_speed = mission_flight_speed_;
             command_pub_->publish(cmd_msg);
@@ -517,6 +517,15 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
                 mission_dest_set_ = true;
             }
 
+            // CMD_FOLLOW 시점 리더 위치 저장 (미러링 기준점 - 고정 참조)
+            if (last_leader_lat_ != 0.0) {
+                mirror_leader_lat_ = last_leader_lat_;
+                mirror_leader_lon_ = last_leader_lon_;
+                mirror_leader_set_ = true;
+                std::cout << "  → 미러링 기준 리더 위치: " << mirror_leader_lat_
+                          << ", " << mirror_leader_lon_ << std::endl;
+            }
+
             std::cout << "  → FOLLOW: alt=" << received_takeoff_altitude_
                       << "m, speed=" << received_flight_speed_ << "m/s" << std::endl;
             // 외부 콜백으로 ApplicationManager에 미션 시작 요청
@@ -717,15 +726,15 @@ std::string FormationController::followerPhaseToString(FollowerPhase phase) {
 GPSCoordinate FormationController::calculateOffsetTarget(
     const humiro_msgs::msg::LeaderPose& leader_pose) {
 
-    // 1. 미러링 판정 (첫 호출 시 1회 — 이륙 완료 후 리더/팔로워 거리 충분)
-    if (!mirror_decided_ && mission_dest_set_ && offboard_mgr_) {
-        double cos_lat = std::cos(leader_pose.latitude * M_PI / 180.0);
-        // 경로선: 리더 → 타겟
-        double travel_n = (mission_dest_lat_ - leader_pose.latitude) * DEG_TO_M_LAT;
-        double travel_e = (mission_dest_lon_ - leader_pose.longitude) * DEG_TO_M_LAT * cos_lat;
-        // 팔로워 상대위치: 리더 → 팔로워
-        double foll_n = (offboard_mgr_->getCurrentLat() - leader_pose.latitude) * DEG_TO_M_LAT;
-        double foll_e = (offboard_mgr_->getCurrentLon() - leader_pose.longitude) * DEG_TO_M_LAT * cos_lat;
+    // 1. 미러링 판정 (첫 호출 시 1회 — CMD_FOLLOW 시점 리더 위치 기준)
+    if (!mirror_decided_ && mission_dest_set_ && mirror_leader_set_ && offboard_mgr_) {
+        double cos_lat = std::cos(mirror_leader_lat_ * M_PI / 180.0);
+        // 경로선: CMD_FOLLOW 시점 리더 위치 → 미션 목적지
+        double travel_n = (mission_dest_lat_ - mirror_leader_lat_) * DEG_TO_M_LAT;
+        double travel_e = (mission_dest_lon_ - mirror_leader_lon_) * DEG_TO_M_LAT * cos_lat;
+        // 팔로워 상대위치: CMD_FOLLOW 시점 리더 위치 → 팔로워 현재 위치
+        double foll_n = (offboard_mgr_->getCurrentLat() - mirror_leader_lat_) * DEG_TO_M_LAT;
+        double foll_e = (offboard_mgr_->getCurrentLon() - mirror_leader_lon_) * DEG_TO_M_LAT * cos_lat;
         // 외적: 양수=팔로워가 경로 우측, 음수=좌측
         double cross = travel_n * foll_e - travel_e * foll_n;
         // 팔로워가 offset 배치 방향 반대쪽에 있으면 미러링
@@ -733,7 +742,9 @@ GPSCoordinate FormationController::calculateOffsetTarget(
             lateral_offset_mirrored_ = true;
         }
         mirror_decided_ = true;
-        std::cout << "[Formation] 미러링 판정 (이륙 후): cross=" << cross
+        std::cout << "[Formation] 미러링 판정: leader_ref=(" << mirror_leader_lat_
+                  << ", " << mirror_leader_lon_ << "), dest=(" << mission_dest_lat_
+                  << ", " << mission_dest_lon_ << "), cross=" << cross
                   << ", offset_right=" << offset_right_cm_
                   << " → " << (lateral_offset_mirrored_ ? "ON" : "OFF") << std::endl;
     }
