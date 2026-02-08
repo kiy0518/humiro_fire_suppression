@@ -410,24 +410,61 @@ void OffboardManager::timerCallback()
 
     // ========== 충돌 방지 체크 (10Hz, ARM 이후) ==========
     if (collision_avoidance_ && arming_state_.load() == 2) {
-        bool should_hold = collision_avoidance_->checkAndUpdate();
-        if (should_hold && !was_collision_hold_) {
-            // hold 진입: 현재 위치 캡처 (이 위치에서 호버링)
-            hold_x_ = current_local_x_.load();
-            hold_y_ = current_local_y_.load();
-            hold_z_ = current_local_z_.load();
-            hold_yaw_ = current_yaw_.load();
-            RCLCPP_WARN(node_->get_logger(),
-                "[COLLISION] HOLD at (%.1f, %.1f, %.1f) - threat drone %d",
-                hold_x_, hold_y_, -hold_z_,
-                collision_avoidance_->getThreatId());
-        } else if (!should_hold && was_collision_hold_) {
+        auto action = collision_avoidance_->checkAndUpdate();
+        bool active = (action != CollisionAction::NONE);
+
+        if (active && !was_collision_active_) {
+            // 충돌 상태 진입
+            if (action == CollisionAction::HOLD) {
+                hold_x_ = current_local_x_.load();
+                hold_y_ = current_local_y_.load();
+                hold_z_ = current_local_z_.load();
+                hold_yaw_ = current_yaw_.load();
+                RCLCPP_WARN(node_->get_logger(),
+                    "[COLLISION] HOLD at (%.1f, %.1f, %.1f) - threat drone %d",
+                    hold_x_, hold_y_, -hold_z_,
+                    collision_avoidance_->getThreatId());
+            } else {
+                // EVADE_RIGHT 진입 시에도 hold 위치 캡처 (비-NAVIGATE 상태 폴백용)
+                hold_x_ = current_local_x_.load();
+                hold_y_ = current_local_y_.load();
+                hold_z_ = current_local_z_.load();
+                hold_yaw_ = current_yaw_.load();
+                evade_offset_n_ = collision_avoidance_->getEvadeOffsetN();
+                evade_offset_e_ = collision_avoidance_->getEvadeOffsetE();
+                RCLCPP_WARN(node_->get_logger(),
+                    "[COLLISION] EVADE RIGHT offset=(%.1f, %.1f) - threat drone %d",
+                    evade_offset_n_, evade_offset_e_,
+                    collision_avoidance_->getThreatId());
+            }
+        } else if (!active && was_collision_active_) {
+            // 충돌 해제
             RCLCPP_INFO(node_->get_logger(),
-                "[COLLISION] RESUME - threat cleared, continuing %s",
+                "[COLLISION] CLEAR - resuming %s",
                 getStateName(state).c_str());
+            evade_offset_n_ = 0.0f;
+            evade_offset_e_ = 0.0f;
+
+            // hold 해제 시: HOVER_AT_TARGET인데 새 타겟이 있으면 NAVIGATE 전환
+            if (state == MissionState::HOVER_AT_TARGET) {
+                float dx = target_ned_x_ - current_local_x_.load();
+                float dy = target_ned_y_ - current_local_y_.load();
+                if (std::sqrt(dx * dx + dy * dy) > WAYPOINT_THRESHOLD * 2) {
+                    RCLCPP_INFO(node_->get_logger(),
+                        "[COLLISION] Post-clear: deferred target detected (%.1fm), NAVIGATE",
+                        std::sqrt(dx * dx + dy * dy));
+                    current_state_.store(MissionState::NAVIGATE);
+                    setpoint_counter_.store(MOVE_START + 1);
+                }
+            }
+        } else if (active && action == CollisionAction::EVADE_RIGHT) {
+            // EVADE 진행 중: 오프셋 업데이트 (heading 변화 반영)
+            evade_offset_n_ = collision_avoidance_->getEvadeOffsetN();
+            evade_offset_e_ = collision_avoidance_->getEvadeOffsetE();
         }
-        collision_hold_.store(should_hold);
-        was_collision_hold_ = should_hold;
+
+        collision_action_.store(static_cast<int>(action));
+        was_collision_active_ = active;
     }
 
     // TrajectorySetpoint 발행 (ARM 이후)
@@ -464,8 +501,10 @@ void OffboardManager::publishOffboardControlMode()
 
 void OffboardManager::publishTrajectorySetpoint()
 {
-    // ========== 충돌 방지 hold: 캡처된 위치에서 호버링 ==========
-    if (collision_hold_.load()) {
+    // ========== 충돌 방지: HOLD = 정지, EVADE = 오프셋 적용 ==========
+    int ca = collision_action_.load();
+    if (ca == static_cast<int>(CollisionAction::HOLD)) {
+        // HOLD: 캡처된 위치에서 호버링
         px4_msgs::msg::TrajectorySetpoint msg{};
         msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
         msg.position = {hold_x_, hold_y_, hold_z_};
@@ -473,11 +512,26 @@ void OffboardManager::publishTrajectorySetpoint()
         msg.yaw = hold_yaw_;
         msg.yawspeed = 0.0f;
         trajectory_setpoint_pub_->publish(msg);
-
-        // 피드포워드 속도 리셋 (재개 시 급가속 방지)
         prev_vx_ = 0.0f;
         prev_vy_ = 0.0f;
         return;
+    }
+    if (ca == static_cast<int>(CollisionAction::EVADE_RIGHT)) {
+        auto evade_state = current_state_.load();
+        if (evade_state != MissionState::NAVIGATE) {
+            // 비-NAVIGATE 상태: HOLD로 폴백 (TAKEOFF/HOVER/ROTATE 중 우회 불가)
+            px4_msgs::msg::TrajectorySetpoint msg{};
+            msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+            msg.position = {hold_x_, hold_y_, hold_z_};
+            msg.velocity = {NAN, NAN, NAN};
+            msg.yaw = hold_yaw_;
+            msg.yawspeed = 0.0f;
+            trajectory_setpoint_pub_->publish(msg);
+            prev_vx_ = 0.0f;
+            prev_vy_ = 0.0f;
+            return;
+        }
+        // NAVIGATE + EVADE: 아래 NAVIGATE 블록에서 오프셋 적용
     }
 
     auto state = current_state_.load();
@@ -551,8 +605,11 @@ void OffboardManager::publishTrajectorySetpoint()
         // "이 위치에 도달할 때 이 속도가 되어야 한다"를 인지하고 강력한 제동 수행
         float cur_x = current_local_x_.load();
         float cur_y = current_local_y_.load();
-        float dx = target_ned_x_ - cur_x;
-        float dy = target_ned_y_ - cur_y;
+        // EVADE 오프셋 적용된 유효 타겟으로 거리/방향 계산
+        float eff_tgt_x = target_ned_x_ + evade_offset_n_;
+        float eff_tgt_y = target_ned_y_ + evade_offset_e_;
+        float dx = eff_tgt_x - cur_x;
+        float dy = eff_tgt_y - cur_y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
         // 감속 프로파일: 거리 비례 속도 (목표에서 0)
@@ -605,7 +662,7 @@ void OffboardManager::publishTrajectorySetpoint()
         // Position + Velocity 전송
         px4_msgs::msg::TrajectorySetpoint msg{};
         msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-        msg.position = {target_ned_x_, target_ned_y_, target_ned_z_};  // updateMissionTarget에서 설정된 고도 사용
+        msg.position = {eff_tgt_x, eff_tgt_y, target_ned_z_};
         if (continuous_update_mode_.load()) {
             msg.velocity = {NAN, NAN, NAN};  // 연속 추적 모드: position only (FF 간섭 방지)
         } else {
@@ -783,8 +840,10 @@ void OffboardManager::abortMission()
 {
     RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission abort requested!");
     abort_requested_.store(true);
-    collision_hold_.store(false);
-    was_collision_hold_ = false;
+    collision_action_.store(0);
+    was_collision_active_ = false;
+    evade_offset_n_ = 0.0f;
+    evade_offset_e_ = 0.0f;
 }
 
 void OffboardManager::emergencyRTL()
@@ -810,13 +869,22 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
         return false;
     }
 
+    // 충돌 방지 상태 확인
+    bool collision_active = (collision_action_.load() != 0);
+
     // HOVER_AT_TARGET: 새 목표 수신 시 NAVIGATE 복귀 (리더/팔로워 모두)
     if (state == MissionState::HOVER_AT_TARGET) {
-        RCLCPP_INFO(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET → NAVIGATE (new target received%s)",
-                    continuous_update_mode_.load() ? ", continuous" : "");
-        current_state_.store(MissionState::NAVIGATE);
-        setpoint_counter_.store(MOVE_START + 1);
-        state = MissionState::NAVIGATE;
+        if (collision_active) {
+            // 충돌 중: 좌표만 저장, 상태 전환 보류 (해제 시 timerCallback에서 처리)
+            RCLCPP_WARN(node_->get_logger(),
+                "[UPDATE] HOVER_AT_TARGET new target, but collision active - deferring state change");
+        } else {
+            RCLCPP_INFO(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET → NAVIGATE (new target received%s)",
+                        continuous_update_mode_.load() ? ", continuous" : "");
+            current_state_.store(MissionState::NAVIGATE);
+            setpoint_counter_.store(MOVE_START + 1);
+            state = MissionState::NAVIGATE;
+        }
     }
 
     // 미션 설정 업데이트
@@ -888,25 +956,28 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
         state == MissionState::ARMING || state == MissionState::TAKEOFF) {
         // ARM/이륙 전: 목표 좌표만 저장, 상태 전환 안 함 (시퀀스 유지)
-        if (should_log) RCLCPP_INFO(node_->get_logger(), "  → Target saved, state unchanged (%s)", getStateName(state).c_str());
+        if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> Target saved, state unchanged (%s)", getStateName(state).c_str());
+    } else if (collision_active) {
+        // 충돌 중: 좌표만 저장, 상태 전환 금지 (해제 시 자동 처리)
+        if (should_log) RCLCPP_WARN(node_->get_logger(), "  -> Target saved, state change DEFERRED (collision active, state=%s)", getStateName(state).c_str());
     } else if (state == MissionState::NAVIGATE) {
         // NAVIGATE 중: 정지 없이 새 target으로 부드럽게 선회하면서 이동
-        if (should_log) RCLCPP_INFO(node_->get_logger(), "  → NAVIGATE state maintained (smooth turn)");
+        if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> NAVIGATE state maintained (smooth turn)");
     } else if (state == MissionState::ROTATE || state == MissionState::HOVER) {
         if (continuous_update_mode_.load()) {
             // 팔로워 연속 추적 모드: 좌표만 업데이트, 상태 전환 안 함 (카운터 진행 유지)
-            if (should_log) RCLCPP_INFO(node_->get_logger(), "  → Target updated, state unchanged (continuous)");
+            if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> Target updated, state unchanged (continuous)");
         } else {
             // ROTATE/HOVER 중: 새 목적지로 헤딩 정렬 재시작
             setpoint_counter_.store(ROTATE_START);
             current_state_.store(MissionState::ROTATE);
-            RCLCPP_INFO(node_->get_logger(), "  → ROTATE restart for new target (heading realign)");
+            RCLCPP_INFO(node_->get_logger(), "  -> ROTATE restart for new target (heading realign)");
         }
     } else {
         // 기타: NAVIGATE로 전환
         setpoint_counter_.store(MOVE_START + 1);
         current_state_.store(MissionState::NAVIGATE);
-        RCLCPP_INFO(node_->get_logger(), "  → State changed to NAVIGATE (immediate move)");
+        RCLCPP_INFO(node_->get_logger(), "  -> State changed to NAVIGATE (immediate move)");
     }
 
     return true;
@@ -918,8 +989,10 @@ void OffboardManager::resetToIdle()
     mission_running_.store(false);
     abort_requested_.store(false);
     setpoint_counter_.store(0);
-    collision_hold_.store(false);
-    was_collision_hold_ = false;
+    collision_action_.store(0);
+    was_collision_active_ = false;
+    evade_offset_n_ = 0.0f;
+    evade_offset_e_ = 0.0f;
 
     // Home 위치 리셋 (다음 미션에서 현재 위치 기준으로 재설정)
     home_set_ = false;

@@ -188,6 +188,25 @@ remove_service() {
     fi
 }
 
+# 함수: 디버그 모드 (터미널에서 직접 실행)
+debug_run() {
+    echo -e "${BLUE}[디버그] 터미널 디버그 모드 시작${NC}"
+
+    # systemd 서비스가 실행 중이면 중지
+    if sudo systemctl is-active --quiet "$SERVICE_NAME"; then
+        echo -e "${YELLOW}  systemd 서비스 실행 중 → 중지합니다...${NC}"
+        sudo systemctl stop "$SERVICE_NAME"
+        sleep 1
+        echo -e "${GREEN}  ✓ 서비스 중지 완료${NC}"
+    fi
+
+    echo -e "${GREEN}  ✓ 터미널에서 직접 실행합니다 (Ctrl+C로 종료)${NC}"
+    echo ""
+
+    # wrapper 스크립트로 실행 (올바른 환경변수 설정 포함)
+    exec bash "$PROJECT_ROOT/scripts/runtime/humiro_fire_suppression_wrapper.sh" "$@"
+}
+
 # 함수: 도움말
 show_help() {
     echo -e "${BLUE}Humiro Fire Suppression Service Control${NC}"
@@ -195,6 +214,7 @@ show_help() {
     echo "사용법: $0 [명령어]"
     echo ""
     echo "명령어:"
+    echo "  debug        - 서비스 중지 후 터미널에서 직접 실행 (디버그용)"
     echo "  install      - 서비스 파일 설치 (systemd에 등록)"
     echo "  enable       - 부팅 시 자동 시작 활성화"
     echo "  disable      - 부팅 시 자동 시작 비활성화"
@@ -208,6 +228,7 @@ show_help() {
     echo "  help         - 이 도움말 표시"
     echo ""
     echo "예제:"
+    echo "  $0 debug      # 터미널에서 직접 실행 (디버그)"
     echo "  $0 install    # 서비스 설치"
     echo "  $0 enable     # 부팅 시 자동 시작 활성화"
     echo "  $0 start      # 서비스 시작"
@@ -222,6 +243,10 @@ show_help() {
 
 # 메인 로직
 case "${1:-help}" in
+    debug)
+        shift
+        debug_run "$@"
+        ;;
     install)
         install_service
         ;;

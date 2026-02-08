@@ -10,8 +10,7 @@ source "$PROJECT_ROOT/setup_env.sh"
 export HOME=/home/khadas
 export ROS_DOMAIN_ID=0
 # ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
-# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
-# export ROS_NAMESPACE=drone2
+# PX4 SITL rcS에서 uxrce_dds_client -n droneN 으로 네임스페이스 설정됨
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 # ROS2 환경 로드

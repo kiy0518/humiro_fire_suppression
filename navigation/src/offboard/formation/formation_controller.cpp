@@ -695,8 +695,9 @@ void FormationController::followerStatusTimerCallback() {
     }
 
     // 미션 상태: 리더가 이해할 수 있는 상세 상태
-    if (offboard_mgr_->isCollisionHold()) {
-        msg.mission_state = "COLLISION_HOLD";  // 충돌 방지 정지 중
+    if (offboard_mgr_->isCollisionActive()) {
+        int ca = offboard_mgr_->getCollisionAction();
+        msg.mission_state = (ca == 2) ? "COLLISION_EVADE" : "COLLISION_HOLD";
     } else if (follower_phase_ == FollowerPhase::FOLLOWING) {
         if (offboard_mgr_->isMissionRunning()) {
             MissionState ms = offboard_mgr_->getCurrentState();
@@ -780,11 +781,39 @@ void FormationController::triggerSuppressPhase() {
     std::cout << "[FormationController] SUPPRESS phase 전환! target=("
               << mission_target_lat_ << ", " << mission_target_lon_ << ")" << std::endl;
 
-    // WiFi 유실 대비 3회 전송
-    for (int i = 0; i < 3; i++) {
-        sendCommand(0, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
-                    mission_target_lat_, mission_target_lon_);
-        std::this_thread::sleep_for(100ms);
+    // 팔로워별 순차 전송 (동시 경로 변경 → 교차 위험 방지)
+    std::vector<uint8_t> follower_ids;
+    {
+        std::lock_guard<std::mutex> lock(followers_mutex_);
+        for (auto& [id, info] : followers_) {
+            follower_ids.push_back(id);
+        }
+    }
+    // std::map은 key 순서 → follower_ids는 이미 ID 오름차순 (높은 우선순위 먼저)
+
+    if (follower_ids.empty()) {
+        // 팔로워 정보 없으면 브로드캐스트 (호환성)
+        for (int i = 0; i < 3; i++) {
+            sendCommand(0, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
+                        mission_target_lat_, mission_target_lon_);
+            std::this_thread::sleep_for(100ms);
+        }
+        return;
+    }
+
+    for (size_t idx = 0; idx < follower_ids.size(); idx++) {
+        uint8_t id = follower_ids[idx];
+        // WiFi 유실 대비 3회 전송
+        for (int i = 0; i < 3; i++) {
+            sendCommand(id, humiro_msgs::msg::FormationCommand::CMD_SUPPRESS,
+                        mission_target_lat_, mission_target_lon_);
+            std::this_thread::sleep_for(100ms);
+        }
+        std::cout << "[FormationController] SUPPRESS → drone" << (int)id << " 전송 완료" << std::endl;
+        // 다음 팔로워 전 500ms 대기 (순차 경로 변경으로 충돌 방지)
+        if (idx + 1 < follower_ids.size()) {
+            std::this_thread::sleep_for(500ms);
+        }
     }
 }
 

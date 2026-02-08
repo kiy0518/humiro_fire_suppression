@@ -17,22 +17,9 @@ fi
 # ROS2 환경 설정
 export HOME=/home/khadas
 export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
-
-# DDS 구현체 선택: FastRTPS는 배터리 메시지 payload size 문제가 있음 (184바이트 > 183바이트)
-# CycloneDX가 설치되어 있으면 사용, 없으면 FastRTPS 사용
-if command -v ros2 &> /dev/null && ros2 doctor --report 2>&1 | grep -q "cyclonedx"; then
-    export RMW_IMPLEMENTATION=rmw_cyclonedx_cpp
-    echo "  [DEBUG] DDS 구현체: CycloneDX 사용" >&2
-else
-    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-    # FastRTPS 설정: payload size 문제 해결 시도 (배터리 메시지 184바이트 > 기본 183바이트)
-    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastrtps_profile.xml"
-    # FastRTPS 환경 변수: payload size 제한 해제 시도
-    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastrtps_profile.xml"
-    # ROS2 환경 변수로 FastRTPS 로그 레벨 조정 (에러 무시)
-    export RCUTILS_LOGGING_SEVERITY=WARN  # ERROR 메시지 숨김
-    echo "  [DEBUG] DDS 구현체: FastRTPS 사용 (payload size 제한 있음, 에러 무시 모드)" >&2
-fi
+export ROS_NAMESPACE=${ROS_NAMESPACE:-drone1}
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_eth0_only.xml"
 
 # ROS2 환경 로드
 if [ -f "/opt/ros/humble/setup.bash" ]; then

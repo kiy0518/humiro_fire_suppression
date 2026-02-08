@@ -208,3 +208,77 @@ echo ""
 echo "실행 파일: $PROJECT_ROOT/application/build/humiro_fire_suppression"
 echo ""
 
+# =============================================
+# 빌드 후 환경 검증 (SITL 연결 문제 방지)
+# =============================================
+echo "[환경 검증] SITL 연결 필수 설정 확인..."
+VERIFY_FAIL=false
+
+# 1) ROS2 활성화 확인
+if strings "$PROJECT_ROOT/application/build/humiro_fire_suppression" | grep -q "OffboardManager initialized"; then
+    echo "  ✓ ROS2 활성화 확인 (OffboardManager 포함)"
+else
+    echo "  ✗ ROS2 비활성화! cmake .. -DENABLE_ROS2=ON 필요"
+    VERIFY_FAIL=true
+fi
+
+# 2) FastDDS 프로파일 확인 (.bashrc)
+CORRECT_PROFILE="fastdds_eth0_only.xml"
+WRONG_PROFILE="fastrtps_profile.xml"
+if [ -f "$HOME/.bashrc" ]; then
+    if grep -q "FASTRTPS_DEFAULT_PROFILES_FILE" "$HOME/.bashrc"; then
+        if grep "FASTRTPS_DEFAULT_PROFILES_FILE" "$HOME/.bashrc" | grep -q "$WRONG_PROFILE"; then
+            echo "  ✗ .bashrc에 잘못된 FastDDS 프로파일: $WRONG_PROFILE"
+            echo "    → 자동 수정: $CORRECT_PROFILE"
+            sed -i "s|$WRONG_PROFILE|$CORRECT_PROFILE|g" "$HOME/.bashrc"
+            echo "  ✓ .bashrc 수정 완료"
+        else
+            echo "  ✓ .bashrc FastDDS 프로파일 정상"
+        fi
+    fi
+fi
+
+# 3) wrapper 스크립트 FastDDS 프로파일 확인
+WRAPPER="$PROJECT_ROOT/scripts/runtime/humiro_fire_suppression_wrapper.sh"
+if [ -f "$WRAPPER" ]; then
+    if grep -q "$WRONG_PROFILE" "$WRAPPER"; then
+        echo "  ✗ wrapper.sh에 잘못된 FastDDS 프로파일: $WRONG_PROFILE"
+        echo "    → 자동 수정: $CORRECT_PROFILE"
+        sed -i "s|$WRONG_PROFILE|$CORRECT_PROFILE|g" "$WRAPPER"
+        echo "  ✓ wrapper.sh 수정 완료"
+    else
+        echo "  ✓ wrapper.sh FastDDS 프로파일 정상"
+    fi
+fi
+
+# 4) stale colcon install 디렉토리 정리
+if [ -d "$PROJECT_ROOT/install/offboard_control" ]; then
+    echo "  ✗ stale 디렉토리 발견: install/offboard_control"
+    echo "    → 자동 삭제"
+    rm -rf "$PROJECT_ROOT/install/offboard_control"
+    echo "  ✓ 삭제 완료"
+else
+    echo "  ✓ stale colcon 디렉토리 없음"
+fi
+
+# 5) systemd 서비스 FastDDS 프로파일 확인
+SERVICE_FILE="/etc/systemd/system/humiro-fire-suppression.service"
+if [ -f "$SERVICE_FILE" ]; then
+    if grep -q "$WRONG_PROFILE" "$SERVICE_FILE"; then
+        echo "  ✗ systemd 서비스에 잘못된 FastDDS 프로파일!"
+        echo "    → 수동 수정 필요: sudo vi $SERVICE_FILE"
+        VERIFY_FAIL=true
+    else
+        echo "  ✓ systemd 서비스 FastDDS 프로파일 정상"
+    fi
+fi
+
+if [ "$VERIFY_FAIL" = true ]; then
+    echo ""
+    echo "  ⚠ 일부 검증 실패 - 위 항목을 확인하세요"
+else
+    echo ""
+    echo "  ✓ 모든 환경 검증 통과 - SITL 연결 준비 완료"
+fi
+echo ""
+

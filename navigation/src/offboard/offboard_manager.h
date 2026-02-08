@@ -132,9 +132,14 @@ public:
         return std::sqrt(vx * vx + vy * vy);
     }
 
+    // ========== 타겟 위치 Getter ==========
+    float getTargetNedX() const { return target_ned_x_; }
+    float getTargetNedY() const { return target_ned_y_; }
+
     // ========== 충돌 방지 ==========
     void setCollisionAvoidance(class CollisionAvoidance* ca) { collision_avoidance_ = ca; }
-    bool isCollisionHold() const { return collision_hold_.load(); }
+    bool isCollisionActive() const { return collision_action_.load() != 0; }
+    int getCollisionAction() const { return collision_action_.load(); }
 
 private:
     // ========== 타이머 콜백 (핵심!) ==========
@@ -248,9 +253,10 @@ private:
 
     // ========== 충돌 방지 ==========
     class CollisionAvoidance* collision_avoidance_{nullptr};
-    std::atomic<bool> collision_hold_{false};
-    bool was_collision_hold_{false};
+    std::atomic<int> collision_action_{0};  // 0=NONE, 1=HOLD, 2=EVADE_RIGHT
+    bool was_collision_active_{false};
     float hold_x_{0.0f}, hold_y_{0.0f}, hold_z_{0.0f}, hold_yaw_{0.0f};
+    float evade_offset_n_{0.0f}, evade_offset_e_{0.0f};  // 우회 오프셋 (NED)
 
 };
 
