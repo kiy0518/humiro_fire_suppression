@@ -11,6 +11,12 @@
 
 class OffboardManager;
 
+enum class CollisionAction : int {
+    NONE = 0,
+    HOLD = 1,          // 높은 우선순위 (낮은 ID) → 제자리 정지
+    EVADE_RIGHT = 2    // 낮은 우선순위 (높은 ID) → 경로 오른쪽 회피
+};
+
 struct DroneState {
     uint8_t drone_id{0};
     double latitude{0.0};
@@ -32,11 +38,15 @@ public:
     void start();
     void stop();
 
-    // timerCallback()에서 10Hz로 호출. true면 hold 필요
-    bool checkAndUpdate();
+    // timerCallback()에서 10Hz로 호출. CollisionAction 반환
+    CollisionAction checkAndUpdate();
 
     bool isCollisionHold() const { return collision_hold_.load(); }
     uint8_t getThreatId() const { return current_threat_id_.load(); }
+
+    // EVADE_RIGHT 회피 오프셋 (NED, 경로 직각 오른쪽 5m)
+    float getEvadeOffsetN() const { return evade_offset_n_.load(); }
+    float getEvadeOffsetE() const { return evade_offset_e_.load(); }
 
 private:
     // 5Hz 위치 브로드캐스트
@@ -55,9 +65,12 @@ private:
     // 내가 상대를 향해 접근 중인지 (속도 벡터 투영)
     bool isIApproachingOther(const DroneState& me, const DroneState& other) const;
 
-    // 내가 정지해야 하는지 (4규칙 우선순위 판정)
-    bool shouldIStop(uint8_t my_id, uint8_t other_id,
-                     bool i_am_approaching, bool other_is_approaching) const;
+    // 우선순위 판정: 낮은 ID = 높은 우선순위
+    CollisionAction determineAction(uint8_t my_id, uint8_t other_id,
+                                     bool i_am_approaching, bool other_is_approaching) const;
+
+    // EVADE 오프셋 계산 (현재 heading 기준 오른쪽 5m)
+    void computeEvadeOffset();
 
     // ROS2
     rclcpp::Node::SharedPtr node_;
@@ -77,13 +90,16 @@ private:
     // 충돌 상태
     std::atomic<bool> collision_hold_{false};
     std::atomic<uint8_t> current_threat_id_{0};
+    std::atomic<float> evade_offset_n_{0.0f};
+    std::atomic<float> evade_offset_e_{0.0f};
 
     // 상수
     static constexpr float WARNING_DISTANCE = 8.0f;     // 경고 (m)
-    static constexpr float DANGER_DISTANCE = 5.0f;      // 위험 → 정지 (m)
+    static constexpr float DANGER_DISTANCE = 5.0f;      // 위험 → 행동 (m)
     static constexpr float SAFE_DISTANCE = 10.0f;       // 안전 → 재개 (m)
     static constexpr float ALTITUDE_CLEARANCE = 5.0f;   // 고도 차이 이상이면 안전 (m)
     static constexpr float APPROACH_SPEED_THRESHOLD = 0.1f;  // 접근 판정 임계 (m/s)
+    static constexpr float EVADE_OFFSET_M = 5.0f;       // 회피 오프셋 (m)
     static constexpr int STALE_TIMEOUT_MS = 2000;        // 데이터 유효 시간 (ms)
     static constexpr double DEG_TO_M_LAT = 111320.0;
 };

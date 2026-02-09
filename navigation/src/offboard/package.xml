@@ -11,6 +11,7 @@
 
   <depend>rclcpp</depend>
   <depend>px4_msgs</depend>
+  <depend>humiro_msgs</depend>
 
   <export>
     <build_type>ament_cmake</build_type>

@@ -17,12 +17,14 @@ endif()
 # ROS2 packages
 find_package(rclcpp REQUIRED)
 find_package(px4_msgs REQUIRED)
+find_package(humiro_msgs REQUIRED)
 
 # Include directories
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${rclcpp_INCLUDE_DIRS}
   ${px4_msgs_INCLUDE_DIRS}
+  ${humiro_msgs_INCLUDE_DIRS}
 )
 
 # ========== OffboardManager library (단순화된 버전) ==========
@@ -33,6 +35,7 @@ add_library(offboard_manager STATIC
 target_link_libraries(offboard_manager
   ${rclcpp_LIBRARIES}
   ${px4_msgs_LIBRARIES}
+  ${humiro_msgs_LIBRARIES}
 )
 
 # Install

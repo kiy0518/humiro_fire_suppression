@@ -242,21 +242,27 @@ void FormationController::leaderStatusTimerCallback() {
             }
         }
 
-        // CMD_FOLLOW 3회 전송 (WiFi 유실 대비, 고도/속도 포함)
-        for (int i = 0; i < 3; i++) {
-            auto cmd_msg = humiro_msgs::msg::FormationCommand();
-            cmd_msg.header.stamp = node_->now();
-            cmd_msg.target_drone_id = 0;
-            cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_FOLLOW;
-            cmd_msg.target_latitude = mission_target_lat_;   // 미션 목적지 (팔로워 미러링 판정용)
-            cmd_msg.target_longitude = mission_target_lon_;
-            cmd_msg.takeoff_altitude = mission_takeoff_altitude_;
-            cmd_msg.flight_speed = mission_flight_speed_;
-            command_pub_->publish(cmd_msg);
-            if (i < 2) std::this_thread::sleep_for(100ms);
-        }
-        std::cout << "[Formation] CMD_FOLLOW 전송 완료 (alt=" << mission_takeoff_altitude_
-                  << "m, speed=" << mission_flight_speed_ << "m/s)" << std::endl;
+        // CMD_FOLLOW 3회 전송 (별도 스레드 — 타이머 콜백 블로킹 방지)
+        auto target_lat = mission_target_lat_;
+        auto target_lon = mission_target_lon_;
+        auto takeoff_alt = mission_takeoff_altitude_;
+        auto flight_spd = mission_flight_speed_;
+        std::thread([this, target_lat, target_lon, takeoff_alt, flight_spd]() {
+            for (int i = 0; i < 3; i++) {
+                auto cmd_msg = humiro_msgs::msg::FormationCommand();
+                cmd_msg.header.stamp = node_->now();
+                cmd_msg.target_drone_id = 0;
+                cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_FOLLOW;
+                cmd_msg.target_latitude = target_lat;
+                cmd_msg.target_longitude = target_lon;
+                cmd_msg.takeoff_altitude = takeoff_alt;
+                cmd_msg.flight_speed = flight_spd;
+                command_pub_->publish(cmd_msg);
+                if (i < 2) std::this_thread::sleep_for(100ms);
+            }
+            std::cout << "[Formation] CMD_FOLLOW 전송 완료 (alt=" << takeoff_alt
+                      << "m, speed=" << flight_spd << "m/s)" << std::endl;
+        }).detach();
     }
 
     // === 편대 동기화 체크 (1Hz) ===
@@ -308,9 +314,10 @@ void FormationController::leaderStatusTimerCallback() {
         }
     }
 
-    // HOVER_AT_TARGET 도달 시 → SUPPRESS 자동 전환
+    // HOVER_AT_TARGET 도달 시 → SUPPRESS 자동 전환 (별도 스레드로 실행하여 타이머 블로킹 방지)
     if (current == MissionState::HOVER_AT_TARGET && formation_phase_ != "SUPPRESS") {
-        triggerSuppressPhase();
+        formation_phase_ = "SUPPRESS";  // 즉시 상태 전환 (중복 호출 방지)
+        std::thread([this]() { triggerSuppressPhase(); }).detach();
     }
 
     // RTL 상태 시 → 팔로워들에게 RTL 명령
@@ -777,7 +784,7 @@ void FormationController::setSuppressParams(int16_t distance_m, int16_t angle_de
 // ============================================================================
 
 void FormationController::triggerSuppressPhase() {
-    formation_phase_ = "SUPPRESS";
+    // formation_phase_는 호출 전에 이미 "SUPPRESS"로 설정됨
     std::cout << "[FormationController] SUPPRESS phase 전환! target=("
               << mission_target_lat_ << ", " << mission_target_lon_ << ")" << std::endl;
 

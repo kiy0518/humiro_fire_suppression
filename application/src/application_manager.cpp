@@ -177,6 +177,7 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
                 drone_id = std::stoi(drone_id_env);
             } catch (...) {}
         }
+        drone_id_ = static_cast<uint8_t>(drone_id);  // 조기 설정 (Formation, CollisionAvoidance에서 사용)
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
         ros2_node_ = rclcpp::Node::make_shared(node_name);
@@ -555,6 +556,7 @@ void ApplicationManager::initializeCustomMessage() {
         );
 
         // FIRE_RETURN (60003) 콜백 설정 - 복귀 명령
+        // 60003은 모든 기체가 무조건 RTL (target_system 무시)
         custom_message_handler_->setFireReturnCallback(
             [this](const custom_message::FireReturn& ret) {
                 auto now = std::chrono::system_clock::now();
@@ -565,36 +567,27 @@ void ApplicationManager::initializeCustomMessage() {
                 std::cout << "\n[DEBUG] ========== FIRE_RETURN (60003) 수신 ==========" << std::endl;
                 std::cout << "[DEBUG] 시간: " << std::put_time(std::localtime(&time_t), "%Y-%m-%d %H:%M:%S")
                           << "." << std::setfill('0') << std::setw(3) << ms.count() << std::endl;
-                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(ret.target_system) << std::endl;
-                std::cout << "[DEBUG]   - target_component: " << static_cast<int>(ret.target_component) << std::endl;
+                std::cout << "[DEBUG]   - target_system: " << static_cast<int>(ret.target_system)
+                          << " (무시 - 모든 기체 RTL)" << std::endl;
                 std::cout << "[DEBUG] ==============================================" << std::endl;
 
-                // target_system 검증
-                if (!isTargetedToMe(ret.target_system)) {
-                    std::cout << "[INFO] 복귀 명령 무시 (target=" << (int)ret.target_system
-                              << ", my_id=" << (int)drone_id_ << ")" << std::endl;
-                    return;
-                }
-
                 if (status_overlay_) {
-                    status_overlay_->setCustomMessage("Return Command Received - Landing!", 3.0);
+                    status_overlay_->setCustomMessage("RTL - All Drones Returning!", 3.0);
                 }
 
-                // 즉시 미션 중단 및 착륙 실행
+                // 모든 기체 즉시 RTL 실행
 #ifdef ENABLE_ROS2
                 if (offboard_manager_) {
-                    std::cout << "[FIRE_RETURN] ★ 즉시 미션 중단 및 착륙 명령" << std::endl;
-
-                    // abortMission()은 즉시 중단 플래그를 설정하고 LAND 명령 전송
-                    // 현재 실행 중인 모든 루프(거리 제어 등)가 즉시 종료됨
+                    std::cout << "[FIRE_RETURN] ★ 60003 수신 → 무조건 RTL (drone_id="
+                              << (int)drone_id_ << ")" << std::endl;
                     offboard_manager_->abortMission();
-                    std::cout << "[FIRE_RETURN] ✓ abortMission() 호출 완료" << std::endl;
+                    std::cout << "[FIRE_RETURN] ✓ abortMission() → RTL 전환 완료" << std::endl;
                     finishMission(false);
                 } else {
                     std::cerr << "[FIRE_RETURN] Error: OffboardManager 미초기화" << std::endl;
                 }
 #else
-                std::cerr << "[FIRE_RETURN] ROS2가 비활성화되어 착륙 불가" << std::endl;
+                std::cerr << "[FIRE_RETURN] ROS2가 비활성화되어 RTL 불가" << std::endl;
 #endif
             }
         );

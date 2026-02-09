@@ -289,15 +289,16 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     mkdir -p /etc/mavlink-router
 
     # DRONE_ID 기반 포트 계산 (10씩 증가)
-    # 드론 1: 14550, 14551, 16001, 15001, 5790
-    # 드론 2: 14560, 14561, 16011, 15011, 5800
-    # 드론 3: 14570, 14571, 16021, 15021, 5810
+    # 드론 1: 14550, 14551, 16001, 15001, 5790, SITL:18001
+    # 드론 2: 14560, 14561, 16011, 15011, 5800, SITL:18002
+    # 드론 3: 14570, 14571, 16021, 15021, 5810, SITL:18003
     PORT_OFFSET=$(( ($DRONE_ID - 1) * 10 ))
     QGC_PORT=$(( 14550 + $PORT_OFFSET ))
     ROS2_PORT=$(( 14551 + $PORT_OFFSET ))
     EXTERNAL_PORT_CALC=$(( 16001 + $PORT_OFFSET ))
     APP_PORT=$(( 15001 + $PORT_OFFSET ))
     TCP_PORT=$(( 5790 + $PORT_OFFSET ))
+    SITL_PORT=$(( 18000 + $DRONE_ID ))
 
     # device_config.env의 EXTERNAL_UDP_PORT 사용 (있으면 우선, 없으면 계산값)
     EXTERNAL_PORT_FINAL=${EXTERNAL_UDP_PORT:-$EXTERNAL_PORT_CALC}
@@ -308,20 +309,29 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     echo "    - ROS2: $ROS2_PORT"
     echo "    - External: $EXTERNAL_PORT_FINAL"
     echo "    - App: $APP_PORT"
+    echo "    - SITL: $SITL_PORT"
 
     tee /etc/mavlink-router/main.conf > /dev/null << EOF
 # Drone #$DRONE_ID mavlink-router 설정 (자동 생성)
+# 생성: $(date)
 
 [General]
 TcpServerPort = $TCP_PORT
 ReportStats = false
 MavlinkDialect = common
 
-# FC (PX4) 연결 - 브로드캐스트 수신
+# FC (PX4) 연결 - 이더넷 (10.0.0.x)
 [UdpEndpoint FC]
 Mode = Server
 Address = 0.0.0.0
 Port = $FC_MAVLINK_PORT
+
+# SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
+# 시뮬레이션 PC에서: mavlink start -u $FC_MAVLINK_PORT -o $SITL_PORT -t $WIFI_IP
+[UdpEndpoint SITL]
+Mode = Server
+Address = 0.0.0.0
+Port = $SITL_PORT
 
 # GCS (QGroundControl) 브로드캐스트 - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint GCS]

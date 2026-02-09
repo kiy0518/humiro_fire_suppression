@@ -521,25 +521,26 @@ private:
                             continue;
                         }
 
-                        // 메시지를 큐에 넣어서 별도 스레드에서 처리 (메시지 손실 방지)
-                        {
-                            std::lock_guard<std::mutex> lock(message_queue_mutex_);
-                            const size_t MAX_QUEUE_SIZE = 5000;  // 1000 → 5000으로 증가 (메시지 손실 방지)
-                            if (message_queue_.size() >= MAX_QUEUE_SIZE) {
-                                // 오래된 메시지 드롭 (front drop) - 새 메시지 우선
-                                message_queue_.pop();
-                                {
-                                    std::lock_guard<std::mutex> stats_lock(stats_mutex_);
-                                    stats_.queue_drop_count++;
-                                    if (stats_.queue_drop_count % 100 == 1) {
-                                        std::cerr << "[CustomMessage] 큐 오버플로우: 오래된 메시지 드롭 (총 "
-                                                  << stats_.queue_drop_count << "건)" << std::endl;
-                                    }
-                                }
+                        // ★ 수신 필터 + 즉시 처리 (큐 미사용)
+                        // mavlink-router가 모든 MAVLink 트래픽을 전달하므로,
+                        // 커스텀 메시지(60000~60003)와 COMMAND_LONG(76)만 즉시 파싱
+                        if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
+                            uint32_t msg_id_filter = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) |
+                                                     (static_cast<uint32_t>(buffer[9]) << 16);
+                            bool is_relevant = (msg_id_filter == 76) ||  // COMMAND_LONG
+                                               (msg_id_filter >= 60000 && msg_id_filter <= 60003);  // 커스텀 메시지
+                            if (!is_relevant) {
+                                continue;  // heartbeat, position 등 불필요한 MAVLink 즉시 버림
                             }
-                            std::vector<uint8_t> msg(buffer, buffer + received);
-                            message_queue_.push(std::move(msg));
-                            message_queue_cv_.notify_one();
+                        }
+
+                        // 즉시 파싱 및 콜백 호출 (큐 지연 없이 바로 처리)
+                        try {
+                            parseMAVLinkMessage(buffer, static_cast<size_t>(received));
+                        } catch (const std::exception& e) {
+                            std::cerr << "[CustomMessage] 파싱 예외: " << e.what() << std::endl;
+                        } catch (...) {
+                            std::cerr << "[CustomMessage] 알 수 없는 파싱 예외" << std::endl;
                         }
                     }
                 }
@@ -671,11 +672,13 @@ private:
             return;
         }
 
-        // 중복 메시지 방지: 커스텀 메시지(60001~60003)에 대해 sysid별 seq 추적
+        // 중복 메시지 방지: 커스텀 메시지(60001~60002)에 대해 sysid별 seq 추적
         // 60000(미션 시작)은 중복 허용 - 비행 중 목표 좌표 변경 가능
+        // 60003(복귀)은 중복 허용 - 긴급 RTL은 항상 수신해야 함
         bool is_custom_message = (msg_id >= 60000 && msg_id <= 60003);
         bool is_mission_start = (msg_id == 60000);
-        if (is_custom_message && !is_mission_start) {
+        bool is_return = (msg_id == 60003);
+        if (is_custom_message && !is_mission_start && !is_return) {
             uint8_t sysid = header->sysid;
             uint8_t seq = header->seq;
             auto it = last_seq_by_sysid_.find(sysid);

@@ -9,9 +9,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# 환경 변수 로드
+# 환경 변수 로드 (set -a로 자동 export → C++ std::getenv()에서 접근 가능)
 if [ -f "$PROJECT_ROOT/config/device_config.env" ]; then
+    set -a
     source "$PROJECT_ROOT/config/device_config.env"
+    set +a
 fi
 
 # ROS2 환경 설정
