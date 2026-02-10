@@ -6,7 +6,7 @@
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-1-circle"></i> Step 1: 기체 선택
+                <i class="bi bi-1-circle"></i> Step 1: 기체 선택 (프리셋)
             </div>
             <div class="card-body">
                 <div class="row g-4 justify-content-center">
@@ -44,22 +44,104 @@
     <div class="col-md-8">
         <div class="card">
             <div class="card-header">
-                <i class="bi bi-2-circle"></i> Step 2: 설정 확인
+                <i class="bi bi-2-circle"></i> Step 2: 설정 확인 및 수정
             </div>
             <div class="card-body">
                 <div id="presetPreview" class="text-muted text-center py-4">
-                    기체를 선택하면 설정이 표시됩니다.
+                    기체를 선택하면 프리셋이 아래 폼에 채워집니다.
                 </div>
+
+                <!-- 세부 설정 폼 -->
+                <form id="configForm">
+                    <h6 class="section-title mt-3"><i class="bi bi-hdd-network"></i> 네트워크 설정</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">드론 ID</label>
+                            <select class="form-select" id="DRONE_ID">
+                                <option value="1">1 (Leader)</option>
+                                <option value="2">2 (Follower)</option>
+                                <option value="3">3 (Follower)</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">ETH0 IP</label>
+                            <input type="text" class="form-control" id="ETH0_IP" placeholder="10.0.0.x">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">FC IP</label>
+                            <input type="text" class="form-control" id="FC_IP" placeholder="10.0.0.x">
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">WiFi IP</label>
+                            <input type="text" class="form-control" id="WIFI_IP" placeholder="192.168.100.x">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">FC MAVLink 포트</label>
+                            <input type="number" class="form-control" id="FC_MAVLINK_PORT" placeholder="14540">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">XRCE-DDS 포트</label>
+                            <input type="number" class="form-control" id="XRCE_DDS_PORT" placeholder="8888">
+                        </div>
+                    </div>
+
+                    <h6 class="section-title"><i class="bi bi-diagram-3"></i> ROS2 설정</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">ROS Namespace</label>
+                            <input type="text" class="form-control" id="ROS_NAMESPACE" placeholder="drone1">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">ROS Domain ID</label>
+                            <input type="number" class="form-control" id="ROS_DOMAIN_ID" placeholder="0">
+                        </div>
+                    </div>
+
+                    <h6 class="section-title"><i class="bi bi-send"></i> MAVLink 설정</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">MAV System ID</label>
+                            <input type="number" class="form-control" id="MAV_SYS_ID" placeholder="1">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">MAV Component ID</label>
+                            <input type="number" class="form-control" id="MAV_COMP_ID" placeholder="191">
+                        </div>
+                    </div>
+
+                    <h6 class="section-title"><i class="bi bi-camera-video"></i> 스트리밍 설정</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">RTSP 포트</label>
+                            <input type="number" class="form-control" id="RTSP_PORT" placeholder="8554">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">스트림 이름</label>
+                            <input type="text" class="form-control" id="STREAM_NAME" placeholder="thermal">
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between mt-3">
+                        <button type="button" class="btn btn-outline-secondary" onclick="loadConfig()">
+                            <i class="bi bi-arrow-clockwise"></i> 현재 설정 다시 로드
+                        </button>
+                        <button type="submit" class="btn btn-success">
+                            <i class="bi bi-save"></i> 설정 파일만 저장
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
 
         <div class="card mt-4">
             <div class="card-header">
-                <i class="bi bi-3-circle"></i> Step 3: 적용
+                <i class="bi bi-3-circle"></i> Step 3: 전체 적용 (재부팅)
             </div>
             <div class="card-body">
-                <button class="btn btn-primary btn-lg w-100" id="applyBtn" disabled onclick="applyPreset()">
-                    <i class="bi bi-check-circle"></i> 설정 적용
+                <button class="btn btn-primary btn-lg w-100" id="applyBtn" onclick="applyPreset()">
+                    <i class="bi bi-check-circle"></i> 설정 적용 + 재부팅
                 </button>
 
                 <div class="alert alert-warning mt-3 mb-0">
@@ -135,9 +217,9 @@
                 <p><strong>Leader (1번):</strong> 스웜 비행 시 기준점 역할</p>
                 <p><strong>Follower (2, 3번):</strong> Leader를 따라 편대 비행</p>
                 <hr>
-                <p class="mb-0 text-muted">
-                    설정 적용 시 <code>device_config.env</code> 파일이 업데이트됩니다.
-                </p>
+                <p class="mb-1"><strong>프리셋 적용:</strong> 기체를 선택하면 폼이 자동으로 채워집니다.</p>
+                <p class="mb-1"><strong>설정 파일만 저장:</strong> <code>device_config.env</code>만 업데이트 (재부팅 없음)</p>
+                <p class="mb-0"><strong>설정 적용 + 재부팅:</strong> 설정 저장 후 FC, VIM4 순차 재부팅</p>
             </div>
         </div>
     </div>
@@ -164,6 +246,30 @@
 <script>
     let selectedVehicle = null;
 
+    // 설정 필드 목록
+    const configFields = [
+        'DRONE_ID', 'ETH0_IP', 'FC_IP', 'WIFI_IP',
+        'FC_MAVLINK_PORT', 'XRCE_DDS_PORT',
+        'ROS_NAMESPACE', 'ROS_DOMAIN_ID',
+        'MAV_SYS_ID', 'MAV_COMP_ID',
+        'RTSP_PORT', 'STREAM_NAME'
+    ];
+
+    // 현재 설정 로드 (device_config.env)
+    function loadConfig() {
+        fetch('/api/config')
+            .then(r => r.json())
+            .then(config => {
+                configFields.forEach(field => {
+                    const el = document.getElementById(field);
+                    if (el && config[field] !== undefined) {
+                        el.value = config[field];
+                    }
+                });
+            });
+    }
+
+    // 기체 프리셋 선택
     function selectVehicle(id) {
         selectedVehicle = id;
 
@@ -172,80 +278,116 @@
         });
         document.querySelector(`.vehicle-card[data-id="${id}"]`).classList.add('selected');
 
-        document.getElementById('applyBtn').disabled = false;
-
-        // 프리셋 로드
+        // 프리셋 로드 → 폼에 채우기
         fetch(`/api/vehicle-preset/${id}`)
             .then(r => r.json())
             .then(preset => {
+                // 프리셋 미리보기 표시
                 document.getElementById('presetPreview').innerHTML = `
-                    <table class="table table-bordered mb-0">
-                        <tbody>
-                            ${Object.entries(preset).map(([key, value]) => `
-                                <tr>
-                                    <td class="fw-bold" style="width: 40%">${key}</td>
-                                    <td><code>${value}</code></td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                    <div class="alert alert-info py-2 mb-0">
+                        <i class="bi bi-check-circle"></i> <strong>${id}번 기체</strong> 프리셋이 아래 폼에 적용되었습니다. 필요시 수정 후 저장하세요.
+                    </div>
                 `;
+
+                // 폼 필드에 프리셋 값 채우기
+                Object.entries(preset).forEach(([key, value]) => {
+                    const el = document.getElementById(key);
+                    if (el) {
+                        el.value = value;
+                    }
+                });
             });
     }
 
-    function applyPreset() {
-        if (!selectedVehicle) return;
+    // 설정 파일만 저장 (재부팅 없음)
+    document.getElementById('configForm').addEventListener('submit', function(e) {
+        e.preventDefault();
 
-        if (!confirm(`${selectedVehicle}번 기체 설정을 적용하시겠습니까?\n\n⚠️ FC가 먼저 재부팅되고 10초 후 VIM4가 재부팅됩니다!`)) return;
+        const data = {};
+        configFields.forEach(field => {
+            const el = document.getElementById(field);
+            if (el) {
+                data[field] = el.value;
+            }
+        });
+
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(result => {
+            showToast(result.message, result.success ? 'success' : 'danger');
+        });
+    });
+
+    // 설정 적용 + 재부팅
+    function applyPreset() {
+        if (!confirm('현재 폼의 설정을 적용하고 재부팅하시겠습니까?\n\nFC가 먼저 재부팅되고 10초 후 VIM4가 재부팅됩니다.')) return;
 
         const applyBtn = document.getElementById('applyBtn');
         applyBtn.disabled = true;
         applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 적용 중...';
 
-        // Step 1: device_config.env 업데이트
-        fetch(`/api/vehicle-preset/${selectedVehicle}`, { method: 'POST' })
-            .then(r => r.json())
-            .then(result => {
-                if (!result.success) {
-                    throw new Error(result.message);
-                }
+        // Step 1: 폼 데이터로 device_config.env 저장
+        const data = {};
+        configFields.forEach(field => {
+            const el = document.getElementById(field);
+            if (el) {
+                data[field] = el.value;
+            }
+        });
 
-                showToast('설정 파일 업데이트 완료', 'success');
+        fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(r => r.json())
+        .then(result => {
+            if (!result.success) {
+                throw new Error(result.message);
+            }
 
-                // Step 2: 003 스크립트 실행 (FC 재부팅 + VIM4 재부팅)
-                showToast('전체 설정 적용 중... (003-apply_config.sh)', 'info');
+            showToast('설정 파일 업데이트 완료', 'success');
 
-                return fetch('/api/apply-config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ auto_reboot: true })
-                }).then(r => r.json());
-            })
-            .then(result => {
-                if (result.success) {
-                    showToast('FC 재부팅 후 VIM4가 재부팅됩니다. 잠시 후 페이지 연결이 끊어집니다.', 'warning');
-                    // 재부팅 대기 안내
-                    setTimeout(() => {
-                        document.body.innerHTML = `
-                            <div class="d-flex justify-content-center align-items-center vh-100">
-                                <div class="text-center">
-                                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;"></div>
-                                    <h4>시스템 재부팅 중...</h4>
-                                    <p class="text-muted">FC 재부팅 → VIM4 재부팅</p>
-                                    <p>재부팅 완료 후 페이지를 새로고침하세요.</p>
-                                </div>
+            // Step 2: 003 스크립트 실행 (FC 재부팅 + VIM4 재부팅)
+            showToast('전체 설정 적용 중... (003-apply_config.sh)', 'info');
+
+            return fetch('/api/apply-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auto_reboot: true })
+            }).then(r => r.json());
+        })
+        .then(result => {
+            if (result.success) {
+                showToast('FC 재부팅 후 VIM4가 재부팅됩니다. 잠시 후 페이지 연결이 끊어집니다.', 'warning');
+                setTimeout(() => {
+                    document.body.innerHTML = `
+                        <div class="d-flex justify-content-center align-items-center vh-100">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;"></div>
+                                <h4>시스템 재부팅 중...</h4>
+                                <p class="text-muted">FC 재부팅 → VIM4 재부팅</p>
+                                <p>재부팅 완료 후 페이지를 새로고침하세요.</p>
                             </div>
-                        `;
-                    }, 3000);
-                } else {
-                    throw new Error(result.message);
-                }
-            })
-            .catch(err => {
-                showToast('설정 적용 실패: ' + err.message, 'danger');
-                applyBtn.disabled = false;
-                applyBtn.innerHTML = '<i class="bi bi-check-circle"></i> 설정 적용';
-            });
+                        </div>
+                    `;
+                }, 3000);
+            } else {
+                throw new Error(result.message);
+            }
+        })
+        .catch(err => {
+            showToast('설정 적용 실패: ' + err.message, 'danger');
+            applyBtn.disabled = false;
+            applyBtn.innerHTML = '<i class="bi bi-check-circle"></i> 설정 적용 + 재부팅';
+        });
     }
+
+    // 페이지 로드 시 현재 설정 불러오기
+    document.addEventListener('DOMContentLoaded', loadConfig);
 </script>
 {% endblock %}

@@ -218,7 +218,8 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-    <!-- 네비게이션 -->
+    <!-- 네비게이션 + SITL 배너 (스크롤 시 상단 고정) -->
+    <div id="stickyHeader" style="position: sticky; top: 0; z-index: 1030;">
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container-fluid">
             <a class="navbar-brand" href="/">
@@ -244,11 +245,6 @@
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link {% if active_tab == 'config' %}active{% endif %}" href="/config">
-                            <i class="bi bi-gear"></i> 설정
-                        </a>
-                    </li>
-                    <li class="nav-item">
                         <a class="nav-link {% if active_tab == 'flight-mode' %}active{% endif %}" href="/flight-mode">
                             <i class="bi bi-airplane"></i> 비행 모드
                         </a>
@@ -266,11 +262,6 @@
                     <li class="nav-item">
                         <a class="nav-link {% if active_tab == 'checklist' %}active{% endif %}" href="/checklist">
                             <i class="bi bi-check2-square"></i> 체크리스트
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if active_tab == 'params' %}active{% endif %}" href="/params">
-                            <i class="bi bi-sliders"></i> 파라미터
                         </a>
                     </li>
                     <li class="nav-item">
@@ -339,6 +330,7 @@
             </div>
         </div>
     </div>
+    </div><!-- /stickyHeader -->
 
     <!-- 메인 컨텐츠 -->
     <main class="container-fluid py-4">

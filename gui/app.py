@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context, redirect
 
 # 프로젝트 경로 설정
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -197,8 +197,8 @@ def index():
 
 @app.route('/config')
 def config_page():
-    """설정 페이지"""
-    return render_template('config.html', active_tab='config')
+    """설정 페이지 → 기체 설정으로 리다이렉트"""
+    return redirect('/vehicle-setup')
 
 
 @app.route('/flight-mode')
@@ -215,8 +215,8 @@ def vehicle_setup_page():
 
 @app.route('/params')
 def params_page():
-    """FC 파라미터 관리 페이지"""
-    return render_template('params.html', active_tab='params')
+    """FC 파라미터 관리 → 체크리스트로 리다이렉트"""
+    return redirect('/checklist')
 
 
 @app.route('/checklist')

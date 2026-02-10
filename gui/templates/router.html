@@ -592,6 +592,379 @@
         </div>
     </div>
 </div>
+
+<!-- SITL 시뮬레이션 가이드 (SITL 모드에서만 표시) -->
+<div class="row mt-4" id="sitlGuideSection" style="display: none;">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-pc-display"></i> SITL 시뮬레이션 가이드 (Ubuntu PC 연동)
+            </div>
+            <div class="card-body">
+
+                <!-- 시스템 구성도 -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-diagram-3"></i> 전체 시스템 구성도</h6>
+                <div class="mb-4" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); border-radius: 10px; padding: 20px; overflow-x: auto;">
+                    <svg viewBox="0 0 900 520" style="width: 100%; max-width: 900px; margin: 0 auto; display: block;">
+                        <!-- 배경 영역: SITL PC -->
+                        <rect x="20" y="10" width="280" height="500" rx="12" fill="rgba(255,107,107,0.08)" stroke="#ff6b6b" stroke-width="1.5" stroke-dasharray="6,3"/>
+                        <text x="160" y="35" text-anchor="middle" fill="#ff6b6b" font-size="13" font-weight="bold">Ubuntu PC (SITL)</text>
+                        <text x="160" y="52" text-anchor="middle" fill="#ff9999" font-size="10">192.168.100.100</text>
+
+                        <!-- 배경 영역: WiFi 네트워크 -->
+                        <rect x="330" y="130" width="100" height="260" rx="10" fill="rgba(255,193,7,0.08)" stroke="#ffc107" stroke-width="1" stroke-dasharray="4,3"/>
+                        <text x="380" y="155" text-anchor="middle" fill="#ffc107" font-size="10">WiFi</text>
+                        <text x="380" y="168" text-anchor="middle" fill="#ffc107" font-size="9">5GHz</text>
+
+                        <!-- 배경 영역: VIM4 드론들 -->
+                        <rect x="460" y="10" width="420" height="500" rx="12" fill="rgba(72,187,120,0.08)" stroke="#48bb78" stroke-width="1.5" stroke-dasharray="6,3"/>
+                        <text x="670" y="35" text-anchor="middle" fill="#48bb78" font-size="13" font-weight="bold">VIM4 보드 (드론 탑재)</text>
+
+                        <!-- PX4 SITL 인스턴스 1 -->
+                        <rect x="50" y="80" width="220" height="100" rx="8" fill="#2d3748" stroke="#ff6b6b" stroke-width="1.5"/>
+                        <text x="160" y="102" text-anchor="middle" fill="#ff6b6b" font-size="11" font-weight="bold">PX4 SITL Instance 1</text>
+                        <text x="160" y="120" text-anchor="middle" fill="#a0aec0" font-size="9">MAVLink: UDP 14540 (broadcast)</text>
+                        <text x="160" y="135" text-anchor="middle" fill="#a0aec0" font-size="9">uxrce_dds_client → VIM4:8888</text>
+                        <text x="160" y="150" text-anchor="middle" fill="#a0aec0" font-size="9">lockstep: port 14560+0</text>
+                        <text x="160" y="168" text-anchor="middle" fill="#63b3ed" font-size="9">SYS_AUTOSTART=4001, MAV_SYS_ID=1</text>
+
+                        <!-- PX4 SITL 인스턴스 2 -->
+                        <rect x="50" y="200" width="220" height="100" rx="8" fill="#2d3748" stroke="#ff6b6b" stroke-width="1.5"/>
+                        <text x="160" y="222" text-anchor="middle" fill="#ff6b6b" font-size="11" font-weight="bold">PX4 SITL Instance 2</text>
+                        <text x="160" y="240" text-anchor="middle" fill="#a0aec0" font-size="9">MAVLink: UDP 14540 (broadcast)</text>
+                        <text x="160" y="255" text-anchor="middle" fill="#a0aec0" font-size="9">uxrce_dds_client → VIM4:8888</text>
+                        <text x="160" y="270" text-anchor="middle" fill="#a0aec0" font-size="9">lockstep: port 14560+1</text>
+                        <text x="160" y="288" text-anchor="middle" fill="#63b3ed" font-size="9">SYS_AUTOSTART=4001, MAV_SYS_ID=2</text>
+
+                        <!-- PX4 SITL 인스턴스 3 -->
+                        <rect x="50" y="320" width="220" height="100" rx="8" fill="#2d3748" stroke="#ff6b6b" stroke-width="1.5"/>
+                        <text x="160" y="342" text-anchor="middle" fill="#ff6b6b" font-size="11" font-weight="bold">PX4 SITL Instance 3</text>
+                        <text x="160" y="360" text-anchor="middle" fill="#a0aec0" font-size="9">MAVLink: UDP 14540 (broadcast)</text>
+                        <text x="160" y="375" text-anchor="middle" fill="#a0aec0" font-size="9">uxrce_dds_client → VIM4:8888</text>
+                        <text x="160" y="390" text-anchor="middle" fill="#a0aec0" font-size="9">lockstep: port 14560+2</text>
+                        <text x="160" y="408" text-anchor="middle" fill="#63b3ed" font-size="9">SYS_AUTOSTART=4001, MAV_SYS_ID=3</text>
+
+                        <!-- start_sitl_all.sh -->
+                        <rect x="80" y="445" width="160" height="35" rx="6" fill="#4a5568" stroke="#a0aec0" stroke-width="1"/>
+                        <text x="160" y="467" text-anchor="middle" fill="#e2e8f0" font-size="10">~/start_sitl_all.sh</text>
+
+                        <!-- 화살표: start_sitl_all.sh → 인스턴스들 -->
+                        <path d="M 120 445 L 120 425" stroke="#a0aec0" stroke-width="1" fill="none" marker-end="url(#arrowG)"/>
+                        <path d="M 160 445 L 160 305" stroke="#a0aec0" stroke-width="1" fill="none" stroke-dasharray="3,2" opacity="0.4"/>
+                        <path d="M 200 445 L 200 185" stroke="#a0aec0" stroke-width="1" fill="none" stroke-dasharray="3,2" opacity="0.4"/>
+
+                        <!-- VIM4 #1 (리더) -->
+                        <rect x="480" y="60" width="380" height="120" rx="8" fill="#2d3748" stroke="#48bb78" stroke-width="1.5"/>
+                        <text x="670" y="82" text-anchor="middle" fill="#48bb78" font-size="11" font-weight="bold">VIM4 #1 (리더) — 192.168.100.11</text>
+
+                        <!-- VIM4 #1 내부 컴포넌트 -->
+                        <rect x="495" y="90" width="105" height="40" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="547" y="108" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="bold">micro-ROS Agent</text>
+                        <text x="547" y="120" text-anchor="middle" fill="#bee3f8" font-size="7.5">UDP :8888</text>
+
+                        <rect x="610" y="90" width="105" height="40" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="662" y="108" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="bold">MAVLink Router</text>
+                        <text x="662" y="120" text-anchor="middle" fill="#bee3f8" font-size="7.5">UDP 14540→분배</text>
+
+                        <rect x="725" y="90" width="120" height="40" rx="5" fill="#276749" stroke="#48bb78" stroke-width="1"/>
+                        <text x="785" y="108" text-anchor="middle" fill="#fff" font-size="8.5" font-weight="bold">메인 프로그램</text>
+                        <text x="785" y="120" text-anchor="middle" fill="#c6f6d5" font-size="7.5">ROS2 + MAVLink</text>
+
+                        <rect x="495" y="140" width="105" height="28" rx="5" fill="#553c9a" stroke="#9f7aea" stroke-width="1"/>
+                        <text x="547" y="158" text-anchor="middle" fill="#e9d8fd" font-size="8">custom_message</text>
+
+                        <rect x="610" y="140" width="105" height="28" rx="5" fill="#553c9a" stroke="#9f7aea" stroke-width="1"/>
+                        <text x="662" y="158" text-anchor="middle" fill="#e9d8fd" font-size="8">Web GUI (:5000)</text>
+
+                        <rect x="725" y="140" width="120" height="28" rx="5" fill="#553c9a" stroke="#9f7aea" stroke-width="1"/>
+                        <text x="785" y="158" text-anchor="middle" fill="#e9d8fd" font-size="8">QGC (:14550)</text>
+
+                        <!-- VIM4 #2 (팔로워 L) -->
+                        <rect x="480" y="210" width="380" height="85" rx="8" fill="#2d3748" stroke="#667eea" stroke-width="1.5"/>
+                        <text x="670" y="232" text-anchor="middle" fill="#667eea" font-size="11" font-weight="bold">VIM4 #2 (팔로워 L) — 192.168.100.21</text>
+                        <rect x="495" y="245" width="105" height="35" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="547" y="260" text-anchor="middle" fill="#fff" font-size="8">micro-ROS Agent</text>
+                        <text x="547" y="272" text-anchor="middle" fill="#bee3f8" font-size="7">UDP :8888</text>
+                        <rect x="610" y="245" width="105" height="35" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="662" y="260" text-anchor="middle" fill="#fff" font-size="8">MAVLink Router</text>
+                        <text x="662" y="272" text-anchor="middle" fill="#bee3f8" font-size="7">UDP 14540→분배</text>
+                        <rect x="725" y="245" width="120" height="35" rx="5" fill="#276749" stroke="#48bb78" stroke-width="1"/>
+                        <text x="785" y="260" text-anchor="middle" fill="#fff" font-size="8">메인 프로그램</text>
+                        <text x="785" y="272" text-anchor="middle" fill="#c6f6d5" font-size="7">ROS2 + MAVLink</text>
+
+                        <!-- VIM4 #3 (팔로워 R) -->
+                        <rect x="480" y="320" width="380" height="85" rx="8" fill="#2d3748" stroke="#ed8936" stroke-width="1.5"/>
+                        <text x="670" y="342" text-anchor="middle" fill="#ed8936" font-size="11" font-weight="bold">VIM4 #3 (팔로워 R) — 192.168.100.31</text>
+                        <rect x="495" y="355" width="105" height="35" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="547" y="370" text-anchor="middle" fill="#fff" font-size="8">micro-ROS Agent</text>
+                        <text x="547" y="382" text-anchor="middle" fill="#bee3f8" font-size="7">UDP :8888</text>
+                        <rect x="610" y="355" width="105" height="35" rx="5" fill="#2b6cb0" stroke="#63b3ed" stroke-width="1"/>
+                        <text x="662" y="370" text-anchor="middle" fill="#fff" font-size="8">MAVLink Router</text>
+                        <text x="662" y="382" text-anchor="middle" fill="#bee3f8" font-size="7">UDP 14540→분배</text>
+                        <rect x="725" y="355" width="120" height="35" rx="5" fill="#276749" stroke="#48bb78" stroke-width="1"/>
+                        <text x="785" y="370" text-anchor="middle" fill="#fff" font-size="8">메인 프로그램</text>
+                        <text x="785" y="382" text-anchor="middle" fill="#c6f6d5" font-size="7">ROS2 + MAVLink</text>
+
+                        <!-- GCS (QGroundControl) -->
+                        <rect x="560" y="440" width="220" height="55" rx="8" fill="#2d3748" stroke="#ffc107" stroke-width="1.5"/>
+                        <text x="670" y="462" text-anchor="middle" fill="#ffc107" font-size="11" font-weight="bold">QGroundControl (GCS)</text>
+                        <text x="670" y="480" text-anchor="middle" fill="#a0aec0" font-size="9">PC/태블릿 — WiFi로 VIM4 접속</text>
+
+                        <!-- 연결선: SITL → WiFi → VIM4 (MAVLink) -->
+                        <defs>
+                            <marker id="arrowG" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#48bb78"/>
+                            </marker>
+                            <marker id="arrowR" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#ff6b6b"/>
+                            </marker>
+                            <marker id="arrowB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#63b3ed"/>
+                            </marker>
+                            <marker id="arrowY" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                                <polygon points="0 0, 8 3, 0 6" fill="#ffc107"/>
+                            </marker>
+                        </defs>
+
+                        <!-- SITL 1 → VIM4 #1 (MAVLink UDP) -->
+                        <path d="M 270 120 C 380 120, 380 120, 480 120" stroke="#ff6b6b" stroke-width="2" fill="none" stroke-dasharray="6,3" marker-end="url(#arrowR)"/>
+                        <text x="375" y="112" text-anchor="middle" fill="#ff9999" font-size="7.5">MAVLink UDP</text>
+
+                        <!-- SITL 1 → VIM4 #1 (uXRCE-DDS) -->
+                        <path d="M 270 145 C 380 145, 380 105, 495 105" stroke="#63b3ed" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowB)"/>
+                        <text x="375" y="138" text-anchor="middle" fill="#90cdf4" font-size="7.5">uXRCE-DDS</text>
+
+                        <!-- SITL 2 → VIM4 #2 -->
+                        <path d="M 270 245 C 380 245, 380 260, 480 260" stroke="#ff6b6b" stroke-width="2" fill="none" stroke-dasharray="6,3" marker-end="url(#arrowR)"/>
+                        <path d="M 270 260 C 400 260, 400 262, 495 262" stroke="#63b3ed" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowB)"/>
+
+                        <!-- SITL 3 → VIM4 #3 -->
+                        <path d="M 270 365 C 380 365, 380 365, 480 365" stroke="#ff6b6b" stroke-width="2" fill="none" stroke-dasharray="6,3" marker-end="url(#arrowR)"/>
+                        <path d="M 270 380 C 400 380, 400 375, 495 375" stroke="#63b3ed" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowB)"/>
+
+                        <!-- VIM4 간 ROS2 DDS 통신 -->
+                        <line x1="475" y1="175" x2="475" y2="210" stroke="#9f7aea" stroke-width="1.5" stroke-dasharray="3,2"/>
+                        <line x1="475" y1="295" x2="475" y2="320" stroke="#9f7aea" stroke-width="1.5" stroke-dasharray="3,2"/>
+                        <text x="468" y="195" text-anchor="end" fill="#b794f4" font-size="7">ROS2 DDS</text>
+                        <text x="468" y="310" text-anchor="end" fill="#b794f4" font-size="7">ROS2 DDS</text>
+
+                        <!-- GCS → VIM4들 (WiFi) -->
+                        <path d="M 670 440 L 670 410" stroke="#ffc107" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowY)"/>
+                        <path d="M 640 440 L 640 300" stroke="#ffc107" stroke-width="1" fill="none" stroke-dasharray="3,2" opacity="0.5"/>
+                        <path d="M 700 440 L 700 185" stroke="#ffc107" stroke-width="1" fill="none" stroke-dasharray="3,2" opacity="0.5"/>
+
+                        <!-- 범례 -->
+                        <rect x="20" y="15" width="10" height="3" fill="#ff6b6b"/>
+                        <rect x="320" y="125" width="10" height="3" fill="#ffc107"/>
+                        <rect x="455" y="15" width="10" height="3" fill="#48bb78"/>
+                    </svg>
+                </div>
+
+                <!-- 실행 순서 -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-list-ol"></i> 전체 시스템 실행 순서</h6>
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card bg-light mb-3">
+                            <div class="card-header bg-danger text-white py-2">
+                                <strong>Step 1. SITL PC (Ubuntu)</strong> — 192.168.100.100
+                            </div>
+                            <div class="card-body py-2">
+                                <ol class="mb-0" style="font-size: 0.85rem;">
+                                    <li class="mb-2">
+                                        <strong>WiFi 연결 확인</strong><br>
+                                        <code class="small">ping 192.168.100.11</code> (VIM4 #1 응답 확인)
+                                    </li>
+                                    <li class="mb-2">
+                                        <strong>PX4 SITL 3대 동시 실행</strong><br>
+                                        <code class="small">~/start_sitl_all.sh</code><br>
+                                        <span class="text-muted small">드론 1,2,3 인스턴스 순차 시작 (10초 간격)</span>
+                                    </li>
+                                    <li class="mb-0">
+                                        <strong>로그 확인</strong><br>
+                                        <code class="small">tail -f ~/sitl_logs/drone1.log</code>
+                                    </li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <div class="card bg-light mb-3">
+                            <div class="card-header bg-success text-white py-2">
+                                <strong>Step 2. VIM4 보드</strong> — 각 드론 (자동 시작)
+                            </div>
+                            <div class="card-body py-2">
+                                <ol class="mb-0" style="font-size: 0.85rem;">
+                                    <li class="mb-2">
+                                        <strong>micro-ROS Agent</strong> (systemd 자동 시작)<br>
+                                        <span class="text-muted small">micro_ros_agent.service → UDP :8888 대기</span><br>
+                                        <span class="text-muted small">PX4의 uxrce_dds_client가 연결</span>
+                                    </li>
+                                    <li class="mb-2">
+                                        <strong>MAVLink Router</strong> (systemd 자동 시작)<br>
+                                        <span class="text-muted small">mavlink-router.service → SITL/FC 모드에 따라 설정</span>
+                                    </li>
+                                    <li class="mb-0">
+                                        <strong>메인 프로그램</strong> (systemd 또는 수동)<br>
+                                        <code class="small">service-control.sh debug</code> (수동 실행시)
+                                    </li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="card bg-light mb-3">
+                            <div class="card-header bg-warning text-dark py-2">
+                                <strong>Step 3. GCS (QGroundControl)</strong>
+                            </div>
+                            <div class="card-body py-2">
+                                <ol class="mb-0" style="font-size: 0.85rem;">
+                                    <li class="mb-2">
+                                        <strong>WiFi 연결</strong><br>
+                                        <span class="text-muted small">동일 네트워크 (192.168.100.x) 접속</span>
+                                    </li>
+                                    <li class="mb-0">
+                                        <strong>QGroundControl 실행</strong><br>
+                                        <span class="text-muted small">자동으로 3대 기체 발견 (UDP 14550/14560/14570)</span>
+                                    </li>
+                                </ol>
+                            </div>
+                        </div>
+
+                        <div class="card bg-light mb-3">
+                            <div class="card-header bg-info text-white py-2">
+                                <strong>Step 4. 연결 확인</strong>
+                            </div>
+                            <div class="card-body py-2">
+                                <ol class="mb-0" style="font-size: 0.85rem;">
+                                    <li class="mb-2">
+                                        <strong>이 페이지에서 SITL 모드 ON</strong><br>
+                                        <span class="text-muted small">상단 "SITL 모드" 토글 활성화</span>
+                                    </li>
+                                    <li class="mb-2">
+                                        <strong>다이어그램에서 연결 상태 확인</strong><br>
+                                        <span class="text-muted small">PC SITL 노드 연결됨 (녹색), 3개 인스턴스 표시</span>
+                                    </li>
+                                    <li class="mb-0">
+                                        <strong>VehicleStatus 수신 확인</strong><br>
+                                        <code class="small">ros2 topic echo /drone1/fmu/out/vehicle_status</code>
+                                    </li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 주의사항 -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-exclamation-triangle"></i> 주의사항</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="alert alert-danger py-2 mb-2" style="font-size: 0.85rem;">
+                            <strong>재시작 규칙:</strong> PX4 SITL 또는 micro-ROS Agent 한쪽이 재시작되면, <strong>양쪽 모두 재시작</strong> 필요.
+                            uXRCE-DDS 세션이 "re-established"되면 토픽이 재생성되지 않음.
+                        </div>
+                        <div class="alert alert-warning py-2 mb-2" style="font-size: 0.85rem;">
+                            <strong>SITL 모드 전환:</strong> SITL/FC 모드 전환 시 mavlink-router 서비스가 재시작됨.
+                            비행 중에는 절대 전환하지 마세요.
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="alert alert-info py-2 mb-2" style="font-size: 0.85rem;">
+                            <strong>포트 충돌:</strong> micro-ROS Agent (UDP 8888)를 수동으로 실행하면 systemd 서비스와 포트 충돌.
+                            <code>sudo systemctl stop micro_ros_agent</code> 후 수동 실행하거나, 서비스만 사용.
+                        </div>
+                        <div class="alert alert-secondary py-2 mb-2" style="font-size: 0.85rem;">
+                            <strong>SITL 배터리:</strong> PX4 rcS에서 <code>SIM_BAT_ENABLE 0</code> 설정 필요.
+                            미설정 시 "Battery unhealthy" 오류로 arming 불가.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 데이터 흐름 -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-arrow-left-right"></i> 데이터 흐름 (SITL 모드)</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" style="font-size: 0.85rem;">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>경로</th>
+                                <th>프로토콜</th>
+                                <th>포트</th>
+                                <th>설명</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>PX4 SITL → VIM4</td>
+                                <td>MAVLink UDP</td>
+                                <td>14540</td>
+                                <td>FC 텔레메트리 (브로드캐스트, mavlink-router가 수신)</td>
+                            </tr>
+                            <tr>
+                                <td>PX4 SITL → VIM4</td>
+                                <td>uXRCE-DDS</td>
+                                <td>8888</td>
+                                <td>ROS2 토픽 (VehicleStatus, SensorCombined 등)</td>
+                            </tr>
+                            <tr>
+                                <td>VIM4 → PX4 SITL</td>
+                                <td>uXRCE-DDS</td>
+                                <td>8888</td>
+                                <td>ROS2 토픽 발행 (TrajectorySetpoint, OffboardControlMode 등)</td>
+                            </tr>
+                            <tr>
+                                <td>VIM4 → GCS</td>
+                                <td>MAVLink UDP</td>
+                                <td>14550</td>
+                                <td>QGC 텔레메트리 (mavlink-router → QGC)</td>
+                            </tr>
+                            <tr>
+                                <td>GCS → VIM4</td>
+                                <td>MAVLink UDP</td>
+                                <td>14553</td>
+                                <td>커스텀 메시지 (60000~60003, 미션 명령)</td>
+                            </tr>
+                            <tr>
+                                <td>VIM4 ↔ VIM4</td>
+                                <td>ROS2 DDS</td>
+                                <td>-</td>
+                                <td>편대 명령/상태 (FormationCommand, FollowerStatus, DronePosition)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- SITL PC 원격 관리 -->
+                <h6 class="fw-bold mb-3"><i class="bi bi-terminal"></i> SITL PC 원격 관리 (VIM4에서)</h6>
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="card border-secondary mb-2">
+                            <div class="card-body py-2 text-center">
+                                <div class="small text-muted">SITL 전체 시작</div>
+                                <code class="small">ssh humiro@192.168.100.100 "~/start_sitl_all.sh"</code>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-secondary mb-2">
+                            <div class="card-body py-2 text-center">
+                                <div class="small text-muted">SITL 전체 중지</div>
+                                <code class="small">ssh humiro@192.168.100.100 "pkill -f px4"</code>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card border-secondary mb-2">
+                            <div class="card-body py-2 text-center">
+                                <div class="small text-muted">SITL 로그 확인</div>
+                                <code class="small">ssh humiro@192.168.100.100 "tail ~/sitl_logs/drone1.log"</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1919,6 +2292,9 @@
         const legendSitlOther = document.getElementById('legendSitlOther');
         const legendOtherDrones = document.getElementById('legendOtherDrones');
 
+        // SITL 가이드 섹션
+        const sitlGuide = document.getElementById('sitlGuideSection');
+
         if (currentSitlMode === 'sitl') {
             toggle.checked = true;
             label.innerHTML = `SITL 모드 <small class="text-warning">(${currentSitlIp})</small>`;
@@ -1929,6 +2305,9 @@
             if (legendSitlMode) legendSitlMode.style.display = 'flex';
             if (legendSitlOther) legendSitlOther.style.display = 'flex';
             if (legendOtherDrones) legendOtherDrones.style.display = 'none';
+
+            // SITL 가이드 표시
+            if (sitlGuide) sitlGuide.style.display = 'block';
         } else {
             toggle.checked = false;
             label.innerHTML = 'FC 모드 <small class="text-success">(실제 비행)</small>';
@@ -1939,6 +2318,9 @@
             if (legendSitlMode) legendSitlMode.style.display = 'none';
             if (legendSitlOther) legendSitlOther.style.display = 'none';
             if (legendOtherDrones) legendOtherDrones.style.display = 'block';
+
+            // SITL 가이드 숨김
+            if (sitlGuide) sitlGuide.style.display = 'none';
         }
     }
 
@@ -1985,9 +2367,10 @@
         }
     }
 
-    // SITL IP 입력 프롬프트
+    // SITL IP 입력 프롬프트 (localStorage에 이전 값 저장)
     function promptSitlIp() {
-        const defaultIp = currentSitlIp || '192.168.100.4';
+        const savedIp = localStorage.getItem('sitl-ip');
+        const defaultIp = savedIp || currentSitlIp || '192.168.100.100';
         const ip = prompt('SITL이 실행 중인 PC의 IP 주소를 입력하세요:', defaultIp);
 
         if (ip === null) {
@@ -1998,10 +2381,12 @@
         // IP 형식 간단 검증
         const ipPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
         if (!ipPattern.test(ip)) {
-            alert('올바른 IP 주소 형식이 아닙니다. (예: 192.168.100.4)');
+            alert('올바른 IP 주소 형식이 아닙니다. (예: 192.168.100.100)');
             return null;
         }
 
+        // 입력된 IP를 localStorage에 저장
+        localStorage.setItem('sitl-ip', ip);
         return ip;
     }
 
