@@ -23,8 +23,14 @@ echo -e "  VIM4 IP: ${GREEN}$VIM4_IP${NC}"
 echo -e "${BLUE}======================================${NC}"
 echo ""
 
+# 7일 이상 된 로그 정리
+echo -e "${YELLOW}[1/4] 오래된 로그 정리 (7일 이상)...${NC}"
+find ~/PX4-Autopilot/build/px4_sitl_default/rootfs/log -type f -mtime +7 -delete 2>/dev/null || true
+LOG_COUNT=$(find ~/PX4-Autopilot/build/px4_sitl_default/rootfs/log -type f 2>/dev/null | wc -l)
+echo -e "  ${GREEN}✓${NC} 완료 (현재 로그: ${LOG_COUNT}개)"
+
 # 드론 1이 실행 중인지 확인
-echo -e "${YELLOW}[1/3] 드론 1 실행 확인...${NC}"
+echo -e "${YELLOW}[2/4] 드론 1 실행 확인...${NC}"
 if pgrep -f "px4.*-i 0" > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓${NC} 드론 1 실행 중"
 else
@@ -34,7 +40,7 @@ else
 fi
 
 # VIM4 연결 테스트
-echo -e "${YELLOW}[2/3] VIM4 연결 테스트...${NC}"
+echo -e "${YELLOW}[3/4] VIM4 연결 테스트...${NC}"
 if ping -c 1 -W 2 "$VIM4_IP" > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓${NC} VIM4 연결 가능: $VIM4_IP"
 else
@@ -43,7 +49,7 @@ else
 fi
 
 # ROS2 환경 로드
-echo -e "${YELLOW}[3/3] ROS2 환경 설정...${NC}"
+echo -e "${YELLOW}[4/4] ROS2 환경 설정...${NC}"
 source /opt/ros/humble/setup.bash
 source ~/px4_ros2_ws/install/setup.bash 2>/dev/null || true
 export ROS_DOMAIN_ID=0

@@ -89,12 +89,16 @@ class ConfigManager:
             self._create_backup(self.device_config_path)
 
             # 파일 저장
+            # ROS_NAMESPACE는 라우터 페이지 SITL/FC 모드 토글에서만 관리
+            # 일반 설정 저장 시 포함되면 FC 모드에서 토픽 불일치 발생
+            exclude_keys = {"ROS_NAMESPACE"}
             with open(self.device_config_path, "w") as f:
                 f.write("# Humiro Fire Suppression Device Configuration\n")
                 f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
                 for key, value in sorted(self._device_config.items()):
-                    f.write(f"{key}={value}\n")
+                    if key not in exclude_keys:
+                        f.write(f"{key}={value}\n")
 
             return True
         except Exception as e:
@@ -166,7 +170,6 @@ class ConfigManager:
             "ETH0_IP": f"10.0.0.{base_offset + 1}",
             "FC_IP": f"10.0.0.{base_offset + 2}",
             "WIFI_IP": f"192.168.100.{base_offset + 1}",
-            "ROS_NAMESPACE": f"drone{drone_id}",
             "MAV_SYS_ID": str(drone_id),
             "MAV_COMP_ID": "191",
             "EXTERNAL_UDP_PORT": "15001",

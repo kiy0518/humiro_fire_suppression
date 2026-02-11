@@ -1888,6 +1888,18 @@ Port = {application_port}
                 'error': f'설정 파일 저장 실패: {result.stderr}'
             }), 500
 
+        # device_config.env ROS_NAMESPACE 설정
+        # SITL: uxrce_dds_client -n droneN 사용 → ROS_NAMESPACE=droneN 필요
+        # FC: 네임스페이스 없이 동작 → ROS_NAMESPACE 제거
+        if mode == 'sitl':
+            config_manager.set('ROS_NAMESPACE', f'drone{drone_id}')
+        else:
+            # FC 모드: ROS_NAMESPACE 제거 (없으면 /fmu/out/... 직접 구독)
+            if 'ROS_NAMESPACE' in config_manager._device_config:
+                del config_manager._device_config['ROS_NAMESPACE']
+
+        config_manager.save_device_config()
+
         # mavlink-router 재시작
         restart_result = subprocess.run(
             ['sudo', 'systemctl', 'restart', 'mavlink-router'],
@@ -1900,12 +1912,27 @@ Port = {application_port}
                 'error': f'mavlink-router 재시작 실패: {restart_result.stderr}'
             }), 500
 
+        # micro-ros-agent 재시작 (stale DDS 세션 정리)
+        # SITL↔FC 전환 시 이전 DDS 세션이 남아 새 연결 차단 방지
+        micro_ros_result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'micro-ros-agent'],
+            capture_output=True, text=True, timeout=10
+        )
+
+        if micro_ros_result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'micro-ros-agent 재시작 실패: {micro_ros_result.stderr}'
+            }), 500
+
         mode_desc = 'SITL 시뮬레이션' if mode == 'sitl' else '실제 FC 연결'
+        ns_desc = f'drone{drone_id}' if mode == 'sitl' else '없음'
         return jsonify({
             'success': True,
             'mode': mode,
-            'message': f'{mode_desc} 모드로 전환되었습니다.',
-            'sitl_ip': sitl_ip if mode == 'sitl' else None
+            'message': f'{mode_desc} 모드로 전환되었습니다. (ROS_NAMESPACE: {ns_desc})',
+            'sitl_ip': sitl_ip if mode == 'sitl' else None,
+            'ros_namespace': f'drone{drone_id}' if mode == 'sitl' else None
         })
 
     except Exception as e:

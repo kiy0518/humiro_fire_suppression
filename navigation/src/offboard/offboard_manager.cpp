@@ -295,6 +295,14 @@ void OffboardManager::timerCallback()
 
     } else if (counter == ARM_COUNT) {
         // 4.5초 후: ARM
+        // 시작 위치 재캡처 (미션 시작 시 position 콜백 미수신으로 0,0,0일 수 있음)
+        if (position_received_.load()) {
+            start_local_x_ = current_local_x_.load();
+            start_local_y_ = current_local_y_.load();
+            start_local_z_ = current_local_z_.load();
+            RCLCPP_INFO(node_->get_logger(), "  Start position updated (NED): (%.1f, %.1f, %.1f)",
+                        start_local_x_, start_local_y_, start_local_z_);
+        }
         RCLCPP_INFO(node_->get_logger(), "\n[Step 2] ARM (시동) 요청...");
         initial_yaw_ = current_yaw_.load();  // 이륙 시점 헤딩 기억
         publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0);
@@ -337,7 +345,7 @@ void OffboardManager::timerCallback()
 
             target_ned_x_ = start_local_x_ + offset_north;
             target_ned_y_ = start_local_y_ + offset_east;
-            target_ned_z_ = -mission_config_.takeoff_altitude;
+            target_ned_z_ = start_local_z_ - mission_config_.takeoff_altitude;
             target_yaw_ = calculateTargetYaw(offset_north, offset_east);
 
             RCLCPP_INFO(node_->get_logger(), "[NAV] Current GPS: (%.7f, %.7f)", cur_lat, cur_lon);
@@ -543,10 +551,10 @@ void OffboardManager::publishTrajectorySetpoint()
 
     if (state == MissionState::TAKEOFF || state == MissionState::HOVER ||
         (state == MissionState::ROTATE && counter < ROTATE_START)) {
-        // 1단계: 이륙 및 호버링 (시작 위치에서 takeoff_altitude)
+        // 1단계: 이륙 및 호버링 (시작 위치 기준 상대 고도)
         sp_x = start_local_x_;
         sp_y = start_local_y_;
-        sp_z = -mission_config_.takeoff_altitude;  // NED: Z down이 양수
+        sp_z = start_local_z_ - mission_config_.takeoff_altitude;  // NED: 시작점에서 위로
         yaw_setpoint = initial_yaw_;
 
     } else if (state == MissionState::ROTATE ||
@@ -554,7 +562,7 @@ void OffboardManager::publishTrajectorySetpoint()
         // 2단계: 회전 (yawspeed 사용 - 감속 프로파일)
         sp_x = start_local_x_;
         sp_y = start_local_y_;
-        sp_z = -mission_config_.takeoff_altitude;
+        sp_z = start_local_z_ - mission_config_.takeoff_altitude;
 
         // 현재 yaw와 목표 yaw 차이 계산
         float current_yaw = current_yaw_.load();
@@ -586,7 +594,7 @@ void OffboardManager::publishTrajectorySetpoint()
         // 전환 구간: 호버링 유지
         sp_x = start_local_x_;
         sp_y = start_local_y_;
-        sp_z = -mission_config_.takeoff_altitude;
+        sp_z = start_local_z_ - mission_config_.takeoff_altitude;
         yaw_setpoint = target_yaw_;
 
     } else if (state == MissionState::HOVER_AT_TARGET) {
@@ -596,7 +604,7 @@ void OffboardManager::publishTrajectorySetpoint()
                               : mission_config_.takeoff_altitude;
         sp_x = target_ned_x_;
         sp_y = target_ned_y_;
-        sp_z = -effective_alt;
+        sp_z = start_local_z_ - effective_alt;
         yaw_setpoint = target_yaw_;
 
     } else if (state == MissionState::NAVIGATE || counter >= MOVE_START) {
@@ -920,8 +928,8 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
         // 팔로워: 리더의 AMSL 고도를 수신 → home 기준 NED 변환
         target_ned_z_ = -(new_target.altitude - home_alt_amsl_);
     } else if (new_target.altitude > 0.0f) {
-        // 리더/단독: target_alt는 이륙 기준 상대 고도(AGL) → 직접 NED Z로 변환
-        target_ned_z_ = -new_target.altitude;
+        // 리더/단독: target_alt는 시작 위치 기준 상대 고도(AGL)
+        target_ned_z_ = start_local_z_ - new_target.altitude;
     }
     // altitude == 0이면 기존 target_ned_z_ 유지 (고도 변경 없음)
 
