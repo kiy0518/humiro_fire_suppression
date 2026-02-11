@@ -68,6 +68,10 @@ public:
     void setLeaderNamespace(const std::string& ns);
     void setSuppressParams(int16_t distance_m, int16_t angle_deg);
 
+    // Solo 모드 제어 (solo 모드에서는 LeaderPose/Heartbeat/CMD_FOLLOW 발행 안 함)
+    void setSoloMode(bool solo) { solo_mode_.store(solo); }
+    bool isSoloMode() const { return solo_mode_.load(); }
+
     // 상태 조회
     FormationRole getRole() const { return role_; }
     uint8_t getDroneId() const { return drone_id_; }
@@ -108,6 +112,7 @@ private:
     uint8_t drone_id_;
     FormationRole role_;
     std::atomic<bool> running_{false};
+    std::atomic<bool> solo_mode_{true};   // 기본값: solo (formation 모드에서만 false로 전환)
 
     // === 리더 Publishers ===
     rclcpp::Publisher<humiro_msgs::msg::LeaderPose>::SharedPtr leader_pose_pub_;

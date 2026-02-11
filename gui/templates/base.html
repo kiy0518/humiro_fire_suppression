@@ -330,6 +330,20 @@
             </div>
         </div>
     </div>
+
+    <!-- 단독비행 모드 경고 배너 -->
+    <div id="soloWarningBanner" class="alert alert-warning mb-0 rounded-0 d-none" style="border: none; background: linear-gradient(90deg, #e67e22 0%, #d35400 100%); color: white;">
+        <div class="container-fluid">
+            <div class="d-flex align-items-center justify-content-center">
+                <i class="bi bi-exclamation-triangle-fill fs-4 me-2"></i>
+                <strong class="me-2">단독비행 모드</strong>
+                <span class="me-3">- 편대비행이 비활성화되어 있습니다. 편대비행 시 오프보드 설정에서 변경하세요.</span>
+                <a href="/offboard-settings" class="btn btn-light btn-sm">
+                    <i class="bi bi-gear"></i> 오프보드 설정
+                </a>
+            </div>
+        </div>
+    </div>
     </div><!-- /stickyHeader -->
 
     <!-- 메인 컨텐츠 -->
@@ -503,10 +517,34 @@
                 });
         }
 
-        // 페이지 로드 및 주기적으로 SITL 모드 확인
+        // 단독비행 모드 확인 및 경고 배너 표시
+        function checkSoloMode() {
+            fetch('/api/offboard-config')
+                .then(response => response.json())
+                .then(data => {
+                    const banner = document.getElementById('soloWarningBanner');
+                    if (banner) {
+                        if (data.success && data.config && data.config.mission_mode === 'solo') {
+                            banner.classList.remove('d-none');
+                        } else {
+                            banner.classList.add('d-none');
+                        }
+                    }
+                })
+                .catch(err => {
+                    const banner = document.getElementById('soloWarningBanner');
+                    if (banner) {
+                        banner.classList.add('d-none');
+                    }
+                });
+        }
+
+        // 페이지 로드 및 주기적으로 모드 확인
         document.addEventListener('DOMContentLoaded', () => {
             checkSitlMode();
+            checkSoloMode();
             setInterval(checkSitlMode, 30000); // 30초마다 확인
+            setInterval(checkSoloMode, 30000);
         });
 
         // PWA 설치 프롬프트

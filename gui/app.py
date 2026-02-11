@@ -1773,7 +1773,7 @@ def api_router_set_sitl_mode():
         if mode == 'sitl':
             # SITL 모드 설정 - Server 모드로 PC의 SITL에서 연결 받음
             config_content = f"""# ==============================================================================
-# MAVLink Router 설정 - SITL 시뮬레이션 + FC 자동 전환
+# MAVLink Router 설정 - SITL 시뮬레이션 전용
 # 생성: {subprocess.check_output(['date']).decode().strip()}
 # Drone ID: {drone_id}
 # VIM4 IP: {config_manager.get_wifi_ip()}
@@ -1784,12 +1784,6 @@ def api_router_set_sitl_mode():
 TcpServerPort = 5790
 ReportStats = false
 MavlinkDialect = common
-
-# FC 연결 (실제 비행용) - 이더넷 (10.0.0.x)
-[UdpEndpoint FC]
-Mode = Server
-Address = 0.0.0.0
-Port = 14540
 
 # SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
 # 시뮬레이션 PC에서: mavlink start -u 14540 -o {sitl_port} -t {config_manager.get_wifi_ip()}
@@ -1900,29 +1894,65 @@ Port = {application_port}
 
         config_manager.save_device_config()
 
-        # mavlink-router 재시작
-        restart_result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', 'mavlink-router'],
+        # DDS 포트(8888) iptables 규칙: SITL↔FC 데이터 소스 격리
+        # SITL 모드: eth0(FC)에서 오는 DDS 차단 → SITL PC만 연결
+        # FC 모드: wlan0(SITL)에서 오는 DDS 차단 → FC만 연결
+        subprocess.run(['sudo', 'modprobe', 'xt_udp'],
+                       capture_output=True, timeout=5)  # iptables udp 매칭 모듈 로드
+        fc_ip = config_manager.get('FC_IP', '10.0.0.12')
+        subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'eth0', '-s', fc_ip,
+                        '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                       capture_output=True, timeout=5)  # 기존 규칙 제거 (없어도 무시)
+        subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'wlan0',
+                        '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                       capture_output=True, timeout=5)  # 기존 규칙 제거
+
+        if mode == 'sitl':
+            # SITL 모드: FC(eth0)의 DDS 차단
+            subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'eth0', '-s', fc_ip,
+                            '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                           capture_output=True, timeout=5)
+        else:
+            # FC 모드: SITL PC(wlan0)의 DDS 차단
+            subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'wlan0',
+                            '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                           capture_output=True, timeout=5)
+
+        # 서비스 및 프로세스 중지 (stale 상태 완전 정리)
+        # 메인 프로그램: systemd 서비스 또는 터미널 프로세스 모두 종료
+        subprocess.run(['sudo', 'systemctl', 'stop', 'humiro-fire-suppression'],
+                       capture_output=True, text=True, timeout=10)
+        subprocess.run(['pkill', '-f', 'humiro_fire_suppression/application/build/humiro_fire_suppression'],
+                       capture_output=True, text=True, timeout=5)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'micro-ros-agent'],
+                       capture_output=True, text=True, timeout=10)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'mavlink-router'],
+                       capture_output=True, text=True, timeout=10)
+
+        import time
+        time.sleep(1)  # 포트/소켓 해제 대기
+
+        # 서비스 시작 (메인 프로그램은 터미널에서 수동 실행)
+        mavlink_result = subprocess.run(
+            ['sudo', 'systemctl', 'start', 'mavlink-router'],
             capture_output=True, text=True, timeout=10
         )
 
-        if restart_result.returncode != 0:
+        if mavlink_result.returncode != 0:
             return jsonify({
                 'success': False,
-                'error': f'mavlink-router 재시작 실패: {restart_result.stderr}'
+                'error': f'mavlink-router 시작 실패: {mavlink_result.stderr}'
             }), 500
 
-        # micro-ros-agent 재시작 (stale DDS 세션 정리)
-        # SITL↔FC 전환 시 이전 DDS 세션이 남아 새 연결 차단 방지
         micro_ros_result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', 'micro-ros-agent'],
+            ['sudo', 'systemctl', 'start', 'micro-ros-agent'],
             capture_output=True, text=True, timeout=10
         )
 
         if micro_ros_result.returncode != 0:
             return jsonify({
                 'success': False,
-                'error': f'micro-ros-agent 재시작 실패: {micro_ros_result.stderr}'
+                'error': f'micro-ros-agent 시작 실패: {micro_ros_result.stderr}'
             }), 500
 
         mode_desc = 'SITL 시뮬레이션' if mode == 'sitl' else '실제 FC 연결'

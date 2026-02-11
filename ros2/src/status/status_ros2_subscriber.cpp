@@ -49,12 +49,9 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
     std::cout << "  → ROS2 노드 이름: " << node_->get_name() << std::endl;
     std::cout << "  → ROS2 네임스페이스: " << node_->get_namespace() << std::endl;
 
-    // PX4 토픽 네임스페이스 (OffboardManager와 동일한 방식)
-    const char* ns_env = getenv("ROS_NAMESPACE");
-    std::string px4_ns = ns_env ? ("/" + std::string(ns_env)) : "";
-    if (!px4_ns.empty()) {
-        std::cout << "  → PX4 토픽 네임스페이스: " << px4_ns << std::endl;
-    }
+    // PX4 토픽 네임스페이스: 각 VIM4마다 자체 micro-ros-agent이므로 불필요
+    // (uxrce-dds는 1:1 연결, 편대 토픽만 DRONE_ID로 네임스페이스 사용)
+    std::string px4_ns = "";
 
     // PX4 uXRCE-DDS QoS 설정
     // PX4는 BEST_EFFORT와 TRANSIENT_LOCAL을 사용하므로 구독자도 동일하게 설정

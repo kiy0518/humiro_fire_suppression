@@ -17,14 +17,10 @@ using namespace std::chrono_literals;
 OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
     : node_(node)
 {
-    // ========== PX4 토픽 네임스페이스 (멀티 드론 충돌 방지) ==========
-    // PX4 uXRCE-DDS client가 -n droneN 옵션으로 시작되면
-    // 토픽이 /droneN/fmu/in/... 형태로 발행됨
-    const char* ns_env = getenv("ROS_NAMESPACE");
-    std::string px4_ns = ns_env ? ("/" + std::string(ns_env)) : "";
-    if (!px4_ns.empty()) {
-        RCLCPP_INFO(node_->get_logger(), "PX4 topic namespace: %s", px4_ns.c_str());
-    }
+    // ========== PX4 토픽 네임스페이스 ==========
+    // 각 VIM4마다 자체 micro-ros-agent가 있으므로 PX4 토픽은 네임스페이스 불필요
+    // (uxrce-dds는 1:1 연결, 편대 토픽만 DRONE_ID로 네임스페이스 사용)
+    std::string px4_ns = "";
 
     // ========== PX4 호환 QoS 설정 (매우 중요!) ==========
     // PX4는 Best Effort + Volatile 조합을 요구
@@ -74,11 +70,26 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
 {
     // 이미 미션 실행 중이면 좌표만 업데이트 (경로 변경)
     if (mission_running_.load()) {
-        // PX4가 DISARMED인데 미션 진행 중이면 → 이전 미션 비정상 종료, 상태 리셋
+        auto state = current_state_.load();
         if (arming_state_.load() != 2) {  // 2 = ARMED
+            // 이륙 시퀀스 진행 중(PREPARING/OFFBOARD/ARMING/TAKEOFF)이면 좌표만 저장
+            if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
+                state == MissionState::ARMING || state == MissionState::TAKEOFF) {
+                RCLCPP_INFO(node_->get_logger(),
+                    "[MISSION] Startup in progress (state=%s), updating target only (no reset)",
+                    getStateName(state).c_str());
+                mission_config_.target_waypoint = config.target_waypoint;
+                mission_config_.takeoff_altitude = config.takeoff_altitude;
+                mission_config_.flight_speed = config.flight_speed;
+                if (config.target_altitude >= 0.0f) {
+                    mission_config_.target_altitude = config.target_altitude;
+                }
+                return true;
+            }
+            // 이륙 시퀀스가 아닌데 DISARMED → 이전 미션 비정상 종료, 상태 리셋
             RCLCPP_WARN(node_->get_logger(),
                 "[MISSION] Stale mission state detected! (mission_running=true, armed=OFF, state=%s) → Resetting",
-                getStateName(current_state_.load()).c_str());
+                getStateName(state).c_str());
             mission_running_.store(false);
             current_state_.store(MissionState::IDLE);
             abort_requested_.store(false);

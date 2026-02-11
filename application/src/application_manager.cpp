@@ -1354,6 +1354,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
             // 비행 모드 결정
             bool use_formation = formation_controller_ && readMissionModeFromConfig();
+            if (formation_controller_) formation_controller_->setSoloMode(!use_formation);
 
             // 리더: FormationController 미션 타겟 + 파라미터 업데이트
             if (use_formation && formation_controller_->getRole() == FormationRole::LEADER) {
@@ -1443,6 +1444,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
     // 비행 모드 결정: formation_controller 존재 + offboard_config.json의 mission_mode
     bool use_formation = formation_controller_ && readMissionModeFromConfig();
+    if (formation_controller_) formation_controller_->setSoloMode(!use_formation);
     std::cout << "  - 비행 모드: " << (use_formation ? "편대비행 (formation)" : "단독비행 (solo)") << std::endl;
 
     // ★★★ 리더: CMD_FOLLOW 타겟 먼저 설정 (미션 스레드 시작 전!) ★★★

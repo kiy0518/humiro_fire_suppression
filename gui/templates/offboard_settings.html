@@ -407,6 +407,8 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
         else showToast('저장 실패', 'danger');
         loadConfig();
         loadFormationConfig();
+        // 단독비행 배너 즉시 갱신
+        if (typeof checkSoloMode === 'function') checkSoloMode();
     }).catch(err => showToast('저장 실패: ' + err, 'danger'));
 });
 

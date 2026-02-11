@@ -81,9 +81,9 @@ void FormationController::initLeader() {
     qos_reliable.reliability(rclcpp::ReliabilityPolicy::Reliable);
     qos_reliable.durability(rclcpp::DurabilityPolicy::Volatile);
 
-    // ROS_NAMESPACE 기반 토픽 경로 (노드가 root namespace에 있으므로 수동 prefix)
-    const char* ns_env = getenv("ROS_NAMESPACE");
-    std::string ns_prefix = ns_env ? ("/" + std::string(ns_env)) : "";
+    // DRONE_ID 기반 토픽 경로 (SITL/FC 모두 동일하게 동작)
+    const char* drone_id_env = getenv("DRONE_ID");
+    std::string ns_prefix = drone_id_env ? ("/drone" + std::string(drone_id_env)) : "/drone1";
 
     leader_pose_pub_ = node_->create_publisher<humiro_msgs::msg::LeaderPose>(
         ns_prefix + "/formation/leader_pose", qos_best_effort);
@@ -194,6 +194,7 @@ void FormationController::setLeaderNamespace(const std::string& ns) {
 
 void FormationController::leaderPoseTimerCallback() {
     if (!running_.load() || !offboard_mgr_) return;
+    if (solo_mode_.load()) return;  // Solo 모드: LeaderPose 발행 안 함
 
     auto msg = humiro_msgs::msg::LeaderPose();
     msg.header.stamp = node_->now();
@@ -227,6 +228,7 @@ void FormationController::leaderPoseTimerCallback() {
 
 void FormationController::leaderStatusTimerCallback() {
     if (!running_.load() || !offboard_mgr_) return;
+    if (solo_mode_.load()) return;  // Solo 모드: CMD_FOLLOW 및 편대 동기화 안 함
 
     // 미션 시작 즉시 → CMD_FOLLOW 전송 (리더/팔로워 동시 시동+이륙)
     MissionState current = offboard_mgr_->getCurrentState();
@@ -345,6 +347,7 @@ void FormationController::leaderStatusTimerCallback() {
 
 void FormationController::heartbeatTimerCallback() {
     if (!running_.load()) return;
+    if (solo_mode_.load()) return;  // Solo 모드: Heartbeat 발행 안 함
 
     auto msg = humiro_msgs::msg::FormationHeartbeat();
     msg.header.stamp = node_->now();
