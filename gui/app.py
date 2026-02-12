@@ -184,6 +184,21 @@ class MavlinkManager:
                 self._mav = None
                 return None, str(e)
 
+    def is_armed(self):
+        """FC arming 상태 확인. True=armed, False=disarmed, None=확인불가"""
+        with self._lock:
+            try:
+                if not self._mav or (time.time() - self._last_connect) > 30:
+                    if not self._connect():
+                        return None
+                # heartbeat에서 base_mode 확인
+                msg = self._mav.recv_match(type='HEARTBEAT', blocking=True, timeout=2)
+                if msg and msg.get_srcSystem() not in [0, 255]:
+                    return bool(msg.base_mode & 128)  # MAV_MODE_FLAG_SAFETY_ARMED
+                return None
+            except:
+                return None
+
 mavlink_mgr = MavlinkManager()
 
 
@@ -1761,6 +1776,14 @@ def api_router_set_sitl_mode():
     mode = data.get('mode', 'fc')
     sitl_ip = data.get('sitl_ip', '192.168.100.4')
 
+    # DISARM 상태 확인 (armed 상태에서는 모드 전환 불가)
+    armed = mavlink_mgr.is_armed()
+    if armed is True:
+        return jsonify({
+            'success': False,
+            'error': 'FC가 Armed 상태입니다. Disarm 후 모드를 전환하세요.'
+        }), 400
+
     drone_id = config_manager.get_drone_id()
     qgc_port = int(config_manager.get('QGC_UDP_PORT', str(ConfigManager.get_gcs_port_for_drone(drone_id))))
 
@@ -1882,17 +1905,9 @@ Port = {application_port}
                 'error': f'설정 파일 저장 실패: {result.stderr}'
             }), 500
 
-        # device_config.env ROS_NAMESPACE 설정
-        # SITL: uxrce_dds_client -n droneN 사용 → ROS_NAMESPACE=droneN 필요
-        # FC: 네임스페이스 없이 동작 → ROS_NAMESPACE 제거
-        if mode == 'sitl':
-            config_manager.set('ROS_NAMESPACE', f'drone{drone_id}')
-        else:
-            # FC 모드: ROS_NAMESPACE 제거 (없으면 /fmu/out/... 직접 구독)
-            if 'ROS_NAMESPACE' in config_manager._device_config:
-                del config_manager._device_config['ROS_NAMESPACE']
-
-        config_manager.save_device_config()
+        # NOTE: ROS_NAMESPACE는 PX4 uXRCE-DDS와 무관 (px4_ns="" 하드코딩).
+        # PX4 토픽은 항상 /fmu/in/..., /fmu/out/... 으로 네임스페이스 없이 동작.
+        # ROS_NAMESPACE는 편대비행 inter-drone DDS에서만 사용되며 모드 전환과 무관.
 
         # DDS 포트(8888) iptables 규칙: SITL↔FC 데이터 소스 격리
         # SITL 모드: eth0(FC)에서 오는 DDS 차단 → SITL PC만 연결
@@ -1918,51 +1933,124 @@ Port = {application_port}
                             '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                            capture_output=True, timeout=5)
 
-        # 서비스 및 프로세스 중지 (stale 상태 완전 정리)
-        # 메인 프로그램: systemd 서비스 또는 터미널 프로세스 모두 종료
+        # iptables 규칙 저장 (재부팅 후 자동 복원용)
+        subprocess.run('sudo iptables-save | sudo tee /etc/iptables.rules > /dev/null',
+                       shell=True, capture_output=True, timeout=5)
+
+        # ============================================================
+        # Phase 1: 모든 서비스 중지 (역순)
+        # ============================================================
+        # 1a. 애플리케이션 중지 (stale DDS 구독 정리)
         subprocess.run(['sudo', 'systemctl', 'stop', 'humiro-fire-suppression'],
                        capture_output=True, text=True, timeout=10)
         subprocess.run(['pkill', '-f', 'humiro_fire_suppression/application/build/humiro_fire_suppression'],
                        capture_output=True, text=True, timeout=5)
+
+        # 1b. micro-ros-agent 중지 + 강제 종료 (UDP 8888 포트 확실히 해제)
         subprocess.run(['sudo', 'systemctl', 'stop', 'micro-ros-agent'],
                        capture_output=True, text=True, timeout=10)
+        subprocess.run(['sudo', 'pkill', '-9', '-f', 'micro_ros_agent'],
+                       capture_output=True, text=True, timeout=5)
+
+        # 1c. mavlink-router 중지
         subprocess.run(['sudo', 'systemctl', 'stop', 'mavlink-router'],
                        capture_output=True, text=True, timeout=10)
 
+        # ============================================================
+        # Phase 2: 소켓/세션 정리 대기
+        # ============================================================
         import time
-        time.sleep(1)  # 포트/소켓 해제 대기
+        time.sleep(2)  # UDP 소켓 해제 + DDS 세션 정리 대기
 
-        # 서비스 시작 (메인 프로그램은 터미널에서 수동 실행)
+        # 포트 8888 해제 확인 (최대 5초)
+        for _retry in range(5):
+            port_check = subprocess.run(
+                ['ss', '-uln'], capture_output=True, text=True, timeout=2)
+            if ':8888' not in port_check.stdout:
+                break
+            time.sleep(1)
+
+        # ============================================================
+        # Phase 3: 서비스 시작 (의존성 순서)
+        # ============================================================
+        # 3a. mavlink-router 시작
         mavlink_result = subprocess.run(
             ['sudo', 'systemctl', 'start', 'mavlink-router'],
             capture_output=True, text=True, timeout=10
         )
-
         if mavlink_result.returncode != 0:
             return jsonify({
                 'success': False,
                 'error': f'mavlink-router 시작 실패: {mavlink_result.stderr}'
             }), 500
 
+        # 3b. micro-ros-agent 시작
         micro_ros_result = subprocess.run(
             ['sudo', 'systemctl', 'start', 'micro-ros-agent'],
             capture_output=True, text=True, timeout=10
         )
-
         if micro_ros_result.returncode != 0:
             return jsonify({
                 'success': False,
                 'error': f'micro-ros-agent 시작 실패: {micro_ros_result.stderr}'
             }), 500
 
+        # 3c. micro-ros-agent 포트 8888 리스닝 확인 (최대 5초)
+        agent_ready = False
+        for _retry in range(10):
+            port_check = subprocess.run(
+                ['ss', '-uln'], capture_output=True, text=True, timeout=2)
+            if ':8888' in port_check.stdout:
+                agent_ready = True
+                break
+            time.sleep(0.5)
+
+        # ============================================================
+        # Phase 3.5: GUI 내부 전역 상태 초기화
+        # ============================================================
+        # MAVLink 연결 초기화 (이전 FC/SITL 세션 정리)
+        with mavlink_mgr._lock:
+            if mavlink_mgr._mav:
+                try:
+                    mavlink_mgr._mav.close()
+                except:
+                    pass
+            mavlink_mgr._mav = None
+            mavlink_mgr._target_sys = None
+            mavlink_mgr._target_comp = None
+            mavlink_mgr._last_connect = 0
+
+        # ROS2 토픽 스트리밍 프로세스 종료
+        global _topic_echo_process
+        with _topic_echo_lock:
+            if _topic_echo_process and _topic_echo_process.poll() is None:
+                _topic_echo_process.terminate()
+                try:
+                    _topic_echo_process.wait(timeout=2)
+                except:
+                    _topic_echo_process.kill()
+            _topic_echo_process = None
+
+        # 설정 캐시 리로드
+        config_manager.reload()
+
+        # 3d. 애플리케이션 재시작
+        app_result = subprocess.run(
+            ['sudo', 'systemctl', 'start', 'humiro-fire-suppression'],
+            capture_output=True, text=True, timeout=10
+        )
+
+        # ============================================================
+        # Phase 4: 결과 반환
+        # ============================================================
         mode_desc = 'SITL 시뮬레이션' if mode == 'sitl' else '실제 FC 연결'
-        ns_desc = f'drone{drone_id}' if mode == 'sitl' else '없음'
         return jsonify({
             'success': True,
             'mode': mode,
-            'message': f'{mode_desc} 모드로 전환되었습니다. (ROS_NAMESPACE: {ns_desc})',
+            'message': f'{mode_desc} 모드로 전환되었습니다.',
             'sitl_ip': sitl_ip if mode == 'sitl' else None,
-            'ros_namespace': f'drone{drone_id}' if mode == 'sitl' else None
+            'agent_ready': agent_ready,
+            'app_restarted': app_result.returncode == 0
         })
 
     except Exception as e:
@@ -3223,6 +3311,23 @@ def api_set_offboard_config():
     """오프보드 설정 저장"""
     try:
         data = request.json
+
+        # mission_mode 변경 시 DISARM 상태 확인
+        if 'mission_mode' in data:
+            # 현재 설정과 비교
+            current_mode = None
+            if os.path.exists(OFFBOARD_CONFIG_PATH):
+                with open(OFFBOARD_CONFIG_PATH, 'r') as f:
+                    current = json.load(f)
+                    current_mode = current.get('mission_mode')
+            if current_mode and current_mode != data['mission_mode']:
+                armed = mavlink_mgr.is_armed()
+                if armed is True:
+                    return jsonify({
+                        "success": False,
+                        "message": "FC가 Armed 상태입니다. Disarm 후 비행 모드를 변경하세요."
+                    })
+
         from datetime import datetime
         data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

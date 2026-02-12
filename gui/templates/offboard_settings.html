@@ -356,11 +356,17 @@ function loadConfig() {
                     const el = document.getElementById(field);
                     if (el && config[field] !== undefined) el.value = config[field];
                 });
-                // mission_mode 라디오 복원
+                // mission_mode 라디오 복원 + 저장된 값 마킹
                 if (config.mission_mode) {
+                    document.querySelectorAll('input[name="mission_mode"]').forEach(el => {
+                        el.removeAttribute('data-saved');
+                    });
                     const radio = document.getElementById(
                         config.mission_mode === 'solo' ? 'mode_solo' : 'mode_formation');
-                    if (radio) radio.checked = true;
+                    if (radio) {
+                        radio.checked = true;
+                        radio.setAttribute('data-saved', 'true');
+                    }
                 }
                 if (config.updated_at)
                     document.getElementById('lastUpdated').textContent = config.updated_at;
@@ -380,6 +386,16 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
     // 오프보드 기본 설정 + 편대 기본 설정 동시 저장
     const missionMode = document.querySelector('input[name="mission_mode"]:checked').value;
     const offboardData = { target_altitude: altitude, mission_mode: missionMode };
+
+    // 비행 모드 변경 시 확인 메시지
+    const currentMode = document.querySelector('input[name="mission_mode"][data-saved]')?.value;
+    if (currentMode && currentMode !== missionMode) {
+        const modeText = missionMode === 'solo' ? '단독비행' : '편대비행';
+        if (!confirm(`비행 모드를 ${modeText}(으)로 변경하시겠습니까?\n\n주의: Disarm 상태에서만 변경 가능합니다.`)) {
+            return;
+        }
+    }
+
     const role = document.getElementById('fm_role').value;
     const preset = ROLE_PRESETS[role] || ROLE_PRESETS['Leader'];
     const formationData = {
@@ -403,8 +419,18 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
             body: JSON.stringify(formationData)
         }).then(r => r.json())
     ]).then(([r1, r2]) => {
-        if (r1.success && r2.success) showToast('기본 설정 저장 완료', 'success');
-        else showToast('저장 실패', 'danger');
+        if (r1.success && r2.success) {
+            showToast('기본 설정 저장 완료', 'success');
+            // 저장된 mission_mode 업데이트
+            document.querySelectorAll('input[name="mission_mode"]').forEach(el => {
+                el.removeAttribute('data-saved');
+            });
+            const savedRadio = document.querySelector(`input[name="mission_mode"][value="${missionMode}"]`);
+            if (savedRadio) savedRadio.setAttribute('data-saved', 'true');
+        } else {
+            const errMsg = r1.message || r2.message || '저장 실패';
+            showToast(errMsg, 'danger');
+        }
         loadConfig();
         loadFormationConfig();
         // 단독비행 배너 즉시 갱신

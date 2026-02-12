@@ -21,6 +21,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <mutex>
 
 // GPS 좌표 구조체
 struct GPSCoordinate {
@@ -181,6 +182,7 @@ private:
     std::atomic<uint64_t> setpoint_counter_{0};
     std::atomic<bool> abort_requested_{false};
     std::atomic<bool> mission_running_{false};
+    std::mutex mission_start_mutex_;  // 중복 미션 시작 방지 (executeMission3 진입 보호)
 
     // ========== FC 상태 ==========
     std::atomic<uint8_t> nav_state_{0};

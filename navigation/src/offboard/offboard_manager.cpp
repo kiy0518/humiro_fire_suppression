@@ -68,85 +68,92 @@ OffboardManager::~OffboardManager()
 
 bool OffboardManager::executeMission3(const MissionConfig& config)
 {
-    // 이미 미션 실행 중이면 좌표만 업데이트 (경로 변경)
-    if (mission_running_.load()) {
-        auto state = current_state_.load();
-        if (arming_state_.load() != 2) {  // 2 = ARMED
-            // 이륙 시퀀스 진행 중(PREPARING/OFFBOARD/ARMING/TAKEOFF)이면 좌표만 저장
-            if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
-                state == MissionState::ARMING || state == MissionState::TAKEOFF) {
-                RCLCPP_INFO(node_->get_logger(),
-                    "[MISSION] Startup in progress (state=%s), updating target only (no reset)",
-                    getStateName(state).c_str());
-                mission_config_.target_waypoint = config.target_waypoint;
-                mission_config_.takeoff_altitude = config.takeoff_altitude;
-                mission_config_.flight_speed = config.flight_speed;
-                if (config.target_altitude >= 0.0f) {
-                    mission_config_.target_altitude = config.target_altitude;
+    // ★ 미션 시작 구간 mutex (중복 스레드 동시 시작 방지)
+    // ApplicationManager에서 스레드로 호출 시, 중복 커스텀 메시지로 두 스레드가
+    // 동시에 진입하면 타이머가 2개 생성되는 race condition 방지
+    {
+        std::lock_guard<std::mutex> lock(mission_start_mutex_);
+
+        // 이미 미션 실행 중이면 좌표만 업데이트 (경로 변경)
+        if (mission_running_.load()) {
+            auto state = current_state_.load();
+            if (arming_state_.load() != 2) {  // 2 = ARMED
+                // 이륙 시퀀스 진행 중(PREPARING/OFFBOARD/ARMING/TAKEOFF)이면 좌표만 저장
+                if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
+                    state == MissionState::ARMING || state == MissionState::TAKEOFF) {
+                    RCLCPP_INFO(node_->get_logger(),
+                        "[MISSION] Startup in progress (state=%s), updating target only (no reset)",
+                        getStateName(state).c_str());
+                    mission_config_.target_waypoint = config.target_waypoint;
+                    mission_config_.takeoff_altitude = config.takeoff_altitude;
+                    mission_config_.flight_speed = config.flight_speed;
+                    if (config.target_altitude >= 0.0f) {
+                        mission_config_.target_altitude = config.target_altitude;
+                    }
+                    return true;
                 }
-                return true;
+                // 이륙 시퀀스가 아닌데 DISARMED → 이전 미션 비정상 종료, 상태 리셋
+                RCLCPP_WARN(node_->get_logger(),
+                    "[MISSION] Stale mission state detected! (mission_running=true, armed=OFF, state=%s) → Resetting",
+                    getStateName(state).c_str());
+                mission_running_.store(false);
+                current_state_.store(MissionState::IDLE);
+                abort_requested_.store(false);
+                if (timer_) timer_->cancel();
+                // 아래로 흘러서 새 미션 시작
+            } else {
+                RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
+                return updateMissionTarget(config.target_waypoint);
             }
-            // 이륙 시퀀스가 아닌데 DISARMED → 이전 미션 비정상 종료, 상태 리셋
-            RCLCPP_WARN(node_->get_logger(),
-                "[MISSION] Stale mission state detected! (mission_running=true, armed=OFF, state=%s) → Resetting",
-                getStateName(state).c_str());
-            mission_running_.store(false);
-            current_state_.store(MissionState::IDLE);
-            abort_requested_.store(false);
-            if (timer_) timer_->cancel();
-            // 아래로 흘러서 새 미션 시작
-        } else {
-            RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
-            return updateMissionTarget(config.target_waypoint);
         }
-    }
 
-    // 미션 설정 저장
-    mission_config_ = config;
-    mission_running_.store(true);
-    abort_requested_.store(false);
-    setpoint_counter_.store(0);
-    formation_ready_to_rotate_.store(false);
-    formation_ready_to_navigate_.store(false);
-    prev_vx_ = 0.0f;
-    prev_vy_ = 0.0f;
+        // 미션 설정 저장
+        mission_config_ = config;
+        mission_running_.store(true);
+        abort_requested_.store(false);
+        setpoint_counter_.store(0);
+        formation_ready_to_rotate_.store(false);
+        formation_ready_to_navigate_.store(false);
+        prev_vx_ = 0.0f;
+        prev_vy_ = 0.0f;
 
-    // Home 위치 리셋 (현재 위치를 새 Home으로 사용)
-    home_set_ = false;
+        // Home 위치 리셋 (현재 위치를 새 Home으로 사용)
+        home_set_ = false;
 
-    // 시작 위치 저장 (PX4 로컬 NED 좌표)
-    start_local_x_ = current_local_x_.load();
-    start_local_y_ = current_local_y_.load();
-    start_local_z_ = current_local_z_.load();
+        // 시작 위치 저장 (PX4 로컬 NED 좌표)
+        start_local_x_ = current_local_x_.load();
+        start_local_y_ = current_local_y_.load();
+        start_local_z_ = current_local_z_.load();
 
-    RCLCPP_INFO(node_->get_logger(), "==============================================");
-    RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMission3)");
-    RCLCPP_INFO(node_->get_logger(), "  Start position (NED): (%.1f, %.1f, %.1f)",
-                start_local_x_, start_local_y_, start_local_z_);
-    RCLCPP_INFO(node_->get_logger(), "==============================================");
-    RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.1f m", config.takeoff_altitude);
-    RCLCPP_INFO(node_->get_logger(), "  Target: Lat=%.7f, Lon=%.7f",
-                config.target_waypoint.latitude, config.target_waypoint.longitude);
-    RCLCPP_INFO(node_->get_logger(), "  Hover duration: %.1f sec", config.hover_duration_sec);
-    RCLCPP_INFO(node_->get_logger(), "==============================================");
-    RCLCPP_INFO(node_->get_logger(), "Mission sequence:");
-    RCLCPP_INFO(node_->get_logger(), "  1. Heartbeat 발행 (2초)");
-    RCLCPP_INFO(node_->get_logger(), "  2. OFFBOARD 모드 전환");
-    RCLCPP_INFO(node_->get_logger(), "  3. ARM (시동)");
-    RCLCPP_INFO(node_->get_logger(), "  4. 이륙 및 호버링");
-    RCLCPP_INFO(node_->get_logger(), "  5. 목표 방향 회전");
-    RCLCPP_INFO(node_->get_logger(), "  6. 목표 위치 이동");
-    RCLCPP_INFO(node_->get_logger(), "  7. 목표지점 호버링 (5초)");
-    RCLCPP_INFO(node_->get_logger(), "  8. RTL (자동 귀환)");
-    RCLCPP_INFO(node_->get_logger(), "==============================================\n");
+        RCLCPP_INFO(node_->get_logger(), "==============================================");
+        RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMission3)");
+        RCLCPP_INFO(node_->get_logger(), "  Start position (NED): (%.1f, %.1f, %.1f)",
+                    start_local_x_, start_local_y_, start_local_z_);
+        RCLCPP_INFO(node_->get_logger(), "==============================================");
+        RCLCPP_INFO(node_->get_logger(), "  Takeoff altitude: %.1f m", config.takeoff_altitude);
+        RCLCPP_INFO(node_->get_logger(), "  Target: Lat=%.7f, Lon=%.7f",
+                    config.target_waypoint.latitude, config.target_waypoint.longitude);
+        RCLCPP_INFO(node_->get_logger(), "  Hover duration: %.1f sec", config.hover_duration_sec);
+        RCLCPP_INFO(node_->get_logger(), "==============================================");
+        RCLCPP_INFO(node_->get_logger(), "Mission sequence:");
+        RCLCPP_INFO(node_->get_logger(), "  1. Heartbeat 발행 (2초)");
+        RCLCPP_INFO(node_->get_logger(), "  2. OFFBOARD 모드 전환");
+        RCLCPP_INFO(node_->get_logger(), "  3. ARM (시동)");
+        RCLCPP_INFO(node_->get_logger(), "  4. 이륙 및 호버링");
+        RCLCPP_INFO(node_->get_logger(), "  5. 목표 방향 회전");
+        RCLCPP_INFO(node_->get_logger(), "  6. 목표 위치 이동");
+        RCLCPP_INFO(node_->get_logger(), "  7. 목표지점 호버링 (5초)");
+        RCLCPP_INFO(node_->get_logger(), "  8. RTL (자동 귀환)");
+        RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
-    // 상태 초기화
-    current_state_.store(MissionState::PREPARING);
+        // 상태 초기화
+        current_state_.store(MissionState::PREPARING);
 
-    // 타이머 시작 (10Hz)
-    timer_ = node_->create_wall_timer(
-        100ms,
-        std::bind(&OffboardManager::timerCallback, this));
+        // 타이머 시작 (10Hz)
+        timer_ = node_->create_wall_timer(
+            100ms,
+            std::bind(&OffboardManager::timerCallback, this));
+    } // ★ mutex 해제 — 이후 대기 루프는 mutex 밖에서 실행
 
     // 미션 완료 또는 중단까지 대기
     while (mission_running_.load()) {
@@ -196,7 +203,11 @@ bool OffboardManager::executeMission4(const MissionConfig& config)
 
 void OffboardManager::timerCallback()
 {
-    // 미션이 실행 중이 아니면 아무것도 하지 않음
+    // ★ DDS 연결 유지: OffboardControlMode를 항상 발행
+    // (미션 비실행 중에도 발행하여 다음 미션 시 PX4가 즉시 수신 가능)
+    publishOffboardControlMode();
+
+    // 미션이 실행 중이 아니면 heartbeat만 발행하고 종료
     if (!mission_running_.load()) {
         return;
     }
@@ -205,12 +216,6 @@ void OffboardManager::timerCallback()
     if (abort_requested_.load()) {
         RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission aborted, triggering RTL...");
         abort_requested_.store(false);  // 한 번만 실행
-
-        // 타이머 먼저 취소
-        if (timer_) {
-            timer_->cancel();
-            RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
-        }
 
         // 명시적 AUTO_RTL 모드 전환 (main=4, sub=5)
         publishVehicleCommand(
@@ -224,7 +229,7 @@ void OffboardManager::timerCallback()
     auto state = current_state_.load();
     uint8_t nav = nav_state_.load();
 
-    // PX4가 RTL 모드(5)이거나 우리 상태가 RTL/LANDED/ERROR면 heartbeat 발행 안 함
+    // PX4가 RTL 모드(5)이거나 우리 상태가 RTL/LANDED/ERROR면 상태머신 스킵
     // nav_state: 5=AUTO_RTL, 14=OFFBOARD
     // 단, PREPARING/OFFBOARD/ARMING 단계에서는 이전 RTL 잔여 상태 무시
     // (새 미션 시작 직후 PX4가 아직 이전 AUTO_RTL인 경우 방지)
@@ -236,7 +241,7 @@ void OffboardManager::timerCallback()
         if ((state == MissionState::RTL || (nav == 5 && past_arming)) && arming_state_.load() == 1) {
             RCLCPP_INFO(node_->get_logger(), "[RTL] Vehicle disarmed, mission complete!");
             current_state_.store(MissionState::LANDED);
-            mission_running_.store(false);  // 이후 콜백에서 아무것도 하지 않음
+            mission_running_.store(false);
         }
         return;
     }
@@ -275,13 +280,7 @@ void OffboardManager::timerCallback()
             RCLCPP_INFO(node_->get_logger(), "\n[Step 7] 목표지점 호버링 완료! (%.0f초) RTL 시작...",
                         hover_limit / 10.0);
 
-            // 타이머 취소 (heartbeat 발행 없이 종료)
-            if (timer_) {
-                timer_->cancel();
-                RCLCPP_INFO(node_->get_logger(), "[RTL] Timer cancelled - no more heartbeats");
-            }
-
-            // 명시적 AUTO_RTL 모드 전환
+            // 명시적 AUTO_RTL 모드 전환 (타이머는 계속 실행 - DDS 연결 유지)
             publishVehicleCommand(
                 px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_SET_MODE,
                 1.0f, 4.0f, 5.0f);
@@ -292,9 +291,6 @@ void OffboardManager::timerCallback()
     }
 
     // 2. 타임아웃 체크 제거 - 미션 완료 또는 수동 개입으로만 RTL 진입
-
-    // ★★★ 핵심: heartbeat 발행 (RTL 체크 통과 후에만) ★★★
-    publishOffboardControlMode();
 
     // ========== 상태 머신 ==========
 
@@ -486,9 +482,24 @@ void OffboardManager::timerCallback()
         was_collision_active_ = active;
     }
 
-    // TrajectorySetpoint 발행 (ARM 이후)
-    if (counter > ARM_COUNT && state != MissionState::RTL) {
-        publishTrajectorySetpoint();
+    // TrajectorySetpoint 발행
+    if (state != MissionState::RTL) {
+        if (counter > ARM_COUNT) {
+            publishTrajectorySetpoint();
+        } else {
+            // ARM 전: 현재 위치 유지 setpoint (PX4 OFFBOARD 모드 유지에 필수)
+            px4_msgs::msg::TrajectorySetpoint msg{};
+            msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
+            msg.position = {
+                current_local_x_.load(),
+                current_local_y_.load(),
+                current_local_z_.load()
+            };
+            msg.velocity = {NAN, NAN, NAN};
+            msg.yaw = current_yaw_.load();
+            msg.yawspeed = 0.0f;
+            trajectory_setpoint_pub_->publish(msg);
+        }
     }
 
     // 진행 상황 로깅 (준비 중)

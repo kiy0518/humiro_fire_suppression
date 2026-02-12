@@ -2355,7 +2355,9 @@
                 await loadNetworkDrones();  // 네트워크 드론/SITL 인스턴스 다시 로드
 
                 const modeText = mode === 'sitl' ? `SITL 시뮬레이션 (${sitlIp})` : '실제 FC 연결';
-                alert(`${modeText} 모드로 전환되었습니다.\n\nmavlink-router가 재시작되었습니다.`);
+                const agentStatus = result.agent_ready ? 'DDS Agent 준비 완료' : 'DDS Agent 시작 중...';
+                const appStatus = result.app_restarted ? '애플리케이션 재시작됨' : '애플리케이션 수동 시작 필요';
+                alert(`${modeText} 모드로 전환되었습니다.\n\n${agentStatus}\n${appStatus}`);
             } else {
                 throw new Error(result.error || '변경 실패');
             }
@@ -2406,7 +2408,7 @@
                 // SITL 모드로 전환
                 const sitlIp = promptSitlIp();
                 if (sitlIp) {
-                    if (confirm(`SITL 시뮬레이션 모드로 전환하시겠습니까?\n\nPC IP: ${sitlIp}\n\n주의: mavlink-router가 재시작됩니다.`)) {
+                    if (confirm(`SITL 시뮬레이션 모드로 전환하시겠습니까?\n\nPC IP: ${sitlIp}\n\n주의: 모든 서비스가 재시작됩니다.`)) {
                         changeSitlMode('sitl', sitlIp);
                     } else {
                         updateSitlModeToggle();
@@ -2416,7 +2418,7 @@
                 }
             } else {
                 // FC 모드로 전환
-                if (confirm('실제 FC 연결 모드로 전환하시겠습니까?\n\n주의: mavlink-router가 재시작됩니다.')) {
+                if (confirm('실제 FC 연결 모드로 전환하시겠습니까?\n\n주의: 모든 서비스가 재시작됩니다.')) {
                     changeSitlMode('fc', null);
                 } else {
                     updateSitlModeToggle();
