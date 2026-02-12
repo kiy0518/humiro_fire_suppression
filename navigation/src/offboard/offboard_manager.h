@@ -1,11 +1,14 @@
 /**
  * @file offboard_manager.h
- * @brief PX4 Offboard 제어 - 단순화된 버전
+ * @brief PX4 Offboard 제어 - 핸들러 기반 아키텍처
  *
  * PX4 공식 문서 기반:
  * - OffboardControlMode heartbeat를 2Hz 이상 지속적으로 발행 (10Hz 사용)
  * - TrajectorySetpoint으로 위치 제어
  * - Arming 전부터 메시지 발행 필요
+ *
+ * 각 상태(PREPARE, ARM, TAKEOFF 등)를 독립 핸들러로 분리.
+ * 조건 기반 전환 (카운터 기반 → nav_state, arming_state, 고도, 거리 확인).
  */
 
 #ifndef OFFBOARD_MANAGER_H
@@ -22,22 +25,10 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <memory>
 
-// GPS 좌표 구조체
-struct GPSCoordinate {
-    double latitude = 0.0;
-    double longitude = 0.0;
-    float altitude = 0.0f;
-};
-
-// 미션 설정 구조체
-struct MissionConfig {
-    float takeoff_altitude = 5.0f;           // 이륙 고도 (미터)
-    float target_altitude = -1.0f;           // 목표지점 고도 (미터), -1이면 takeoff_altitude 사용
-    float flight_speed = 5.0f;               // 비행 속도 (m/s)
-    GPSCoordinate target_waypoint;           // 목표 위치
-    float hover_duration_sec = 3.0f;         // 호버링 시간 (초)
-};
+#include "mission_context.h"
+#include "handlers/state_handler.h"
 
 // 미션 상태
 enum class MissionState {
@@ -260,6 +251,23 @@ private:
     float hold_x_{0.0f}, hold_y_{0.0f}, hold_z_{0.0f}, hold_yaw_{0.0f};
     float evade_offset_n_{0.0f}, evade_offset_e_{0.0f};  // 우회 오프셋 (NED)
 
+    // ========== 핸들러 아키텍처 (점진적 전환) ==========
+    MissionContext ctx_;
+    std::unique_ptr<StateHandler> prepare_handler_;
+    std::unique_ptr<StateHandler> offboard_handler_;
+    std::unique_ptr<StateHandler> arm_handler_;
+    std::unique_ptr<StateHandler> takeoff_handler_;
+    std::unique_ptr<StateHandler> hover_handler_;
+    std::unique_ptr<StateHandler> rotate_handler_;
+    std::unique_ptr<StateHandler> navigate_handler_;
+    std::unique_ptr<StateHandler> hover_at_target_handler_;
+    std::unique_ptr<StateHandler> rtl_handler_;
+    StateHandler* current_handler_{nullptr};  // 현재 활성 핸들러 (소유권 없음)
+
+    void transitionTo(StateHandler* handler);
+    void advanceToNextHandler();
+    void syncContextFromMembers();   // 기존 멤버 → ctx_ 동기화
+    void syncMembersFromContext();   // ctx_ → 기존 멤버 동기화
 };
 
 #endif // OFFBOARD_MANAGER_H

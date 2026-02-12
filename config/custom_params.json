@@ -10,7 +10,14 @@
     },
     "outdoor_rtk": {
       "name": "야외 RTK 모드",
-      "params": []
+      "params": [
+        {
+          "name": "MPC_XY_VEL_MAX",
+          "expected": 2,
+          "description": "수평으로 날 수 있는 절대 최대 속도의 상한선",
+          "auto_check": true
+        }
+      ]
     },
     "common": {
       "name": "공통",
@@ -24,5 +31,5 @@
       ]
     }
   },
-  "updated_at": "2026-02-04 12:00:00"
+  "updated_at": "2026-02-12 17:26:00"
 }

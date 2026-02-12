@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.16.7
+**최신 태그**: v0.17.0
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -44,6 +44,7 @@
 | `013_NEXT_STEPS_FORMATION_CONTROL.md` | 편대 제어 다음 단계 |
 | `025_COLLISION_AVOIDANCE_DESIGN.md` | 충돌 방지 설계 |
 | `025_COLLISION_AVOIDANCE_VERIFICATION.md` | 충돌 방지 검증 |
+| `028_OFFBOARD_HANDLER_REFACTORING.md` | OFFBOARD 핸들러 리팩토링 계획 |
 
 #### 통신 / 메시지
 | 파일 | 내용 |
@@ -282,6 +283,18 @@ humiro_fire_suppression/
 ├── navigation/                 # OFFBOARD 자율 비행
 │   └── src/offboard/
 │       ├── offboard_manager.cpp/h     # OFFBOARD 미션 제어 (핵심)
+│       ├── mission_context.h          # 핸들러 공유 상태
+│       ├── handlers/                  # 상태별 핸들러
+│       │   ├── state_handler.h        # 베이스 인터페이스
+│       │   ├── prepare_handler.h      # PREPARE (heartbeat)
+│       │   ├── offboard_handler.h     # OFFBOARD 모드 전환
+│       │   ├── arm_handler.h          # ARM (시동)
+│       │   ├── takeoff_handler.h      # TAKEOFF (이륙)
+│       │   ├── hover_handler.h        # HOVER (호버링)
+│       │   ├── rotate_handler.h       # ROTATE (회전)
+│       │   ├── navigate_handler.h     # NAVIGATE (이동)
+│       │   ├── hover_at_target_handler.h  # 목표지점 호버링
+│       │   └── rtl_handler.h          # RTL (귀환)
 │       └── CMakeLists.txt
 │
 ├── custom_message/             # MAVLink 커스텀 메시지 (60000-60003)
@@ -402,7 +415,7 @@ humiro_fire_suppression/
 │   ├── setup/                             # 설정 가이드
 │   └── technical/                         # 기술 문서
 │
-├── work-plan/                  # 프로젝트 계획 문서 (28개)
+├── work-plan/                  # 프로젝트 계획 문서 (29개)
 │
 ├── CLAUDE.md                   # 이 파일
 └── CHANGELOG.md                # 변경 이력

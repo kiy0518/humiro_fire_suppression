@@ -1,0 +1,110 @@
+/**
+ * @file takeoff_handler.h
+ * @brief TAKEOFF (이륙) 핸들러
+ *
+ * 시작 위치에서 takeoff_altitude까지 상승.
+ * PX4 position setpoint로 목표 고도 지정, PX4가 자체 가감속 수행.
+ *
+ * 전환 조건 (카운터 기반 → 조건 기반 변경):
+ *   - 고도 오차 < 0.5m
+ *   - 안정화 1초 이상 유지
+ *   - 최소 3초 경과
+ * 타임아웃: 30초 → ABORT_RTL
+ */
+
+#ifndef TAKEOFF_HANDLER_H
+#define TAKEOFF_HANDLER_H
+
+#include "state_handler.h"
+#include "../mission_context.h"
+
+class TakeoffHandler : public StateHandler {
+public:
+    void onEnter(MissionContext& ctx) override {
+        ctx.state_enter_time = std::chrono::steady_clock::now();
+        stable_start_valid_ = false;
+        last_log_sec_ = -1;
+
+        // 이륙 목표 고도 (NED: z가 작을수록 높음)
+        takeoff_z_ = ctx.start_local_z - ctx.takeoff_altitude;
+
+        RCLCPP_INFO(ctx.logger, "[TAKEOFF] 이륙 시작: 목표 고도 %.1fm (start_z=%.1f, target_z=%.1f)",
+                    ctx.takeoff_altitude, ctx.start_local_z, takeoff_z_);
+    }
+
+    void onExit(MissionContext& ctx) override {
+        (void)ctx;
+    }
+
+    TransitionResult tick(MissionContext& ctx) override {
+        float current_z = ctx.current_local_z.load();
+        float error = std::fabs(current_z - takeoff_z_);
+        double elapsed = ctx.elapsedSec();
+
+        auto now = std::chrono::steady_clock::now();
+
+        // 고도 오차 < 0.5m → 안정화 타이머
+        if (error < 0.5f) {
+            if (!stable_start_valid_) {
+                stable_start_ = now;
+                stable_start_valid_ = true;
+                RCLCPP_INFO(ctx.logger, "[TAKEOFF] 목표 고도 근접 (오차: %.2fm), 안정화 대기...", error);
+            }
+
+            double stable_sec = std::chrono::duration<double>(now - stable_start_).count();
+
+            // 최소 3초 경과 + 1초 안정화 → 이륙 완료
+            if (elapsed >= 3.0 && stable_sec >= 1.0) {
+                RCLCPP_INFO(ctx.logger, "[TAKEOFF] 이륙 완료! 고도 오차: %.2fm, 안정: %.1fs, 경과: %.1fs",
+                            error, stable_sec, elapsed);
+                return TransitionResult::COMPLETE;
+            }
+        } else {
+            // 오차 다시 커지면 안정화 리셋
+            if (stable_start_valid_) {
+                RCLCPP_INFO(ctx.logger, "[TAKEOFF] 안정화 리셋 (오차: %.2fm)", error);
+                stable_start_valid_ = false;
+            }
+        }
+
+        // 타임아웃: 30초
+        if (elapsed > 30.0) {
+            RCLCPP_ERROR(ctx.logger, "[TAKEOFF] 타임아웃! 고도 오차: %.2fm", error);
+            return TransitionResult::ABORT_RTL;
+        }
+
+        // 진행 로깅 (2초마다)
+        int log_sec = static_cast<int>(elapsed) / 2;
+        if (log_sec != last_log_sec_) {
+            last_log_sec_ = log_sec;
+            RCLCPP_INFO(ctx.logger, "[TAKEOFF] 고도: %.1fm / %.1fm (오차: %.2fm, %.1fs)",
+                        -(current_z - ctx.start_local_z), ctx.takeoff_altitude, error, elapsed);
+        }
+
+        return TransitionResult::STAY;
+    }
+
+    bool fillSetpoint(MissionContext& ctx,
+                      px4_msgs::msg::TrajectorySetpoint& sp) override {
+        // 시작 위치 기준, takeoff_altitude만큼 상승
+        sp.position = {
+            ctx.start_local_x,
+            ctx.start_local_y,
+            takeoff_z_
+        };
+        sp.velocity = {NAN, NAN, NAN};
+        sp.yaw = ctx.initial_yaw;
+        sp.yawspeed = 0.0f;
+        return true;
+    }
+
+    const char* name() const override { return "TAKEOFF"; }
+
+private:
+    float takeoff_z_{0.0f};
+    std::chrono::steady_clock::time_point stable_start_{};
+    bool stable_start_valid_{false};
+    int last_log_sec_{-1};
+};
+
+#endif // TAKEOFF_HANDLER_H
