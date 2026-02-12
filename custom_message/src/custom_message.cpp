@@ -524,7 +524,10 @@ private:
                         // ★ 수신 필터 + 즉시 처리 (큐 미사용)
                         // mavlink-router가 모든 MAVLink 트래픽을 전달하므로,
                         // 커스텀 메시지(60000~60003)와 COMMAND_LONG(76)만 즉시 파싱
-                        if (buffer[0] == 0xFD && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
+                        if (buffer[0] != 0xFD) {
+                            continue;  // MAVLink v1(0xFE) 등 v2가 아닌 메시지 무시
+                        }
+                        if (static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
                             uint32_t msg_id_filter = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) |
                                                      (static_cast<uint32_t>(buffer[9]) << 16);
                             bool is_relevant = (msg_id_filter == 76) ||  // COMMAND_LONG

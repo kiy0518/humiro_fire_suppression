@@ -49,3 +49,6 @@ custom_message/examples/test_message_sender
 *.before_*
 *~
 config/backup/
+
+# Device-specific config (각 기체별 다른 값)
+config/device_config.env
