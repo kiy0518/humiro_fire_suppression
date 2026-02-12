@@ -3381,10 +3381,24 @@ def api_set_formation_config():
         config_manager.set("SUPPRESS_DISTANCE", str(int(data.get("suppress_distance", 30))))
         config_manager.set("SUPPRESS_ANGLE", str(int(data.get("suppress_angle", 0))))
 
-        if config_manager.save_device_config():
-            return jsonify({"success": True, "message": "편대 설정이 저장되었습니다. 애플리케이션 재시작 시 적용됩니다."})
-        else:
+        if not config_manager.save_device_config():
             return jsonify({"success": False, "message": "설정 저장 실패"})
+
+        # Armed 상태 확인 → DISARMED일 때만 자동 재시작
+        armed = mavlink_mgr.is_armed()
+        if armed is True:
+            return jsonify({"success": True, "message": "편대 설정이 저장되었습니다. 현재 Armed 상태이므로 재시작하지 않습니다. DISARM 후 수동 재시작 필요."})
+
+        # DISARMED → 애플리케이션 자동 재시작
+        import subprocess
+        restart_result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'humiro-fire-suppression'],
+            capture_output=True, text=True, timeout=10
+        )
+        if restart_result.returncode == 0:
+            return jsonify({"success": True, "message": "편대 설정이 저장되었습니다. 애플리케이션을 재시작했습니다."})
+        else:
+            return jsonify({"success": True, "message": f"편대 설정이 저장되었습니다. 자동 재시작 실패: {restart_result.stderr}. 수동 재시작 필요."})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 
