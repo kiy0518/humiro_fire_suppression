@@ -244,6 +244,10 @@ private:
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s, ~28.6 deg/s)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f; // 도착 판정 거리 (m)
 
+    // ========== OFFBOARD 모드 복구 ==========
+    std::chrono::steady_clock::time_point last_offboard_recovery_{};
+    int offboard_recovery_count_{0};  // 연속 복구 횟수 (디버그용)
+
     // ========== 충돌 방지 ==========
     class CollisionAvoidance* collision_avoidance_{nullptr};
     std::atomic<int> collision_action_{0};  // 0=NONE, 1=HOLD, 2=EVADE_RIGHT

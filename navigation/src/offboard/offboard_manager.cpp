@@ -204,13 +204,18 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         std::this_thread::sleep_for(100ms);
     }
 
-    // 타이머 정지
-    if (timer_) {
-        timer_->cancel();
-        timer_.reset();
+    // 타이머 정지 + 상태 리셋 (mutex 보호: abort→재시작 race condition 방지)
+    // abort 후 새 미션이 이미 시작되었으면 새 타이머/상태를 건드리지 않음
+    {
+        std::lock_guard<std::mutex> lock(mission_start_mutex_);
+        if (!mission_running_.load()) {
+            if (timer_) {
+                timer_->cancel();
+                timer_.reset();
+            }
+            formation_mode_ = false;
+        }
     }
-
-    formation_mode_ = false;
     mission_running_.store(false);
 
     auto final_state = current_state_.load();
@@ -238,6 +243,26 @@ void OffboardManager::timerCallback()
     auto state = current_state_.load();
     if (state != MissionState::RTL && state != MissionState::LANDED) {
         publishOffboardControlMode();
+    }
+
+    // ★ OFFBOARD 모드 자동 복구: ARM 이후 PX4가 OFFBOARD에서 이탈하면 재진입 명령
+    // PX4는 OffboardControlMode heartbeat만으로는 모드를 유지하지 못할 수 있음
+    // (특히 SITL 멀티 인스턴스 환경에서 DDS 토픽 간섭 가능)
+    if (mission_running_.load() && arming_state_.load() == 2 && nav_state_.load() != 14) {
+        auto now = std::chrono::steady_clock::now();
+        double since_last = std::chrono::duration<double>(now - last_offboard_recovery_).count();
+        if (since_last >= 0.5) {  // 0.5초마다 (너무 빈번하지 않게)
+            last_offboard_recovery_ = now;
+            offboard_recovery_count_++;
+            RCLCPP_WARN(node_->get_logger(),
+                "[OFFBOARD RECOVERY] nav_state=%d (expected 14), DO_SET_MODE 재전송 #%d (state=%s)",
+                nav_state_.load(), offboard_recovery_count_, getStateName(state).c_str());
+            publishVehicleCommand(176 /*VEHICLE_CMD_DO_SET_MODE*/, 1.0f, 6.0f, 0.0f);
+        }
+    } else if (nav_state_.load() == 14 && offboard_recovery_count_ > 0) {
+        RCLCPP_INFO(node_->get_logger(),
+            "[OFFBOARD RECOVERY] OFFBOARD 모드 복구 완료 (%d회 재전송)", offboard_recovery_count_);
+        offboard_recovery_count_ = 0;
     }
 
     // 미션이 실행 중이 아니면 heartbeat만 발행하고 종료
@@ -682,6 +707,14 @@ void OffboardManager::resetToIdle()
     evade_offset_n_ = 0.0f;
     evade_offset_e_ = 0.0f;
 
+    // 편대 비행 상태 리셋
+    formation_mode_ = false;
+    formation_ready_to_rotate_.store(false);
+    formation_ready_to_navigate_.store(false);
+
+    // OFFBOARD 복구 카운터 리셋
+    offboard_recovery_count_ = 0;
+
     // Home 위치 리셋 (다음 미션에서 현재 위치 기준으로 재설정)
     home_set_ = false;
 
@@ -690,7 +723,7 @@ void OffboardManager::resetToIdle()
         timer_.reset();
     }
 
-    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE (home_set_ cleared)");
+    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE (formation/recovery cleared)");
 }
 
 void OffboardManager::setFormationReadyToRotate(bool ready) {
