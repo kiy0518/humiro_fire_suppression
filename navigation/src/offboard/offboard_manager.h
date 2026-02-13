@@ -48,7 +48,7 @@ enum class MissionState {
 
 class OffboardManager {
 public:
-    explicit OffboardManager(rclcpp::Node::SharedPtr node);
+    explicit OffboardManager(rclcpp::Node::SharedPtr node, const std::string& px4_ns = "");
     ~OffboardManager();
 
     /**

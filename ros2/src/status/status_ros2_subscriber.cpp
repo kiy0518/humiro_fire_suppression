@@ -34,7 +34,7 @@ struct VehicleGpsPosition {
 }
 #endif
 
-StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay)
+StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay, const std::string& px4_ns)
     : node_(node)
     , status_overlay_(status_overlay)
     , last_state_update_(std::chrono::steady_clock::now())
@@ -45,13 +45,10 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
         std::cerr << "  ✗ StatusROS2Subscriber: node 또는 status_overlay가 nullptr입니다" << std::endl;
         return;
     }
-    
+
     std::cout << "  → ROS2 노드 이름: " << node_->get_name() << std::endl;
     std::cout << "  → ROS2 네임스페이스: " << node_->get_namespace() << std::endl;
-
-    // PX4 토픽 네임스페이스: 각 VIM4마다 자체 micro-ros-agent이므로 불필요
-    // (uxrce-dds는 1:1 연결, 편대 토픽만 DRONE_ID로 네임스페이스 사용)
-    std::string px4_ns = "";
+    std::cout << "  → PX4 토픽 접두사: " << (px4_ns.empty() ? "(없음 - 단독비행)" : px4_ns) << std::endl;
 
     // PX4 uXRCE-DDS QoS 설정
     // PX4는 BEST_EFFORT와 TRANSIENT_LOCAL을 사용하므로 구독자도 동일하게 설정

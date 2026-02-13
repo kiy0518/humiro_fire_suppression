@@ -26,7 +26,7 @@ public:
     // 모드 변경 콜백 타입 (old_nav_state, new_nav_state)
     using ModeChangeCallback = std::function<void(uint8_t, uint8_t)>;
 
-    StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay);
+    StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay, const std::string& px4_ns = "");
     ~StatusROS2Subscriber();
 
     /**

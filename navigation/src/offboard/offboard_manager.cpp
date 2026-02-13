@@ -23,13 +23,9 @@
 
 using namespace std::chrono_literals;
 
-OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node)
+OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node, const std::string& px4_ns)
     : node_(node)
 {
-    // ========== PX4 토픽 네임스페이스 ==========
-    // 각 VIM4마다 자체 micro-ros-agent가 있으므로 PX4 토픽은 네임스페이스 불필요
-    // (uxrce-dds는 1:1 연결, 편대 토픽만 DRONE_ID로 네임스페이스 사용)
-    std::string px4_ns = "";
 
     // ========== PX4 호환 QoS 설정 (매우 중요!) ==========
     // PX4는 Best Effort + Volatile 조합을 요구

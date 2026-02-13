@@ -117,6 +117,7 @@ private:
     std::atomic<bool> thermal_init_done_;
     std::atomic<bool> mission_running_;  // 미션 실행 중 플래그 (중복 실행 방지)
     uint8_t drone_id_ = 1;  // DRONE_ID 환경 변수에서 로드 (멀티 드론 식별용)
+    std::string px4_ns_;    // PX4 DDS 토픽 네임스페이스 (편대: "/droneN", 단독: "")
     
     // 내부 메서드
     void initializeROS2(int argc, char* argv[]);
