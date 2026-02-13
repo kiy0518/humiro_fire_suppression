@@ -2325,12 +2325,16 @@
     }
 
     // SITL 모드 변경
+    let isSwitchingMode = false;  // 모드 전환 중 플래그
+
     async function changeSitlMode(mode, sitlIp) {
         const toggle = document.getElementById('sitlModeToggle');
         const label = document.getElementById('sitlModeLabel');
 
-        // 전환 중 토글 비활성화
+        // 전환 중 토글 완전 잠금
+        isSwitchingMode = true;
         toggle.disabled = true;
+        toggle.style.cursor = 'not-allowed';
         toggle.style.opacity = '0.5';
         label.innerHTML = '모드 전환 중... <small class="text-muted">(서비스 재시작)</small>';
 
@@ -2372,8 +2376,10 @@
             log(`SITL 모드 변경 실패: ${e.message}`, 'error');
             alert('SITL 모드 변경 실패: ' + e.message);
         } finally {
-            // 전환 완료/실패 후 토글 복원
+            // 전환 완료/실패 후 잠금 해제
+            isSwitchingMode = false;
             toggle.disabled = false;
+            toggle.style.cursor = 'pointer';
             toggle.style.opacity = '1';
             updateSitlModeToggle();
         }
@@ -2407,6 +2413,12 @@
         // 이벤트 핸들러를 먼저 등록 (비동기 로드 완료 전에도 토글이 동작하도록)
         // SITL 모드 토글 이벤트 핸들러
         document.getElementById('sitlModeToggle').addEventListener('change', (e) => {
+            // 모드 전환 중이면 토글 즉시 원래 상태로 되돌림
+            if (isSwitchingMode) {
+                e.target.checked = (currentSitlMode === 'sitl');
+                return;
+            }
+
             const requestedMode = e.target.checked ? 'sitl' : 'fc';
 
             // 현재 서버 상태와 동일한 모드를 요청하면 무시 (초기 동기화 시 발생)
