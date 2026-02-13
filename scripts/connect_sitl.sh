@@ -69,8 +69,9 @@ if [ -z "$DRONE_ID" ]; then
     exit 1
 fi
 
-# SITL 포트 계산: 14540 + (DRONE_ID - 1)
-SITL_PORT=$((14540 + DRONE_ID - 1))
+# SITL 포트 계산: 18001 + (DRONE_ID - 1) * 10 (통일 공식)
+PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
+SITL_PORT=$(( 18001 + PORT_OFFSET ))
 
 echo -e "${BLUE}=====================================${NC}"
 echo -e "${BLUE}   VIM4 SITL 연결 설정${NC}"

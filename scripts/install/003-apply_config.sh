@@ -298,7 +298,7 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     EXTERNAL_PORT_CALC=$(( 16001 + $PORT_OFFSET ))
     APP_PORT=$(( 15001 + $PORT_OFFSET ))
     TCP_PORT=$(( 5790 + $PORT_OFFSET ))
-    SITL_PORT=$(( 18000 + $DRONE_ID ))
+    SITL_PORT=$(( 18001 + $PORT_OFFSET ))
 
     # device_config.env의 EXTERNAL_UDP_PORT 사용 (있으면 우선, 없으면 계산값)
     EXTERNAL_PORT_FINAL=${EXTERNAL_UDP_PORT:-$EXTERNAL_PORT_CALC}

@@ -1375,18 +1375,20 @@ def api_router_port_scan():
         drone_id = config_manager.get_drone_id()
         port_offset = (drone_id - 1) * 10
 
-        # 스캔할 포트 목록 (드론별 동적 계산)
+        # 스캔할 포트 목록 (드론별 동적 계산, 통일 공식: BASE + (DRONE_ID-1)*10)
         qgc_port = 14550 + port_offset
         ros2_port = 14551 + port_offset
         app_port = 15001 + port_offset
+        external_port = 16001 + port_offset
         tcp_port = 5790 + port_offset
+        sitl_port = 18001 + port_offset
 
-        ports_to_scan = [14540, qgc_port, ros2_port, 14553, app_port, tcp_port]
+        ports_to_scan = [14540, qgc_port, ros2_port, external_port, app_port, tcp_port]
         port_names = {
             14540: 'FC',
             qgc_port: 'QGC',
             ros2_port: 'ROS2',
-            14553: 'External',
+            external_port: 'External',
             app_port: 'App',
             tcp_port: 'TCP Server'
         }
@@ -1709,7 +1711,7 @@ def api_router_sitl_instances():
     """SITL 모드일 때 모든 SITL 인스턴스(1, 2, 3번) 상태 조회
 
     PC에서 실행 중인 SITL 인스턴스들의 연결 상태를 확인합니다.
-    각 인스턴스는 14540, 14541, 14542 포트를 사용합니다.
+    각 인스턴스는 18001, 18011, 18021 포트를 사용합니다 (통일 공식: 18001 + (ID-1)*10).
     """
     status = get_sitl_mode_status()
 
@@ -1723,9 +1725,9 @@ def api_router_sitl_instances():
     sitl_ip = status.get('sitl_ip', '192.168.100.4')
     instances = []
 
-    # SITL 인스턴스 1, 2, 3 확인 (포트 14540, 14541, 14542)
+    # SITL 인스턴스 1, 2, 3 확인 (포트 18001, 18011, 18021 — 통일 공식)
     for i in range(1, 4):
-        port = 14540 + i - 1
+        port = 18001 + (i - 1) * 10
         instance = {
             'id': i,
             'port': port,
@@ -1794,7 +1796,7 @@ def api_router_set_sitl_mode():
     ros2_port = 14551 + port_offset
     tcp_port = 5790 + port_offset
     fc_mavlink_port = int(config_manager.get('FC_MAVLINK_PORT', '14540'))
-    sitl_port = 18000 + drone_id  # SITL 포트: 18001, 18002, 18003 (socat 포워딩용)
+    sitl_port = 18001 + port_offset  # SITL 포트: 18001, 18011, 18021 (통일 공식: BASE + PORT_OFFSET)
 
     try:
         if mode == 'sitl':

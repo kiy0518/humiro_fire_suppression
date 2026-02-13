@@ -548,6 +548,13 @@
                                     <td>5800</td>
                                     <td>5810</td>
                                 </tr>
+                                <tr>
+                                    <td><i class="bi bi-pc-display text-danger"></i> SITL</td>
+                                    <td>18001</td>
+                                    <td>18001</td>
+                                    <td>18011</td>
+                                    <td>18021</td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
@@ -913,13 +920,13 @@
                             <tr>
                                 <td>VIM4 → GCS</td>
                                 <td>MAVLink UDP</td>
-                                <td>14550</td>
-                                <td>QGC 텔레메트리 (mavlink-router → QGC)</td>
+                                <td>14550+</td>
+                                <td>QGC 텔레메트리 (드론별: 14550/14560/14570)</td>
                             </tr>
                             <tr>
                                 <td>GCS → VIM4</td>
                                 <td>MAVLink UDP</td>
-                                <td>14553</td>
+                                <td>16001+</td>
                                 <td>커스텀 메시지 (60000~60003, 미션 명령)</td>
                             </tr>
                             <tr>
@@ -1074,7 +1081,8 @@
             'ROS2': 14551 + portOffset,
             'App': 15001 + portOffset,
             'External': 16001 + portOffset,
-            'TCP': 5790 + portOffset
+            'TCP': 5790 + portOffset,
+            'SITL': 18001 + portOffset
         };
 
         // DRONE_ID 표시
@@ -1916,9 +1924,10 @@
                 ros2: 14551 + portOffset,
                 external: 16001 + portOffset,
                 app: 15001 + portOffset,
-                tcp: 5790 + portOffset
+                tcp: 5790 + portOffset,
+                sitl: 18001 + portOffset
             };
-            const portList = [dynamicPorts.fc, dynamicPorts.qgc, dynamicPorts.ros2, dynamicPorts.external, dynamicPorts.app, dynamicPorts.tcp];
+            const portList = [dynamicPorts.fc, dynamicPorts.qgc, dynamicPorts.ros2, dynamicPorts.external, dynamicPorts.app, dynamicPorts.tcp, dynamicPorts.sitl];
 
             let html = '<table class="table table-sm table-bordered mb-0">';
             html += '<thead><tr>';
