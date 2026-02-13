@@ -1787,9 +1787,13 @@ def api_router_set_sitl_mode():
     drone_id = config_manager.get_drone_id()
     qgc_port = int(config_manager.get('QGC_UDP_PORT', str(ConfigManager.get_gcs_port_for_drone(drone_id))))
 
-    # 드론별 포트 계산
-    external_port = 16000 + drone_id
-    application_port = 15000 + drone_id
+    # 드론별 포트 계산 (003-apply_config.sh와 동일 공식)
+    port_offset = (drone_id - 1) * 10
+    external_port = 16001 + port_offset
+    application_port = 15001 + port_offset
+    ros2_port = 14551 + port_offset
+    tcp_port = 5790 + port_offset
+    fc_mavlink_port = int(config_manager.get('FC_MAVLINK_PORT', '14540'))
     sitl_port = 18000 + drone_id  # SITL 포트: 18001, 18002, 18003 (socat 포워딩용)
 
     try:
@@ -1804,12 +1808,12 @@ def api_router_set_sitl_mode():
 # ==============================================================================
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = {tcp_port}
 ReportStats = false
 MavlinkDialect = common
 
 # SITL 연결 (시뮬레이션용) - WiFi (192.168.100.x)
-# 시뮬레이션 PC에서: mavlink start -u 14540 -o {sitl_port} -t {config_manager.get_wifi_ip()}
+# 시뮬레이션 PC에서: mavlink start -u {fc_mavlink_port} -o {sitl_port} -t {config_manager.get_wifi_ip()}
 [UdpEndpoint SITL]
 Mode = Server
 Address = 0.0.0.0
@@ -1831,7 +1835,7 @@ Port = {external_port}
 [UdpEndpoint ROS2]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = {ros2_port}
 
 # Application Manager 연결 (로컬)
 [UdpEndpoint Application]
@@ -1846,15 +1850,15 @@ Port = {application_port}
 # 모드: FC 연결 (실제 비행)
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = {tcp_port}
 ReportStats = false
 MavlinkDialect = common
 
-# FC (PX4) 연결 - 브로드캐스트 수신
+# FC (PX4) 연결 - 이더넷 (10.0.0.x)
 [UdpEndpoint FC]
 Mode = Server
 Address = 0.0.0.0
-Port = 14540
+Port = {fc_mavlink_port}
 
 # GCS (QGroundControl) 브로드캐스트 - 드론 {drone_id} 전용 포트
 [UdpEndpoint GCS]
@@ -1872,7 +1876,7 @@ Port = {external_port}
 [UdpEndpoint ROS2]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = {ros2_port}
 
 # Application Manager 연결 - 드론 {drone_id} 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]

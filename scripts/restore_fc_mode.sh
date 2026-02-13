@@ -25,9 +25,15 @@ source "$CONFIG_FILE"
 
 DRONE_ID=${DRONE_ID:-1}
 FC_IP=${FC_IP:-10.0.0.12}
-QGC_PORT=${QGC_UDP_PORT:-14550}
-EXTERNAL_PORT=$((16000 + DRONE_ID))
-APPLICATION_PORT=$((15000 + DRONE_ID))
+FC_MAVLINK_PORT=${FC_MAVLINK_PORT:-14540}
+
+# DRONE_ID 기반 포트 계산 (003-apply_config.sh와 동일 공식)
+PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
+QGC_PORT=$(( 14550 + PORT_OFFSET ))
+ROS2_PORT=$(( 14551 + PORT_OFFSET ))
+EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
+APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
+TCP_PORT=$(( 5790 + PORT_OFFSET ))
 
 # 브로드캐스트 IP 계산
 WIFI_IP=${WIFI_IP:-192.168.100.11}
@@ -49,15 +55,15 @@ else
 # 참고: 부팅 시 자동 복원됨
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = ${TCP_PORT}
 ReportStats = false
 MavlinkDialect = common
 
-# FC (PX4) 연결 - 브로드캐스트 수신
+# FC (PX4) 연결 - 이더넷 (10.0.0.x)
 [UdpEndpoint FC]
 Mode = Server
 Address = 0.0.0.0
-Port = 14540
+Port = ${FC_MAVLINK_PORT}
 
 # GCS (QGroundControl) 브로드캐스트 - 드론 ${DRONE_ID} 전용 포트
 [UdpEndpoint GCS]
@@ -75,7 +81,7 @@ Port = ${EXTERNAL_PORT}
 [UdpEndpoint ROS2]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = ${ROS2_PORT}
 
 # Application Manager 연결 - 드론 ${DRONE_ID} 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]
