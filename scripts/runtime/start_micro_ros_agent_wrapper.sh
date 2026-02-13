@@ -14,6 +14,9 @@ export ROS_DOMAIN_ID=0
 # export ROS_NAMESPACE=
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
+# FastDDS: loopback 전용 (WiFi를 통한 /fmu/* 토픽 교차 방지)
+export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+
 # ROS2 환경 로드
 source /opt/ros/humble/setup.bash
 
