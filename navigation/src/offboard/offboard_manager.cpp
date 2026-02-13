@@ -246,9 +246,9 @@ void OffboardManager::timerCallback()
     }
 
     // ★ OFFBOARD 모드 자동 복구: ARM 이후 PX4가 OFFBOARD에서 이탈하면 재진입 명령
-    // PX4는 OffboardControlMode heartbeat만으로는 모드를 유지하지 못할 수 있음
-    // (특히 SITL 멀티 인스턴스 환경에서 DDS 토픽 간섭 가능)
-    if (mission_running_.load() && arming_state_.load() == 2 && nav_state_.load() != 14) {
+    // RTL/LANDED 상태에서는 의도적 OFFBOARD 이탈이므로 복구하지 않음
+    if (mission_running_.load() && arming_state_.load() == 2 && nav_state_.load() != 14 &&
+        state != MissionState::RTL && state != MissionState::LANDED) {
         auto now = std::chrono::steady_clock::now();
         double since_last = std::chrono::duration<double>(now - last_offboard_recovery_).count();
         if (since_last >= 0.5) {  // 0.5초마다 (너무 빈번하지 않게)

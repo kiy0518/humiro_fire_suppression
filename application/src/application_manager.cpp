@@ -344,15 +344,17 @@ void ApplicationManager::initializeComponents() {
             status_ros2_subscriber_->setModeChangeCallback(
                 [this](uint8_t old_nav_state, uint8_t new_nav_state) {
                     if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
-                        // 시동~이륙 시퀀스 중에는 PX4 nav_state 일시적 변동 무시
-                        // (PX4는 OffboardControlMode heartbeat만으로 OFFBOARD 진입/이탈을 반복할 수 있음)
+                        // 미션 진행 중 의도적 OFFBOARD 이탈은 무시:
+                        // - RTL/LANDED: RTL 명령으로 의도적 OFFBOARD 종료 (PX4가 AUTO_RTL 또는 Position으로 전환)
+                        // - PREPARING~HOVER: 시동/이륙 시퀀스 중 PX4 nav_state 일시적 변동
                         if (offboard_manager_) {
                             MissionState ms = offboard_manager_->getCurrentState();
                             if (ms == MissionState::PREPARING || ms == MissionState::OFFBOARD ||
                                 ms == MissionState::ARMING || ms == MissionState::TAKEOFF ||
-                                ms == MissionState::HOVER) {
+                                ms == MissionState::HOVER ||
+                                ms == MissionState::RTL || ms == MissionState::LANDED) {
                                 std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state
-                                          << " (시동/이륙 시퀀스 중, 무시: state=" << OffboardManager::getStateName(ms) << ")" << std::endl;
+                                          << " (의도적 전환, 무시: state=" << OffboardManager::getStateName(ms) << ")" << std::endl;
                                 return;
                             }
                         }
