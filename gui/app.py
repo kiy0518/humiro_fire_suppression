@@ -1915,21 +1915,35 @@ Port = {application_port}
         subprocess.run(['sudo', 'modprobe', 'xt_udp'],
                        capture_output=True, timeout=5)  # iptables udp 매칭 모듈 로드
         fc_ip = config_manager.get('FC_IP', '10.0.0.12')
+        # 기존 INPUT 규칙 제거 (없어도 무시)
         subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'eth0', '-s', fc_ip,
                         '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
-                       capture_output=True, timeout=5)  # 기존 규칙 제거 (없어도 무시)
+                       capture_output=True, timeout=5)
         subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'wlan0',
                         '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
-                       capture_output=True, timeout=5)  # 기존 규칙 제거
+                       capture_output=True, timeout=5)
+        # 기존 OUTPUT 규칙 제거 (없어도 무시)
+        subprocess.run(['sudo', 'iptables', '-D', 'OUTPUT', '-o', 'eth0', '-d', fc_ip,
+                        '-p', 'udp', '-j', 'DROP'],
+                       capture_output=True, timeout=5)
+        subprocess.run(['sudo', 'iptables', '-D', 'OUTPUT', '-o', 'wlan0',
+                        '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                       capture_output=True, timeout=5)
 
         if mode == 'sitl':
-            # SITL 모드: FC(eth0)의 DDS 차단
+            # SITL 모드: FC(eth0) DDS 완전 차단 (수신 + 송신)
             subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'eth0', '-s', fc_ip,
                             '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                            capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'iptables', '-A', 'OUTPUT', '-o', 'eth0', '-d', fc_ip,
+                            '-p', 'udp', '-j', 'DROP'],
+                           capture_output=True, timeout=5)
         else:
-            # FC 모드: SITL PC(wlan0)의 DDS 차단
+            # FC 모드: SITL PC(wlan0) DDS 완전 차단 (수신 + 송신)
             subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'wlan0',
+                            '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
+                           capture_output=True, timeout=5)
+            subprocess.run(['sudo', 'iptables', '-A', 'OUTPUT', '-o', 'wlan0',
                             '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                            capture_output=True, timeout=5)
 
