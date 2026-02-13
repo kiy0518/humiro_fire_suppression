@@ -2326,6 +2326,14 @@
 
     // SITL 모드 변경
     async function changeSitlMode(mode, sitlIp) {
+        const toggle = document.getElementById('sitlModeToggle');
+        const label = document.getElementById('sitlModeLabel');
+
+        // 전환 중 토글 비활성화
+        toggle.disabled = true;
+        toggle.style.opacity = '0.5';
+        label.innerHTML = '모드 전환 중... <small class="text-muted">(서비스 재시작)</small>';
+
         try {
             log(`SITL 모드 변경 중: ${mode}...`, 'info');
 
@@ -2343,7 +2351,6 @@
             if (result.success) {
                 currentSitlMode = mode;
                 currentSitlIp = sitlIp;
-                updateSitlModeToggle();
                 log(`SITL 모드 변경 완료: ${mode}`, 'success');
 
                 // SITL 경고 배너 즉시 업데이트
@@ -2364,7 +2371,10 @@
         } catch (e) {
             log(`SITL 모드 변경 실패: ${e.message}`, 'error');
             alert('SITL 모드 변경 실패: ' + e.message);
-            // 토글 원래대로 복구
+        } finally {
+            // 전환 완료/실패 후 토글 복원
+            toggle.disabled = false;
+            toggle.style.opacity = '1';
             updateSitlModeToggle();
         }
     }
