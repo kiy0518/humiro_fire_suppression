@@ -80,10 +80,10 @@ public:
     
     /**
      * 정면 거리 가져오기 (0도에 가장 가까운 포인트)
-     * @param tolerance 허용 각도 범위 (도, 기본: 1도)
+     * @param tolerance 허용 각도 범위 (도, 기본: 0.1도)
      * @return 정면 거리 (미터), 데이터 없으면 -1
      */
-    float getFrontDistance(float tolerance = 1.0f);
+    float getFrontDistance(float tolerance = 0.3f);
     
     /**
      * 현재 스캔 데이터의 포인트 개수 가져오기

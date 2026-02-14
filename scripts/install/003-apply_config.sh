@@ -376,6 +376,8 @@ export HOME=$REAL_HOME
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
 export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+# FC DDS 토픽이 WiFi로 유출되지 않도록 eth0 전용 프로파일 사용
+export FASTRTPS_DEFAULT_PROFILES_FILE="\$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
 
 # ROS2 환경 로드
 source /opt/ros/humble/setup.bash
@@ -453,6 +455,41 @@ EOF
 
 chown $REAL_USER:$REAL_USER "$FASTDDS_XML"
 echo "  ✓ FastDDS 프로파일 생성 (eth0: $ETH0_IP, WiFi: $WIFI_IP)"
+
+# micro-ros-agent 전용 FastDDS 프로파일 (eth0만, WiFi 제외)
+# FC DDS 토픽이 WiFi로 유출되어 다른 드론의 FC와 교차오염되는 것을 방지
+FASTDDS_AGENT_XML="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+
+cat > "$FASTDDS_AGENT_XML" << EOF
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- micro-ros-agent 전용: eth0만 사용 (WiFi 제외)
+     FC DDS 토픽이 WiFi로 유출되어 다른 드론과 교차오염되는 것을 방지 -->
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <transport_descriptors>
+            <transport_descriptor>
+                <transport_id>eth0_only_udp</transport_id>
+                <type>UDPv4</type>
+                <interfaceWhiteList>
+                    <address>$ETH0_IP</address>
+                    <address>127.0.0.1</address>
+                </interfaceWhiteList>
+            </transport_descriptor>
+        </transport_descriptors>
+        <participant profile_name="participant_profile" is_default_profile="true">
+            <rtps>
+                <userTransports>
+                    <transport_id>eth0_only_udp</transport_id>
+                </userTransports>
+                <useBuiltinTransports>false</useBuiltinTransports>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
+EOF
+
+chown $REAL_USER:$REAL_USER "$FASTDDS_AGENT_XML"
+echo "  ✓ micro-ros-agent FastDDS 프로파일 생성 (eth0 전용: $ETH0_IP)"
 
 # -----------------------------------------------------------------------------
 # 7. 드론 설정 정보 저장 및 .bashrc 업데이트

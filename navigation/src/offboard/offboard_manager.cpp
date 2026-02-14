@@ -269,24 +269,25 @@ void OffboardManager::timerCallback()
         publishOffboardControlMode();
     }
 
-    // ★ OFFBOARD 모드 자동 복구: ARM 이후 PX4가 OFFBOARD에서 이탈하면 재진입 명령
-    // RTL/LANDED 상태에서는 의도적 OFFBOARD 이탈이므로 복구하지 않음
+    // ★ 조종기(RC) 모드 전환 감지: ARM 이후 OFFBOARD에서 이탈하면 미션 중단
+    // 조종기가 POSCTL/MANUAL/ALTCTL 등으로 전환 시 미션을 정리하고 조종기에 제어권 위임
     if (mission_running_.load() && arming_state_.load() == 2 && nav_state_.load() != 14 &&
-        state != MissionState::RTL && state != MissionState::LANDED) {
-        auto now = std::chrono::steady_clock::now();
-        double since_last = std::chrono::duration<double>(now - last_offboard_recovery_).count();
-        if (since_last >= 0.5) {  // 0.5초마다 (너무 빈번하지 않게)
-            last_offboard_recovery_ = now;
-            offboard_recovery_count_++;
-            RCLCPP_WARN(node_->get_logger(),
-                "[OFFBOARD RECOVERY] nav_state=%d (expected 14), DO_SET_MODE 재전송 #%d (state=%s)",
-                nav_state_.load(), offboard_recovery_count_, getStateName(state).c_str());
-            publishVehicleCommand(176 /*VEHICLE_CMD_DO_SET_MODE*/, 1.0f, 6.0f, 0.0f);
+        state != MissionState::RTL && state != MissionState::LANDED &&
+        state != MissionState::IDLE) {
+        RCLCPP_WARN(node_->get_logger(),
+            "[RC OVERRIDE] nav_state=%d (not OFFBOARD), 조종기 모드 전환 감지 → 미션 중단 (state=%s)",
+            nav_state_.load(), getStateName(state).c_str());
+        if (current_handler_) {
+            current_handler_->onExit(ctx_);
+            current_handler_ = nullptr;
         }
-    } else if (nav_state_.load() == 14 && offboard_recovery_count_ > 0) {
-        RCLCPP_INFO(node_->get_logger(),
-            "[OFFBOARD RECOVERY] OFFBOARD 모드 복구 완료 (%d회 재전송)", offboard_recovery_count_);
-        offboard_recovery_count_ = 0;
+        current_state_.store(MissionState::IDLE);
+        mission_running_.store(false);
+        abort_requested_.store(false);
+        if (timer_) {
+            timer_->cancel();
+        }
+        return;
     }
 
     // 미션이 실행 중이 아니면 heartbeat만 발행하고 종료
@@ -493,6 +494,12 @@ void OffboardManager::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::
                     getStateName(current_state_.load()).c_str(),
                     (timer_ && !timer_->is_canceled()) ? "ACTIVE" : "CANCELLED");
 
+        // OFFBOARD에서 다른 모드로 전환 감지 (RC 조종기에 의한 전환)
+        if (old_nav == 14 && msg->nav_state != 14 && mission_running_.load()) {
+            RCLCPP_WARN(node_->get_logger(),
+                        "[RC OVERRIDE] OFFBOARD → %s (nav=%d), 조종기에 의한 모드 전환 감지!",
+                        nav_name, msg->nav_state);
+        }
         // RTL에서 OFFBOARD로 전환 시 경고
         if (old_nav == 5 && msg->nav_state == 14) {
             RCLCPP_WARN(node_->get_logger(),

@@ -107,7 +107,7 @@ private:
 
     // 상수
     static constexpr float LIDAR_MAX_RANGE = 12.0f;  // 12m 최대 거리
-    static constexpr float LIDAR_CENTER_ANGLE_RANGE = 4.0f;  // 중심 각도 범위 (±2도)
+    static constexpr float LIDAR_CENTER_ANGLE_RANGE = 0.6f;  // 중심 각도 범위 (±0.3도)
 };
 
 #endif // DISTANCE_OVERLAY_H

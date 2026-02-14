@@ -220,12 +220,12 @@ int main(int argc, char** argv) {
                     if (point_count > 0) {
                         // 정면 거리 가져오기 (0도에 가장 가까운 포인트)
                         // tolerance를 점진적으로 늘려서 시도
-                        float front_distance = lidar.getFrontDistance(1.0f);
+                        float front_distance = lidar.getFrontDistance(0.3f);
                         if (front_distance < 0) {
-                            front_distance = lidar.getFrontDistance(5.0f);  // ±5도
+                            front_distance = lidar.getFrontDistance(1.0f);  // ±1도
                         }
                         if (front_distance < 0) {
-                            front_distance = lidar.getFrontDistance(10.0f);  // ±10도
+                            front_distance = lidar.getFrontDistance(5.0f);  // ±5도
                         }
                         
                         if (front_distance > 0) {
