@@ -178,13 +178,14 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
             } catch (...) {}
         }
         drone_id_ = static_cast<uint8_t>(drone_id);  // 조기 설정 (Formation, CollisionAvoidance에서 사용)
+        px4_ns_ = "/drone" + std::to_string(drone_id);  // PX4 토픽 네임스페이스
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
         ros2_node_ = rclcpp::Node::make_shared(node_name);
         vehicle_command_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-            "/fmu/in/vehicle_command", 10);
+            px4_ns_ + "/fmu/in/vehicle_command", 10);
         std::cout << "  ✓ ROS2 노드 생성: " << node_name << std::endl;
-        std::cout << "  → uXRCE-DDS 토픽 구독 준비 완료" << std::endl;
+        std::cout << "  → PX4 네임스페이스: " << px4_ns_ << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
         ros2_node_ = nullptr;
@@ -199,7 +200,7 @@ void ApplicationManager::initializeOffboard() {
 #ifdef ENABLE_ROS2
     if (ros2_node_) {
         std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
-        offboard_manager_ = new OffboardManager(ros2_node_);
+        offboard_manager_ = new OffboardManager(ros2_node_, px4_ns_);
         std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
     }
 #endif
@@ -335,7 +336,7 @@ void ApplicationManager::initializeComponents() {
 
         if (status_overlay_) {
             std::cout << "\n[ROS2 상태 구독자 초기화]" << std::endl;
-            status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_);
+            status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_, px4_ns_);
 
             // OFFBOARD 모드 종료 시 mission_running_ 플래그 리셋 콜백 설정
             // PX4는 OFFBOARD heartbeat 수신 시 nav_state를 일시적으로 변경할 수 있으므로,

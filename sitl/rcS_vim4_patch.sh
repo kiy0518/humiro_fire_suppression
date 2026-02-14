@@ -27,11 +27,11 @@ if [ "$px4_instance" = "0" ]; then
 elif [ "$px4_instance" = "1" ]; then
     # 드론 2 -> VIM4 192.168.100.21, MAV_SYS_ID=2
     param set MAV_SYS_ID 2
-    mavlink start -u 14541 -o 18002 -t 192.168.100.21 -r 4000000
+    mavlink start -u 14541 -o 18011 -t 192.168.100.21 -r 4000000
 elif [ "$px4_instance" = "2" ]; then
     # 드론 3 -> VIM4 192.168.100.31, MAV_SYS_ID=3
     param set MAV_SYS_ID 3
-    mavlink start -u 14542 -o 18003 -t 192.168.100.31 -r 4000000
+    mavlink start -u 14542 -o 18021 -t 192.168.100.31 -r 4000000
 fi
 # ========================================================="""
 
@@ -51,13 +51,13 @@ if [ "$px4_instance" = "0" ]; then
 elif [ "$px4_instance" = "1" ]; then
     # 드론 2 -> VIM4 192.168.100.21, MAV_SYS_ID=2
     param set MAV_SYS_ID 2
-    mavlink start -u 14541 -o 18002 -t 192.168.100.21 -r 4000000
-    uxrce_dds_client start -t udp -h 192.168.100.21 -p 8888 -n px4_1
+    mavlink start -u 14541 -o 18011 -t 192.168.100.21 -r 4000000
+    uxrce_dds_client start -t udp -h 192.168.100.21 -p 8888
 elif [ "$px4_instance" = "2" ]; then
     # 드론 3 -> VIM4 192.168.100.31, MAV_SYS_ID=3
     param set MAV_SYS_ID 3
-    mavlink start -u 14542 -o 18003 -t 192.168.100.31 -r 4000000
-    uxrce_dds_client start -t udp -h 192.168.100.31 -p 8888 -n px4_2
+    mavlink start -u 14542 -o 18021 -t 192.168.100.31 -r 4000000
+    uxrce_dds_client start -t udp -h 192.168.100.31 -p 8888
 fi
 # ========================================================="""
 

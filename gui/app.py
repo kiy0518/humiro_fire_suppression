@@ -1377,17 +1377,15 @@ def api_router_port_scan():
 
         # 스캔할 포트 목록 (드론별 동적 계산, 통일 공식: BASE + (DRONE_ID-1)*10)
         qgc_port = 14550 + port_offset
-        ros2_port = 14551 + port_offset
         app_port = 15001 + port_offset
         external_port = 16001 + port_offset
         tcp_port = 5790 + port_offset
         sitl_port = 18001 + port_offset
 
-        ports_to_scan = [14540, qgc_port, ros2_port, external_port, app_port, tcp_port]
+        ports_to_scan = [14540, qgc_port, external_port, app_port, tcp_port]
         port_names = {
             14540: 'FC',
             qgc_port: 'QGC',
-            ros2_port: 'ROS2',
             external_port: 'External',
             app_port: 'App',
             tcp_port: 'TCP Server'
@@ -1481,7 +1479,7 @@ def api_router_messages():
         for line in result.stdout.split('\n'):
             # CustomMessage 로그 파싱
             if '[CustomMessage]' in line and 'UDP 수신' in line:
-                # 예: [CustomMessage] [STEP 1] UDP 수신 (epoll): 28 bytes, 첫 바이트: 0xfd, MSG_ID=60000, 포트: 14551
+                # 예: [CustomMessage] [STEP 1] UDP 수신 (epoll): 28 bytes, 첫 바이트: 0xfd, MSG_ID=60000, 포트: 15001
                 parts = line.split('MSG_ID=')
                 if len(parts) > 1:
                     msg_id_part = parts[1].split(',')[0].strip()
@@ -1509,7 +1507,7 @@ def api_router_messages():
             # FIRE_MISSION_START 파싱
             elif 'FIRE_MISSION_START 수신' in line:
                 messages.append({
-                    'port': '14551',  # ROS2 포트에서 수신됨
+                    'port': 'app',  # Application 포트에서 수신됨
                     'type': 'FIRE_MISSION_START',
                     'description': '화재 진압 미션 시작 명령'
                 })
@@ -1584,29 +1582,7 @@ def api_router_port_reset():
         # 드론 ID 기반 포트 계산
         drone_id = config_manager.get_drone_id()
         port_offset = (drone_id - 1) * 10
-        ros2_port = 14551 + port_offset
         app_port = 15001 + port_offset
-
-        # ROS2 포트 확인 (드론별 동적)
-        lsof_result = subprocess.run(
-            ['sudo', 'lsof', '-i', f':{ros2_port}', '-n', '-P'],
-            capture_output=True, text=True, timeout=3
-        )
-
-        if str(ros2_port) in lsof_result.stdout:
-            processes = []
-            for line in lsof_result.stdout.split('\n')[1:]:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) > 1:
-                        processes.append(parts[0])
-
-            if len(processes) == 1 and 'mavlink' in processes[0].lower():
-                steps.append(f'   ✓ {ros2_port} 포트: MAVLink 라우터만 사용 중 (정상)')
-            else:
-                steps.append(f'   ⚠ {ros2_port} 포트: 여러 프로세스 사용 중 ({", ".join(processes)})')
-        else:
-            steps.append(f'   ⚠ {ros2_port} 포트: 아무도 사용하지 않음 (MAVLink 라우터 미연결)')
 
         # Application 포트 확인 (드론별 동적)
         lsof_result = subprocess.run(
@@ -1793,7 +1769,6 @@ def api_router_set_sitl_mode():
     port_offset = (drone_id - 1) * 10
     external_port = 16001 + port_offset
     application_port = 15001 + port_offset
-    ros2_port = 14551 + port_offset
     tcp_port = 5790 + port_offset
     fc_mavlink_port = int(config_manager.get('FC_MAVLINK_PORT', '14540'))
     sitl_port = 18001 + port_offset  # SITL 포트: 18001, 18011, 18021 (통일 공식: BASE + PORT_OFFSET)
@@ -1833,12 +1808,6 @@ Mode = Server
 Address = 0.0.0.0
 Port = {external_port}
 
-# ROS2 노드 연결 (로컬)
-[UdpEndpoint ROS2]
-Mode = Normal
-Address = 127.0.0.1
-Port = {ros2_port}
-
 # Application Manager 연결 (로컬)
 [UdpEndpoint Application]
 Mode = Normal
@@ -1873,12 +1842,6 @@ Port = {qgc_port}
 Mode = Server
 Address = 0.0.0.0
 Port = {external_port}
-
-# ROS2 노드 연결 - 드론 {drone_id} 전용 포트
-[UdpEndpoint ROS2]
-Mode = Normal
-Address = 127.0.0.1
-Port = {ros2_port}
 
 # Application Manager 연결 - 드론 {drone_id} 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]

@@ -288,13 +288,12 @@ echo "[5/10] mavlink-router 설정..."
 if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; then
     mkdir -p /etc/mavlink-router
 
-    # DRONE_ID 기반 포트 계산 (10씩 증가)
-    # 드론 1: 14550, 14551, 16001, 15001, 5790, SITL:18001
-    # 드론 2: 14560, 14561, 16011, 15011, 5800, SITL:18002
-    # 드론 3: 14570, 14571, 16021, 15021, 5810, SITL:18003
+    # DRONE_ID 기반 포트 계산: BASE + (DRONE_ID-1)*10
+    # 드론 1: 14550, 16001, 15001, 5790, SITL:18001
+    # 드론 2: 14560, 16011, 15011, 5800, SITL:18011
+    # 드론 3: 14570, 16021, 15021, 5810, SITL:18021
     PORT_OFFSET=$(( ($DRONE_ID - 1) * 10 ))
     QGC_PORT=$(( 14550 + $PORT_OFFSET ))
-    ROS2_PORT=$(( 14551 + $PORT_OFFSET ))
     EXTERNAL_PORT_CALC=$(( 16001 + $PORT_OFFSET ))
     APP_PORT=$(( 15001 + $PORT_OFFSET ))
     TCP_PORT=$(( 5790 + $PORT_OFFSET ))
@@ -306,7 +305,6 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     echo "  → DRONE_ID $DRONE_ID 기반 포트 계산:"
     echo "    - TCP: $TCP_PORT"
     echo "    - QGC: $QGC_PORT"
-    echo "    - ROS2: $ROS2_PORT"
     echo "    - External: $EXTERNAL_PORT_FINAL"
     echo "    - App: $APP_PORT"
     echo "    - SITL: $SITL_PORT"
@@ -345,12 +343,6 @@ Mode = Server
 Address = 0.0.0.0
 Port = $EXTERNAL_PORT_FINAL
 
-# ROS2 노드 연결 - 드론 $DRONE_ID 전용 포트
-[UdpEndpoint ROS2]
-Mode = Normal
-Address = 127.0.0.1
-Port = $ROS2_PORT
-
 # Application Manager 연결 - 드론 $DRONE_ID 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]
 Mode = Normal
@@ -382,9 +374,7 @@ source "\$PROJECT_ROOT/setup_env.sh"
 
 export HOME=$REAL_HOME
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
-# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
-# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
-# export ROS_NAMESPACE=$ROS_NAMESPACE
+export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
 # ROS2 환경 로드
@@ -422,9 +412,7 @@ mkdir -p /etc/systemd/system/micro-ros-agent.service.d/
 tee /etc/systemd/system/micro-ros-agent.service.d/override.conf > /dev/null << EOF
 [Service]
 Environment="ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
-# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
-# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
-# Environment="ROS_NAMESPACE=$ROS_NAMESPACE"
+Environment="ROS_NAMESPACE=$ROS_NAMESPACE"
 EOF
 
 echo "  ✓ systemd 환경변수 설정 완료"
@@ -542,9 +530,7 @@ if [ -f $PROJECT_ROOT/config/device_config.env ]; then
     export DRONE_ID=$DRONE_ID
 fi
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
-# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
-# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
-# export ROS_NAMESPACE=$ROS_NAMESPACE
+export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 source /opt/ros/humble/setup.bash
 if [ -f "\$PX4_ROS2_WS/install/setup.bash" ]; then

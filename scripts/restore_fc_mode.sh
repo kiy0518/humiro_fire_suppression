@@ -30,7 +30,6 @@ FC_MAVLINK_PORT=${FC_MAVLINK_PORT:-14540}
 # DRONE_ID 기반 포트 계산 (003-apply_config.sh와 동일 공식)
 PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
 QGC_PORT=$(( 14550 + PORT_OFFSET ))
-ROS2_PORT=$(( 14551 + PORT_OFFSET ))
 EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
 APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
 TCP_PORT=$(( 5790 + PORT_OFFSET ))
@@ -76,12 +75,6 @@ Port = ${QGC_PORT}
 Mode = Server
 Address = 0.0.0.0
 Port = ${EXTERNAL_PORT}
-
-# ROS2 노드 연결 - 드론 ${DRONE_ID} 전용 포트
-[UdpEndpoint ROS2]
-Mode = Normal
-Address = 127.0.0.1
-Port = ${ROS2_PORT}
 
 # Application Manager 연결 - 드론 ${DRONE_ID} 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]

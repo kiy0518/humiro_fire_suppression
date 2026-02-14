@@ -56,7 +56,7 @@ echo ""
 
 echo "3. 포트 리스닝 상태"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-PORTS="14540 14550 14551 8888"
+PORTS="14540 14550 8888"
 for port in $PORTS; do
     LISTENING=$(ss -ulnp | grep ":$port " || echo "")
     if [ -n "$LISTENING" ]; then

@@ -141,11 +141,6 @@ Mode = Eavesdropping
 Address = 0.0.0.0
 Port = 14550
 
-# 로컬 GUI 연결
-[UdpEndpoint LocalGUI]
-Mode = Eavesdropping
-Address = 127.0.0.1
-Port = 14551
 EOF
 
 echo -e "  ${GREEN}✓${NC} 설정 파일 업데이트 완료"

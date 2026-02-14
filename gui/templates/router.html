@@ -416,28 +416,11 @@
                 <div class="row mb-3">
                     <div class="col-md-6">
                         <label class="form-label small mb-2">포트 필터:</label>
-                        <div class="btn-group btn-group-sm" role="group">
-                            <input type="checkbox" class="btn-check" id="filter-14540" autocomplete="off" checked onchange="updateMonitorFilter()">
-                            <label class="btn btn-outline-primary" for="filter-14540">14540</label>
-
-                            <input type="checkbox" class="btn-check" id="filter-14550" autocomplete="off" checked onchange="updateMonitorFilter()">
-                            <label class="btn btn-outline-success" for="filter-14550">14550</label>
-
-                            <input type="checkbox" class="btn-check" id="filter-14551" autocomplete="off" checked onchange="updateMonitorFilter()">
-                            <label class="btn btn-outline-info" for="filter-14551">14551</label>
-
-                            <input type="checkbox" class="btn-check" id="filter-14553" autocomplete="off" checked onchange="updateMonitorFilter()">
-                            <label class="btn btn-outline-warning" for="filter-14553">14553</label>
-                        </div>
+                        <div class="btn-group btn-group-sm" role="group" id="monitorFilterBtns"></div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label small mb-2">메시지 카운트:</label>
-                        <div class="d-flex justify-content-between">
-                            <small><strong id="stat-14540">0</strong> <span class="text-muted">FC</span></small>
-                            <small><strong id="stat-14550">0</strong> <span class="text-muted">QGC</span></small>
-                            <small><strong id="stat-14551">0</strong> <span class="text-muted">ROS2</span></small>
-                            <small><strong id="stat-14553">0</strong> <span class="text-muted">Ext</span></small>
-                        </div>
+                        <div class="d-flex justify-content-between" id="monitorStatDisplay"></div>
                     </div>
                 </div>
 
@@ -519,13 +502,6 @@
                                     <td>14550</td>
                                     <td>14560</td>
                                     <td>14570</td>
-                                </tr>
-                                <tr>
-                                    <td><i class="bi bi-gear text-info"></i> ROS2</td>
-                                    <td>14551</td>
-                                    <td>14551</td>
-                                    <td>14561</td>
-                                    <td>14571</td>
                                 </tr>
                                 <tr>
                                     <td><i class="bi bi-app text-primary"></i> Application</td>
@@ -986,7 +962,6 @@
         'fc': 'bi-cpu',
         'pc_sitl': 'bi-pc-display',  // SITL 시뮬레이터 (PC)
         'gcs': 'bi-display',
-        'ros2': 'bi-gear-wide-connected',
         'localgui': 'bi-window',
         'external': 'bi-box-arrow-in-right',
         'application': 'bi-app-indicator',
@@ -1001,7 +976,6 @@
         'localgui': 'Local GUI',
         'external': 'External (송신)',
         'application': 'App Manager',
-        'ros2': 'ROS2'
     };
 
     // 노드 위치 (인덱스 기반)
@@ -1065,6 +1039,7 @@
 
                 // 현재 기체 포트 정보 표시
                 updateCurrentDronePorts();
+                initMonitorPorts();
 
                 log(`네트워크 드론 상태 로드: ${networkDrones.filter(d => d.online).length}/${networkDrones.length}대 온라인`, 'success');
             }
@@ -1078,7 +1053,6 @@
         const portOffset = (routerCurrentDroneId - 1) * 10;
         const ports = {
             'QGC': 14550 + portOffset,
-            'ROS2': 14551 + portOffset,
             'App': 15001 + portOffset,
             'External': 16001 + portOffset,
             'TCP': 5790 + portOffset,
@@ -1094,7 +1068,6 @@
 
         const colors = {
             'QGC': 'success',
-            'ROS2': 'info',
             'App': 'primary',
             'External': 'warning',
             'TCP': 'secondary'
@@ -1743,18 +1716,26 @@
     // ===== 실시간 메시지 모니터 =====
     let monitorInterval = null;
     let monitorRunning = false;
-    let messageStats = {
-        '14540': 0,
-        '14550': 0,
-        '14551': 0,
-        '14553': 0
-    };
-    let monitorFilter = {
-        '14540': true,
-        '14550': true,
-        '14551': true,
-        '14553': true
-    };
+    let messageStats = {};
+    let monitorFilter = {};
+    const monitorPortConfig = [
+        { key: "fc", base: 14540, fixed: true, label: "FC", btnClass: "btn-outline-primary", color: "#4a9eff" },
+        { key: "qgc", base: 14550, fixed: false, label: "QGC", btnClass: "btn-outline-success", color: "#28a745" },
+        { key: "ext", base: 16001, fixed: false, label: "Ext", btnClass: "btn-outline-warning", color: "#ffc107" }
+    ];
+    function getMonitorPorts() {
+        const offset = (routerCurrentDroneId - 1) * 10;
+        return monitorPortConfig.map(c => ({ ...c, port: c.fixed ? c.base : c.base + offset }));
+    }
+    function initMonitorPorts() {
+        const ports = getMonitorPorts();
+        messageStats = {};
+        monitorFilter = {};
+        const btnC = document.getElementById("monitorFilterBtns");
+        if (btnC) { btnC.innerHTML = ""; ports.forEach(p => { messageStats[p.port] = 0; monitorFilter[p.port] = true; btnC.innerHTML += '<input type="checkbox" class="btn-check" id="filter-' + p.port + '" autocomplete="off" checked onchange="updateMonitorFilter()"><label class="btn ' + p.btnClass + '" for="filter-' + p.port + '">' + p.port + '</label>'; }); }
+        const stC = document.getElementById("monitorStatDisplay");
+        if (stC) { stC.innerHTML = ""; ports.forEach(p => { stC.innerHTML += '<small><strong id="stat-' + p.port + '">0</strong> <span class="text-muted">' + p.label + '</span></small>'; }); }
+    }
 
     function toggleMonitor() {
         const btn = document.getElementById('monitorToggleBtn');
@@ -1798,21 +1779,13 @@
                     messageStats[msg.port]++;
                     document.getElementById(`stat-${msg.port}`).textContent = messageStats[msg.port];
 
-                    // 포트별 색상
-                    const portColors = {
-                        '14540': '#4a9eff',  // FC - 파란색
-                        '14550': '#28a745',  // QGC - 초록색
-                        '14551': '#17a2b8',  // ROS2 - 청록색
-                        '14553': '#ffc107'   // External - 노란색
-                    };
+                    const portConfig = getMonitorPorts();
+                    const portColors = {};
+                    const portNames = {};
+                    portConfig.forEach(p => { portColors[p.port] = p.color; portNames[p.port] = p.label; });
 
                     const color = portColors[msg.port] || '#00ff00';
-                    const portName = {
-                        '14540': 'FC',
-                        '14550': 'QGC',
-                        '14551': 'ROS2',
-                        '14553': 'Ext'
-                    }[msg.port] || msg.port;
+                    const portName = portNames[msg.port] || msg.port;
 
                     const logLine = `<span style="color: ${color}">[${now}] [${portName}:${msg.port}]</span> ${msg.type || 'MSG'} → ${msg.description || 'N/A'}\n`;
                     monitor.innerHTML += logLine;
@@ -1834,22 +1807,18 @@
 
     function clearMonitor() {
         document.getElementById('messageMonitor').innerHTML = '<span class="text-muted">로그가 지워졌습니다...</span>\n';
-        messageStats = {
-            '14540': 0,
-            '14550': 0,
-            '14551': 0,
-            '14553': 0
-        };
+        getMonitorPorts().forEach(p => { messageStats[p.port] = 0; });
         Object.keys(messageStats).forEach(port => {
-            document.getElementById(`stat-${port}`).textContent = '0';
+            const el = document.getElementById(`stat-${port}`);
+            if (el) el.textContent = '0';
         });
     }
 
     function updateMonitorFilter() {
-        monitorFilter['14540'] = document.getElementById('filter-14540').checked;
-        monitorFilter['14550'] = document.getElementById('filter-14550').checked;
-        monitorFilter['14551'] = document.getElementById('filter-14551').checked;
-        monitorFilter['14553'] = document.getElementById('filter-14553').checked;
+        getMonitorPorts().forEach(p => {
+            const el = document.getElementById(`filter-${p.port}`);
+            if (el) monitorFilter[p.port] = el.checked;
+        });
     }
 
     // ===== 포트 리셋 =====
@@ -1921,18 +1890,17 @@
             const dynamicPorts = {
                 fc: 14540,  // 고정
                 qgc: 14550 + portOffset,
-                ros2: 14551 + portOffset,
                 external: 16001 + portOffset,
                 app: 15001 + portOffset,
                 tcp: 5790 + portOffset,
                 sitl: 18001 + portOffset
             };
-            const portList = [dynamicPorts.fc, dynamicPorts.qgc, dynamicPorts.ros2, dynamicPorts.external, dynamicPorts.app, dynamicPorts.tcp, dynamicPorts.sitl];
+            const portList = [dynamicPorts.fc, dynamicPorts.qgc, dynamicPorts.external, dynamicPorts.app, dynamicPorts.tcp, dynamicPorts.sitl];
 
             let html = '<table class="table table-sm table-bordered mb-0">';
             html += '<thead><tr>';
             html += '<th>IP</th><th>Hostname</th>';
-            html += `<th>${dynamicPorts.fc}<br>(FC)</th><th>${dynamicPorts.qgc}<br>(QGC)</th><th>${dynamicPorts.ros2}<br>(ROS2)</th><th>${dynamicPorts.external}<br>(Ext)</th><th>${dynamicPorts.app}<br>(App)</th><th>${dynamicPorts.tcp}<br>(TCP)</th>`;
+            html += `<th>${dynamicPorts.fc}<br>(FC)</th><th>${dynamicPorts.qgc}<br>(QGC)</th><th>${dynamicPorts.external}<br>(Ext)</th><th>${dynamicPorts.app}<br>(App)</th><th>${dynamicPorts.tcp}<br>(TCP)</th>`;
             html += '<th>프로세스</th>';
             html += '</tr></thead><tbody>';
 
@@ -2011,25 +1979,15 @@
         const local = results[0];
         const ports = local.ports;
 
-        // 14551 포트 충돌 감지 (ROS2)
-        if (ports[14551] && ports[14551].processes) {
-            const procs = ports[14551].processes;
-            const hasRouter = procs.some(p => p.includes('mavlink-router'));
-            const hasApp = procs.some(p => p.includes('application') || p.includes('humiro'));
-
-            if (hasRouter && hasApp) {
-                conflicts.push('14551 (ROS2): MAVLink 라우터와 application_manager가 동시에 사용 중 → <strong>QGC 통신 차단 가능</strong>');
-            }
-        }
-
         // 14540 포트 충돌 감지 (FC)
         if (ports[14540] && ports[14540].processes && ports[14540].processes.length > 1) {
             conflicts.push(`14540 (FC): 여러 프로세스가 사용 중 (${ports[14540].processes.join(', ')})`);
         }
 
-        // 14553 포트 충돌 감지 (External)
-        if (ports[14553] && ports[14553].processes && ports[14553].processes.length > 1) {
-            conflicts.push(`14553 (External): 여러 프로세스가 사용 중 (${ports[14553].processes.join(', ')})`);
+        // External 포트 충돌 감지 (동적)
+        const extPort = 16001 + (routerCurrentDroneId - 1) * 10;
+        if (ports[extPort] && ports[extPort].processes && ports[extPort].processes.length > 1) {
+            conflicts.push(`${extPort} (External): 여러 프로세스가 사용 중 (${ports[extPort].processes.join(', ')})`);
         }
 
         return conflicts;
@@ -2476,6 +2434,7 @@
 
         // 데이터 로드 (이벤트 핸들러 등록 후)
         loadSavedPositions();
+        initMonitorPorts();  // 모니터 포트 초기화 (기본 DRONE_ID=1)
         await loadSitlMode();  // SITL 모드 먼저 로드
         await loadGcsPortMode();  // GCS 포트 모드 로드
         await loadConfig();

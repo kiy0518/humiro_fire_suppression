@@ -95,6 +95,7 @@ private:
     OffboardManager* offboard_manager_;  // 추가: 자율 비행 관리자
     FormationController* formation_controller_;  // 편대 비행 제어기
     CollisionAvoidance* collision_avoidance_;  // 충돌 방지
+    std::string px4_ns_;  // PX4 토픽 네임스페이스 ("/droneN")
 #endif
     
     // 큐

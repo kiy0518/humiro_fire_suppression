@@ -31,17 +31,28 @@ if [ -z "$DRONE_ID" ]; then
     exit 1
 fi
 
-# 드론별 포트 계산
-EXTERNAL_PORT=$((16000 + DRONE_ID))
-APPLICATION_PORT=$((15000 + DRONE_ID))
+# 드론별 포트 계산: BASE + (DRONE_ID - 1) * 10
+PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
+QGC_PORT=$(( 14550 + PORT_OFFSET ))
+EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
+APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
+TCP_PORT=$(( 5790 + PORT_OFFSET ))
+
+# WIFI_IP에서 브로드캐스트 IP 계산
+WIFI_IP=$(grep "^WIFI_IP=" "$CONFIG_FILE" | cut -d= -f2)
+WIFI_IP=${WIFI_IP:-192.168.100.11}
+BROADCAST_IP=$(echo "$WIFI_IP" | sed 's/\.[0-9]*$/.255/')
 
 echo -e "${BLUE}=====================================${NC}"
 echo -e "${BLUE}   VIM4 FC 연결 복원${NC}"
 echo -e "${BLUE}=====================================${NC}"
 echo ""
-echo -e "  기체 번호:      ${GREEN}$DRONE_ID${NC}"
-echo -e "  External 포트:  ${GREEN}$EXTERNAL_PORT${NC}"
+echo -e "  기체 번호:        ${GREEN}$DRONE_ID${NC}"
+echo -e "  QGC 포트:         ${GREEN}$QGC_PORT${NC}"
+echo -e "  External 포트:    ${GREEN}$EXTERNAL_PORT${NC}"
 echo -e "  Application 포트: ${GREEN}$APPLICATION_PORT${NC}"
+echo -e "  TCP 포트:         ${GREEN}$TCP_PORT${NC}"
+echo -e "  브로드캐스트:     ${GREEN}$BROADCAST_IP${NC}"
 echo ""
 
 # mavlink-router 설정 백업 및 업데이트
@@ -59,11 +70,11 @@ sudo tee "$MAVLINK_CONF" > /dev/null << EOF
 # 모드: FC 연결 (실제 비행)
 
 [General]
-TcpServerPort = 5790
+TcpServerPort = $TCP_PORT
 ReportStats = false
 MavlinkDialect = common
 
-# FC (PX4) 연결 - 브로드캐스트 수신
+# FC (PX4) 연결 - 이더넷 (10.0.0.x)
 [UdpEndpoint FC]
 Mode = Server
 Address = 0.0.0.0
@@ -72,20 +83,14 @@ Port = 14540
 # GCS (QGroundControl) 브로드캐스트 - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint GCS]
 Mode = Normal
-Address = 192.168.100.255
-Port = 14550
+Address = $BROADCAST_IP
+Port = $QGC_PORT
 
 # 외부 테스트/디버깅 도구 (SENDER GUI 등) - 드론 $DRONE_ID 전용 포트
 [UdpEndpoint External]
 Mode = Server
 Address = 0.0.0.0
 Port = $EXTERNAL_PORT
-
-# ROS2 노드 연결 - 드론 $DRONE_ID 전용 포트
-[UdpEndpoint ROS2]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14551
 
 # Application Manager 연결 - 드론 $DRONE_ID 전용 포트 (라우터와 충돌 방지)
 [UdpEndpoint Application]
