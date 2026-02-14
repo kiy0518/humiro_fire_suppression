@@ -184,8 +184,16 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
         ros2_node_ = rclcpp::Node::make_shared(node_name);
         vehicle_command_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
             px4_ns_ + "/fmu/in/vehicle_command", 10);
+        // 폴백 Publisher (FC가 -n 미사용 시 네임스페이스 없는 토픽으로도 발행)
+        if (!px4_ns_.empty()) {
+            vehicle_command_fallback_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+                "/fmu/in/vehicle_command", 10);
+        }
         std::cout << "  ✓ ROS2 노드 생성: " << node_name << std::endl;
         std::cout << "  → PX4 네임스페이스: " << px4_ns_ << std::endl;
+        if (vehicle_command_fallback_pub_) {
+            std::cout << "  → 폴백 VehicleCommand: /fmu/in/vehicle_command" << std::endl;
+        }
     } catch (const std::exception& e) {
         std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
         ros2_node_ = nullptr;
@@ -650,6 +658,7 @@ void ApplicationManager::initializeCustomMessage() {
                         cmd.from_external = true;
 
                         vehicle_command_pub_->publish(cmd);
+                        if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(cmd);
                         std::cout << "[DEBUG] ✓ ARM/DISARM 명령 ROS2로 전송 완료 (param1=" << param1 << ")" << std::endl;
                         
                         if (status_overlay_) {
@@ -737,6 +746,7 @@ void ApplicationManager::initializeCustomMessage() {
                             cmd.from_external = true;
 
                             vehicle_command_pub_->publish(cmd);
+                            if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(cmd);
 
                             if (i == 0) {
                                 std::cout << "[DEBUG] DO_SET_MODE 전송 (main_mode=" << (int)main_mode
@@ -996,6 +1006,7 @@ void ApplicationManager::cleanupROS2() {
     thermal_ros2_publisher_ = nullptr;
     lidar_ros2_publisher_ = nullptr;
     vehicle_command_pub_.reset();
+    vehicle_command_fallback_pub_.reset();
 
     if (rclcpp::ok()) {
         rclcpp::shutdown();

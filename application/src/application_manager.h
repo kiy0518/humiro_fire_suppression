@@ -89,6 +89,7 @@ private:
 #ifdef ENABLE_ROS2
     rclcpp::Node::SharedPtr ros2_node_;
     rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
+    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_fallback_pub_;
     ThermalROS2Publisher* thermal_ros2_publisher_;
     LidarROS2Publisher* lidar_ros2_publisher_;
     StatusROS2Subscriber* status_ros2_subscriber_;

@@ -86,6 +86,10 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
     rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
     rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sub_;
+    // 폴백 구독자 (FC가 -n 미사용 시 네임스페이스 없는 토픽 수신)
+    rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_fallback_sub_;
+    rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_fallback_sub_;
+    rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_fallback_sub_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr offboard_status_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr ammunition_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr formation_sub_;

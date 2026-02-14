@@ -54,6 +54,30 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node, const std::string
         px4_ns + "/fmu/out/vehicle_global_position", qos,
         std::bind(&OffboardManager::vehicleGlobalPositionCallback, this, std::placeholders::_1));
 
+    // ========== 폴백 Pub/Sub (FC가 -n 미사용 시 네임스페이스 없는 토픽) ==========
+    // micro-ros-agent는 ROS_NAMESPACE를 bridged 토픽에 적용하지 않음 (설계상)
+    // PX4 네임스페이스는 uxrce_dds_client의 -n 옵션에서만 결정됨
+    if (!px4_ns.empty()) {
+        offboard_control_mode_fallback_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
+            "/fmu/in/offboard_control_mode", qos);
+        trajectory_setpoint_fallback_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
+            "/fmu/in/trajectory_setpoint", qos);
+        vehicle_command_fallback_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
+            "/fmu/in/vehicle_command", qos);
+
+        vehicle_status_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
+            "/fmu/out/vehicle_status_v1", qos,
+            std::bind(&OffboardManager::vehicleStatusCallback, this, std::placeholders::_1));
+        vehicle_local_position_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
+            "/fmu/out/vehicle_local_position", qos,
+            std::bind(&OffboardManager::vehicleLocalPositionCallback, this, std::placeholders::_1));
+        vehicle_global_position_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
+            "/fmu/out/vehicle_global_position", qos,
+            std::bind(&OffboardManager::vehicleGlobalPositionCallback, this, std::placeholders::_1));
+
+        RCLCPP_INFO(node_->get_logger(), "Fallback pub/sub created for /fmu/* (FC without -n)");
+    }
+
     // ========== 드론 ID (MAV_SYS_ID) ==========
     const char* drone_id_env = getenv("DRONE_ID");
     if (drone_id_env) {
@@ -381,6 +405,7 @@ void OffboardManager::timerCallback()
             sp.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
             if (current_handler_->fillSetpoint(ctx_, sp)) {
                 trajectory_setpoint_pub_->publish(sp);
+                if (trajectory_setpoint_fallback_pub_) trajectory_setpoint_fallback_pub_->publish(sp);
             }
         }
     }
@@ -397,6 +422,7 @@ void OffboardManager::publishOffboardControlMode()
     msg.body_rate = false;
 
     offboard_control_mode_pub_->publish(msg);
+    if (offboard_control_mode_fallback_pub_) offboard_control_mode_fallback_pub_->publish(msg);
 
     // 디버그: heartbeat 발행 시점 로깅 (RTL 이슈 디버깅용)
     static uint64_t hb_count = 0;
@@ -429,6 +455,7 @@ void OffboardManager::publishVehicleCommand(uint16_t command, float param1, floa
     msg.from_external = true;
 
     vehicle_command_pub_->publish(msg);
+    if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(msg);
 
     // 디버그: 명령 전송 로깅
     const char* cmd_name = "UNKNOWN";

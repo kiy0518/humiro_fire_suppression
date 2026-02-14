@@ -99,6 +99,26 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusO
         std::cerr << "  ✗ GPS 구독자 생성 실패: " << e.what() << std::endl;
     }
     
+    // 폴백 구독자: FC가 -n 옵션 없이 실행될 경우 네임스페이스 없는 토픽 수신
+    // micro-ros-agent는 ROS_NAMESPACE를 bridged 토픽에 적용하지 않음 (설계상)
+    // PX4 네임스페이스는 uxrce_dds_client의 -n 옵션에서만 결정됨
+    if (!px4_ns.empty()) {
+        try {
+            vehicle_status_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
+                "/fmu/out/vehicle_status_v1", px4_qos,
+                std::bind(&StatusROS2Subscriber::vehicleStatusCallback, this, std::placeholders::_1));
+            battery_fallback_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
+                "/fmu/out/battery_status", px4_qos,
+                std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
+            gps_fallback_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
+                "/fmu/out/vehicle_gps_position", px4_qos,
+                std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
+            std::cout << "  ✓ 폴백 구독 생성: /fmu/out/* (FC -n 미사용 대비)" << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "  ⚠ 폴백 구독 생성 실패: " << e.what() << std::endl;
+        }
+    }
+
     // OFFBOARD 모드 상태 구독 (/offboard/status) - VIM4 커스텀 토픽
     offboard_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
         "/offboard/status", 10,
