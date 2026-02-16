@@ -110,7 +110,8 @@ private:
     std::thread composite_thread_;
     std::thread camera_init_thread_;
     std::thread ammo_sim_thread_;
-    
+    std::thread wifi_poll_thread_;
+
     // 상태
     std::atomic<bool> is_running_;
     std::atomic<bool> rgb_init_done_;
@@ -135,6 +136,7 @@ private:
     void compositeLoop();
     void cameraInitLoop();
     void ammunitionSimulationLoop();
+    void wifiPollLoop();
     
     // 정리 메서드
     void cleanupComponents();

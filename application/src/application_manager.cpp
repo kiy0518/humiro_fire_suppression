@@ -327,7 +327,6 @@ void ApplicationManager::initializeComponents() {
     }
     status_overlay_->setDroneName(std::to_string(osd_drone_id));
     status_overlay_->setAmmunition(6, 6);
-    status_overlay_->setFormation(osd_drone_id, 3);
     status_overlay_->setBattery(100);
     std::cout << "  ✓ OSD 기체 ID: " << osd_drone_id << std::endl;
     
@@ -875,7 +874,10 @@ void ApplicationManager::startThreads() {
     
     // 시뮬레이션 스레드
     ammo_sim_thread_ = std::thread(&ApplicationManager::ammunitionSimulationLoop, this);
-    
+
+    // WiFi 상태 폴링 스레드
+    wifi_poll_thread_ = std::thread(&ApplicationManager::wifiPollLoop, this);
+
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
@@ -928,6 +930,7 @@ void ApplicationManager::stopThreads() {
     if (lidar_thread_.joinable()) lidar_thread_.join();
     if (composite_thread_.joinable()) composite_thread_.join();
     if (ammo_sim_thread_.joinable()) ammo_sim_thread_.join();
+    if (wifi_poll_thread_.joinable()) wifi_poll_thread_.join();
     std::cout << "  ✓ 모든 스레드 종료 완료" << std::endl;
 }
 
@@ -1259,6 +1262,60 @@ void ApplicationManager::ammunitionSimulationLoop() {
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
+
+void ApplicationManager::wifiPollLoop() {
+    const char* iface = "wlan0";
+
+    while (is_running_) {
+        std::string ssid;
+        int rssi = 0;
+
+        // SSID 읽기: iwgetid wlan0 -r
+        {
+            FILE* fp = popen("iwgetid wlan0 -r 2>/dev/null", "r");
+            if (fp) {
+                char buf[128];
+                if (fgets(buf, sizeof(buf), fp)) {
+                    ssid = buf;
+                    // 개행 제거
+                    while (!ssid.empty() && (ssid.back() == '\n' || ssid.back() == '\r'))
+                        ssid.pop_back();
+                }
+                pclose(fp);
+            }
+        }
+
+        // RSSI 읽기: /proc/net/wireless
+        {
+            std::ifstream wfile("/proc/net/wireless");
+            if (wfile.is_open()) {
+                std::string line;
+                while (std::getline(wfile, line)) {
+                    if (line.find(iface) != std::string::npos) {
+                        // 형식: "wlan0: 0000  54.  -50.  -256  ..."
+                        // 세 번째 숫자 필드가 signal level (dBm)
+                        std::istringstream iss(line);
+                        std::string iface_name;
+                        int status_val;
+                        double link_quality, signal_level;
+                        iss >> iface_name >> status_val >> link_quality >> signal_level;
+                        rssi = static_cast<int>(signal_level);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (status_overlay_ && !ssid.empty()) {
+            status_overlay_->setWifiInfo(ssid, rssi);
+        }
+
+        // 5초 간격 (100ms 단위로 체크하여 종료 반응성 유지)
+        for (int i = 0; i < 50 && is_running_; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
 }
 

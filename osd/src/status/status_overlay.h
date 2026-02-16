@@ -60,11 +60,11 @@ public:
     void setDroneName(const std::string& name);
     
     /**
-     * 편대 정보 설정
-     * @param current 현재 편대 번호
-     * @param total 전체 편대 수
+     * WiFi 정보 설정
+     * @param ssid 연결된 SSID 이름
+     * @param rssi 신호 강도 (dBm, 일반적으로 -30 ~ -90)
      */
-    void setFormation(int current, int total);
+    void setWifiInfo(const std::string& ssid, int rssi);
     
     /**
      * 배터리 상태 설정
@@ -130,8 +130,9 @@ private:
     int ammo_current_;
     int ammo_max_;
     std::string drone_name_;
-    int formation_current_;
-    int formation_total_;
+    std::string wifi_ssid_;
+    int wifi_rssi_;
+    bool show_wifi_;
     int battery_percentage_;
     int gps_satellites_;
     float gps_hdop_;  // GPS HDOP 값

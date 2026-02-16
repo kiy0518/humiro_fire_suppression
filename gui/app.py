@@ -20,7 +20,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.config_manager import ConfigManager
 from utils.system_checker import SystemChecker
-from utils.wifi_manager import WiFiManager
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'humiro-fire-suppression-2024'
@@ -28,7 +27,6 @@ app.config['SECRET_KEY'] = 'humiro-fire-suppression-2024'
 # 전역 객체
 config_manager = ConfigManager(PROJECT_ROOT)
 system_checker = SystemChecker()
-wifi_manager = WiFiManager()
 
 @app.context_processor
 def inject_drone_info():
@@ -222,12 +220,6 @@ def flight_mode_page():
     return render_template('flight_mode.html', active_tab='flight-mode')
 
 
-@app.route('/vehicle-setup')
-def vehicle_setup_page():
-    """기체 설정 페이지"""
-    return render_template('vehicle_setup.html', active_tab='vehicle-setup')
-
-
 @app.route('/params')
 def params_page():
     """FC 파라미터 관리 → 체크리스트로 리다이렉트"""
@@ -244,12 +236,6 @@ def checklist_page():
 def build_page():
     """빌드 페이지"""
     return render_template('build.html', active_tab='build')
-
-
-@app.route('/terminal')
-def terminal_page():
-    """웹 터미널 페이지"""
-    return render_template('terminal.html', active_tab='terminal')
 
 
 @app.route('/router')
@@ -483,27 +469,6 @@ def api_config_regenerate():
             "success": False,
             "error": str(e)
         }), 500
-
-
-@app.route('/api/vehicle-preset/<int:drone_id>')
-def api_vehicle_preset(drone_id):
-    """기체 프리셋 조회 API"""
-    preset = config_manager.get_vehicle_preset(drone_id)
-    return jsonify(preset)
-
-
-@app.route('/api/vehicle-preset/<int:drone_id>', methods=['POST'])
-def api_apply_vehicle_preset(drone_id):
-    """기체 프리셋 적용 API"""
-    preset = config_manager.get_vehicle_preset(drone_id)
-
-    for key, value in preset.items():
-        config_manager.set(key, str(value))
-
-    if config_manager.save_device_config():
-        return jsonify({"success": True, "message": f"{drone_id}번 기체 설정이 적용되었습니다."})
-    else:
-        return jsonify({"success": False, "message": "설정 적용 실패"}), 500
 
 
 @app.route('/api/apply-config', methods=['POST'])
@@ -2437,155 +2402,6 @@ def api_check_fc_param(param_name):
             result["message"] = f"{value}"
 
     return jsonify(result)
-
-
-# ==================== WiFi 네트워크 관리 API ====================
-
-@app.route('/wifi')
-def wifi_page():
-    """WiFi 네트워크 관리 페이지"""
-    return render_template('wifi.html', active_tab='wifi')
-
-
-@app.route('/api/wifi/saved')
-def api_wifi_saved():
-    """저장된 WiFi 네트워크 목록"""
-    networks = wifi_manager.list_saved_networks()
-    return jsonify({
-        "success": True,
-        "networks": networks
-    })
-
-
-@app.route('/api/wifi/scan')
-def api_wifi_scan():
-    """주변 WiFi 네트워크 스캔"""
-    networks = wifi_manager.scan_available_networks()
-    return jsonify({
-        "success": True,
-        "networks": networks
-    })
-
-
-@app.route('/api/wifi/current')
-def api_wifi_current():
-    """현재 연결된 WiFi"""
-    current = wifi_manager.get_current_connection()
-    return jsonify({
-        "success": current is not None,
-        "connection": current
-    })
-
-
-@app.route('/api/wifi/delete/<uuid>', methods=['POST'])
-def api_wifi_delete(uuid):
-    """WiFi 네트워크 삭제"""
-    success, message = wifi_manager.delete_network(uuid)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/connect/<uuid>', methods=['POST'])
-def api_wifi_connect(uuid):
-    """WiFi 네트워크 연결"""
-    success, message = wifi_manager.connect_to_network(uuid)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/disconnect/<uuid>', methods=['POST'])
-def api_wifi_disconnect(uuid):
-    """WiFi 네트워크 연결 해제"""
-    success, message = wifi_manager.disconnect_network(uuid)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/add', methods=['POST'])
-def api_wifi_add():
-    """새 WiFi 네트워크 추가"""
-    data = request.json
-    ssid = data.get('ssid', '')
-    password = data.get('password', '')
-    autoconnect = data.get('autoconnect', True)
-
-    if not ssid:
-        return jsonify({
-            "success": False,
-            "message": "SSID를 입력하세요"
-        })
-
-    success, message = wifi_manager.add_network(ssid, password, autoconnect)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/modify-password', methods=['POST'])
-def api_wifi_modify_password():
-    """WiFi 비밀번호 변경"""
-    data = request.json
-    uuid = data.get('uuid', '')
-    password = data.get('password', '')
-
-    if not uuid or not password:
-        return jsonify({
-            "success": False,
-            "message": "UUID와 비밀번호를 입력하세요"
-        })
-
-    success, message = wifi_manager.modify_network_password(uuid, password)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/autoconnect', methods=['POST'])
-def api_wifi_autoconnect():
-    """자동 연결 설정 변경"""
-    data = request.json
-    uuid = data.get('uuid', '')
-    autoconnect = data.get('autoconnect', True)
-
-    if not uuid:
-        return jsonify({
-            "success": False,
-            "message": "UUID를 입력하세요"
-        })
-
-    success, message = wifi_manager.set_autoconnect(uuid, autoconnect)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
-
-
-@app.route('/api/wifi/priority', methods=['POST'])
-def api_wifi_priority():
-    """네트워크 우선순위 설정"""
-    data = request.json
-    uuid = data.get('uuid', '')
-    priority = data.get('priority', 0)
-
-    if not uuid:
-        return jsonify({
-            "success": False,
-            "message": "UUID를 입력하세요"
-        })
-
-    success, message = wifi_manager.set_connection_priority(uuid, priority)
-    return jsonify({
-        "success": success,
-        "message": message
-    })
 
 
 # ==================== 헬퍼 함수 ====================

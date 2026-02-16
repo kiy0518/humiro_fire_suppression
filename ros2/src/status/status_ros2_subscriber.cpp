@@ -283,18 +283,8 @@ void StatusROS2Subscriber::ammunitionCallback(const std_msgs::msg::Int32::Shared
 }
 
 void StatusROS2Subscriber::formationCallback(const std_msgs::msg::Int32::SharedPtr msg) {
-    if (!status_overlay_) return;
-
-    int current = msg->data;
-    if (current < 1) current = 1;
-
-    status_overlay_->setFormation(current, 3);
-
-    static int last_formation = -1;
-    if (current != last_formation) {
-        std::cout << "  [편대 업데이트] " << current << "/3" << std::endl;
-        last_formation = current;
-    }
+    // 편대 OSD 표시 제거됨 (v0.18.1+)
+    (void)msg;
 }
 
 bool StatusROS2Subscriber::isFCConnected() const {

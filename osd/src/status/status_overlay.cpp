@@ -14,8 +14,9 @@ StatusOverlay::StatusOverlay()
     , ammo_current_(6)
     , ammo_max_(6)
     , drone_name_("1")
-    , formation_current_(1)
-    , formation_total_(3)  // 기본 삼각편대
+    , wifi_ssid_("")
+    , wifi_rssi_(0)
+    , show_wifi_(false)
     , battery_percentage_(-1)
     , gps_satellites_(-1)
     , gps_hdop_(-1.0f)
@@ -101,10 +102,11 @@ void StatusOverlay::setDroneName(const std::string& name) {
     drone_name_ = name;
 }
 
-void StatusOverlay::setFormation(int current, int total) {
+void StatusOverlay::setWifiInfo(const std::string& ssid, int rssi) {
     std::lock_guard<std::mutex> lock(data_mutex_);
-    formation_current_ = current;
-    formation_total_ = total;
+    wifi_ssid_ = ssid;
+    wifi_rssi_ = rssi;
+    show_wifi_ = !ssid.empty();
 }
 
 void StatusOverlay::setBattery(int percentage) {
@@ -414,21 +416,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
         current_x += battery_size.width + ITEM_SPACING;
     }
     
-    // 6. 편대 (아이콘 + 값) - 커스텀 토픽이므로 녹색
-    if (formation_total_ > 1) {
-        std::string form_icon = "F";
-        std::ostringstream formation_oss;
-        formation_oss << form_icon << ":" << formation_current_ << "/" << formation_total_;
-        cv::Scalar form_color = cv::Scalar(0, 255, 0);  // 녹색 (커스텀 토픽)
-        cv::Size form_size = cv::getTextSize(formation_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
-        cv::putText(frame, formation_oss.str(),
-                    cv::Point(current_x, text_y),
-                    FONT_FACE, FONT_SCALE, 
-                    form_color, FONT_THICKNESS, cv::LINE_AA);
-        current_x += form_size.width + ITEM_SPACING;
-    }
-    
-    // 7. 상태 (마지막) - 라운드 사각형 배경 추가 (기체 번호와 동일한 스타일)
+    // 6. 상태 - 라운드 사각형 배경 추가 (기체 번호와 동일한 스타일)
     // OFFBOARD 모드 + VIM4 커스텀 상태면 초록색, 그 외(일반 모드)면 흰색
     std::string status_text = getStatusText(current_status_);
     cv::Size status_size = cv::getTextSize(status_text, FONT_FACE, 
@@ -479,6 +467,58 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 FONT_FACE, FONT_SCALE, 
                 status_color, FONT_THICKNESS, cv::LINE_AA);
     
+    // 7. WiFi 정보 (오른쪽 정렬) - SSID + 안테나 바 아이콘
+    if (show_wifi_) {
+        // 신호 강도에 따른 바 수 결정 (4단계)
+        int bars = 0;
+        cv::Scalar bar_color;
+        if (wifi_rssi_ >= -50) {
+            bars = 4; bar_color = cv::Scalar(0, 255, 0);     // 초록 (강함)
+        } else if (wifi_rssi_ >= -60) {
+            bars = 3; bar_color = cv::Scalar(0, 255, 0);     // 초록 (양호)
+        } else if (wifi_rssi_ >= -70) {
+            bars = 2; bar_color = cv::Scalar(0, 255, 255);   // 노랑 (보통)
+        } else if (wifi_rssi_ >= -80) {
+            bars = 1; bar_color = cv::Scalar(0, 0, 255);     // 빨강 (약함)
+        } else {
+            bars = 0; bar_color = cv::Scalar(0, 0, 255);     // 빨강 (매우 약함)
+        }
+
+        // 바 아이콘 크기
+        const int BAR_WIDTH = 4;
+        const int BAR_GAP = 2;
+        const int BAR_MAX_HEIGHT = 16;
+        const int BAR_MIN_HEIGHT = 4;
+        const int NUM_BARS = 4;
+        int total_bar_width = NUM_BARS * BAR_WIDTH + (NUM_BARS - 1) * BAR_GAP;
+
+        // SSID 텍스트 크기
+        cv::Size ssid_size = cv::getTextSize(wifi_ssid_, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+        int ssid_bar_gap = 6;
+        int total_wifi_width = ssid_size.width + ssid_bar_gap + total_bar_width;
+
+        int wifi_x = frame.cols - total_wifi_width - MARGIN_LEFT;
+
+        // SSID 텍스트
+        cv::putText(frame, wifi_ssid_,
+                    cv::Point(wifi_x, text_y),
+                    FONT_FACE, FONT_SCALE,
+                    bar_color, FONT_THICKNESS, cv::LINE_AA);
+
+        // 안테나 바 그리기 (왼쪽부터 짧→긴)
+        int bar_base_y = text_y + 1;  // 텍스트 baseline 기준
+        int bar_x = wifi_x + ssid_size.width + ssid_bar_gap;
+        cv::Scalar inactive_color(80, 80, 80);  // 비활성 바 색상
+
+        for (int i = 0; i < NUM_BARS; i++) {
+            int bar_height = BAR_MIN_HEIGHT + (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT) * (i + 1) / NUM_BARS;
+            int bx = bar_x + i * (BAR_WIDTH + BAR_GAP);
+            int by = bar_base_y - bar_height;
+            cv::Scalar color = (i < bars) ? bar_color : inactive_color;
+            cv::rectangle(frame, cv::Rect(bx, by, BAR_WIDTH, bar_height), color, -1);
+        }
+    }
+
     // QGC 커스텀 메시지 표시 (왼쪽 하단)
     if (show_custom_message_ && !custom_message_.empty()) {
         // 타임아웃 확인
