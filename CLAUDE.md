@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.17.3
+**최신 태그**: v0.18.0
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -56,6 +56,8 @@
 | `021_MAVLINK_ARCHITECTURE_REFACTORING.md` | MAVLink 아키텍처 리팩토링 |
 | `022_COMMUNICATION_ARCHITECTURE.md` | 통신 아키텍처 |
 | `022_COMMUNICATION_ARCHITECTURE_STATUS.md` | 통신 아키텍처 상태 |
+| `029_PX4_NAMESPACE_FORMATION.md` | PX4 네임스페이스 편대 (030으로 대체됨) |
+| `030_DDS_DOMAIN_SEPARATION.md` | DDS 도메인 분리 (FC/편대 격리) |
 
 #### 화재 진압 시나리오
 | 파일 | 내용 |
@@ -284,6 +286,11 @@ humiro_fire_suppression/
 │   └── src/offboard/
 │       ├── offboard_manager.cpp/h     # OFFBOARD 미션 제어 (핵심)
 │       ├── mission_context.h          # 핸들러 공유 상태
+│       ├── bridge/                    # FC Bridge IPC (UDP)
+│       │   ├── fc_bridge_protocol.h         # IPC 메시지 구조체
+│       │   ├── fc_bridge_client.cpp/h       # 메인앱 측 IPC 클라이언트
+│       │   ├── fc_bridge_server.cpp/h       # fc_bridge 측 IPC 서버
+│       │   └── fc_bridge_node.cpp           # fc_bridge 실행파일
 │       ├── handlers/                  # 상태별 핸들러
 │       │   ├── state_handler.h        # 베이스 인터페이스
 │       │   ├── prepare_handler.h      # PREPARE (heartbeat)
@@ -381,6 +388,7 @@ humiro_fire_suppression/
 │   │   └── 003-apply_config.sh
 │   ├── runtime/                       # 런타임 스크립트
 │   │   ├── humiro_fire_suppression_wrapper.sh
+│   │   ├── start_fc_bridge.sh               # fc_bridge 실행 (Domain 0)
 │   │   ├── service-control.sh
 │   │   └── start_micro_ros_agent_wrapper.sh
 │   ├── debug/                         # 디버그 스크립트
@@ -394,11 +402,14 @@ humiro_fire_suppression/
 │   ├── device_config.env              # 기기별 설정 (드론ID, IP 등)
 │   ├── custom_params.json             # 커스텀 파라미터
 │   ├── offboard_config.json           # 오프보드 모드 설정 (목표지점 고도 등)
-│   ├── fastdds_eth0_only.xml          # DDS 설정
+│   ├── fastdds_eth0_only.xml          # DDS 설정 (micro-ros-agent)
+│   ├── fastdds_loopback_only.xml      # DDS 설정 (fc_bridge, Domain 0)
+│   ├── fastdds_wifi_only.xml          # DDS 설정 (메인앱, Domain 1)
 │   └── fc_params/                     # FC 파라미터 백업
 │
 ├── deployment/                 # 배포 (systemd 서비스)
 │   └── systemd/
+│       └── fc-bridge.service          # fc_bridge systemd 서비스
 │
 ├── humiro_msgs/                # ROS2 커스텀 메시지 정의
 │   └── CMakeLists.txt

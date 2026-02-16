@@ -25,13 +25,13 @@ class CustomMessage;
 
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
-#include <px4_msgs/msg/vehicle_command.hpp>
 class ThermalROS2Publisher;
 class LidarROS2Publisher;
 class StatusROS2Subscriber;
 class OffboardManager;  // 추가: 자율 비행 관리자
 class FormationController;  // 편대 비행 제어기
 class CollisionAvoidance;  // 충돌 방지
+class FCBridgeClient;  // FC Bridge IPC 클라이언트
 #endif
 
 /**
@@ -88,15 +88,13 @@ private:
     
 #ifdef ENABLE_ROS2
     rclcpp::Node::SharedPtr ros2_node_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_fallback_pub_;
+    std::shared_ptr<FCBridgeClient> fc_bridge_;  // FC Bridge IPC 클라이언트
     ThermalROS2Publisher* thermal_ros2_publisher_;
     LidarROS2Publisher* lidar_ros2_publisher_;
     StatusROS2Subscriber* status_ros2_subscriber_;
     OffboardManager* offboard_manager_;  // 추가: 자율 비행 관리자
     FormationController* formation_controller_;  // 편대 비행 제어기
     CollisionAvoidance* collision_avoidance_;  // 충돌 방지
-    std::string px4_ns_;  // PX4 토픽 네임스페이스 ("/droneN")
 #endif
     
     // 큐

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  메인 애플리케이션 전용 FastDDS 설정 (Domain 1)
+  편대 토픽(/leader_pose, /drone_position 등)을 WiFi로만 전송.
+  /fmu/* 토픽은 fc_bridge (Domain 0, loopback)에서 처리하므로
+  메인앱에서는 WiFi만 사용.
+
+  주의: 이 파일은 003-apply_config.sh에서 WIFI_IP를 자동 치환합니다.
+  수동 편집 시 WiFi IP 주소를 device_config.env의 WIFI_IP와 일치시키세요.
+-->
+<dds>
+    <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+        <transport_descriptors>
+            <transport_descriptor>
+                <transport_id>wifi_only_udp</transport_id>
+                <type>UDPv4</type>
+                <interfaceWhiteList>
+                    <address>192.168.100.11</address>
+                </interfaceWhiteList>
+            </transport_descriptor>
+        </transport_descriptors>
+        <participant profile_name="participant_profile" is_default_profile="true">
+            <rtps>
+                <userTransports>
+                    <transport_id>wifi_only_udp</transport_id>
+                </userTransports>
+                <useBuiltinTransports>false</useBuiltinTransports>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>

@@ -24,11 +24,12 @@
 
 #ifdef ENABLE_ROS2
 #include <rclcpp/rclcpp.hpp>
-#include <px4_msgs/msg/vehicle_command.hpp>
 #include "thermal_ros2_publisher.h"
 #include "lidar_ros2_publisher.h"
 #include "status_ros2_subscriber.h"
 #include "../../navigation/src/offboard/offboard_manager.h"
+#include "../../navigation/src/offboard/bridge/fc_bridge_client.h"
+#include "../../navigation/src/offboard/bridge/fc_bridge_protocol.h"
 #include "../../navigation/src/offboard/formation/formation_controller.h"
 #include "../../navigation/src/offboard/collision/collision_avoidance.h"
 #endif
@@ -178,21 +179,26 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
             } catch (...) {}
         }
         drone_id_ = static_cast<uint8_t>(drone_id);  // 조기 설정 (Formation, CollisionAvoidance에서 사용)
-        px4_ns_ = "/drone" + std::to_string(drone_id);  // PX4 토픽 네임스페이스
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
         ros2_node_ = rclcpp::Node::make_shared(node_name);
-        vehicle_command_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-            px4_ns_ + "/fmu/in/vehicle_command", 10);
-        // 폴백 Publisher (FC가 -n 미사용 시 네임스페이스 없는 토픽으로도 발행)
-        if (!px4_ns_.empty()) {
-            vehicle_command_fallback_pub_ = ros2_node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-                "/fmu/in/vehicle_command", 10);
-        }
-        std::cout << "  ✓ ROS2 노드 생성: " << node_name << std::endl;
-        std::cout << "  → PX4 네임스페이스: " << px4_ns_ << std::endl;
-        if (vehicle_command_fallback_pub_) {
-            std::cout << "  → 폴백 VehicleCommand: /fmu/in/vehicle_command" << std::endl;
+        std::cout << "  ✓ ROS2 노드 생성: " << node_name << " (Domain 1, WiFi)" << std::endl;
+
+        // FCBridgeClient 생성 (FC Bridge IPC, UDP loopback)
+        // IPC 포트: 환경 변수 오버라이드 가능
+        uint16_t state_port = FC_BRIDGE_STATE_PORT;
+        uint16_t command_port = FC_BRIDGE_COMMAND_PORT;
+        const char* sp = std::getenv("FC_BRIDGE_STATE_PORT");
+        const char* cp = std::getenv("FC_BRIDGE_COMMAND_PORT");
+        if (sp) state_port = static_cast<uint16_t>(std::atoi(sp));
+        if (cp) command_port = static_cast<uint16_t>(std::atoi(cp));
+
+        fc_bridge_ = std::make_shared<FCBridgeClient>(state_port, command_port);
+        if (fc_bridge_->start()) {
+            std::cout << "  ✓ FCBridgeClient 시작 (state:" << state_port
+                      << ", cmd:" << command_port << ")" << std::endl;
+        } else {
+            std::cerr << "  ✗ FCBridgeClient 시작 실패!" << std::endl;
         }
     } catch (const std::exception& e) {
         std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
@@ -206,10 +212,10 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
 
 void ApplicationManager::initializeOffboard() {
 #ifdef ENABLE_ROS2
-    if (ros2_node_) {
+    if (ros2_node_ && fc_bridge_) {
         std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
-        offboard_manager_ = new OffboardManager(ros2_node_, px4_ns_);
-        std::cout << "  ✓ OffboardManager 초기화 완료" << std::endl;
+        offboard_manager_ = new OffboardManager(ros2_node_, fc_bridge_);
+        std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC)" << std::endl;
     }
 #endif
 }
@@ -344,7 +350,7 @@ void ApplicationManager::initializeComponents() {
 
         if (status_overlay_) {
             std::cout << "\n[ROS2 상태 구독자 초기화]" << std::endl;
-            status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_, px4_ns_);
+            status_ros2_subscriber_ = new StatusROS2Subscriber(ros2_node_, status_overlay_, fc_bridge_.get());
 
             // OFFBOARD 모드 종료 시 mission_running_ 플래그 리셋 콜백 설정
             // PX4는 OFFBOARD heartbeat 수신 시 nav_state를 일시적으로 변경할 수 있으므로,
@@ -644,22 +650,15 @@ void ApplicationManager::initializeCustomMessage() {
                     std::cout << "[DEBUG] ARM/DISARM 명령 판단: " << (arm ? "ARM" : "DISARM") << " (param1 >= 0.5f = " << arm << ")" << std::endl;
                     
 #ifdef ENABLE_ROS2
-                    if (offboard_manager_ && vehicle_command_pub_) {
-                        px4_msgs::msg::VehicleCommand cmd;
-                        cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now().time_since_epoch()).count();
-                        cmd.param1 = param1;  // 1.0 = ARM, 0.0 = DISARM
-                        cmd.param2 = 0.0f;
-                        cmd.command = 400;  // MAV_CMD_COMPONENT_ARM_DISARM
-                        cmd.target_system = target_system;
-                        cmd.target_component = target_component;
-                        cmd.source_system = 255;  // Companion computer
-                        cmd.source_component = 1;
-                        cmd.from_external = true;
-
-                        vehicle_command_pub_->publish(cmd);
-                        if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(cmd);
-                        std::cout << "[DEBUG] ✓ ARM/DISARM 명령 ROS2로 전송 완료 (param1=" << param1 << ")" << std::endl;
+                    if (offboard_manager_ && fc_bridge_) {
+                        fc_bridge_->sendVehicleCommand(
+                            400,              // MAV_CMD_COMPONENT_ARM_DISARM
+                            param1,           // 1.0 = ARM, 0.0 = DISARM
+                            0.0f,             // param2
+                            0.0f,             // param3
+                            target_system     // target_system
+                        );
+                        std::cout << "[DEBUG] ✓ ARM/DISARM 명령 FCBridge로 전송 완료 (param1=" << param1 << ")" << std::endl;
                         
                         if (status_overlay_) {
                             std::string msg = arm ? "ARM Command" : "DISARM Command";
@@ -725,28 +724,20 @@ void ApplicationManager::initializeCustomMessage() {
                     #endif
                     
                 #ifdef ENABLE_ROS2
-                    if (vehicle_command_pub_) {
+                    if (fc_bridge_) {
                         // 중요: FC가 이전 명령을 처리할 시간을 주기 위해 초기 지연 추가
-                        // ARMING 명령 후 비행모드 변경 명령이 성공하는 이유는 이 지연 때문일 수 있음
                         std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                        
+
                         // DO_SET_MODE 명령 전송 (3회 반복, 100ms 간격)
                         int send_count = 3;
                         for (int i = 0; i < send_count; i++) {
-                            px4_msgs::msg::VehicleCommand cmd;
-                            cmd.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::steady_clock::now().time_since_epoch()).count();
-                            cmd.param1 = 1.0;           // Custom mode flag
-                            cmd.param2 = static_cast<float>(main_mode);  // Main mode value
-                            cmd.command = 176;          // MAV_CMD_DO_SET_MODE
-                            cmd.target_system = target_system;
-                            cmd.target_component = target_component;
-                            cmd.source_system = 255;  // Companion computer
-                            cmd.source_component = 1;
-                            cmd.from_external = true;
-
-                            vehicle_command_pub_->publish(cmd);
-                            if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(cmd);
+                            fc_bridge_->sendVehicleCommand(
+                                176,              // MAV_CMD_DO_SET_MODE
+                                1.0f,             // param1: Custom mode flag
+                                static_cast<float>(main_mode),  // param2: Main mode value
+                                0.0f,             // param3
+                                target_system     // target_system
+                            );
 
                             if (i == 0) {
                                 std::cout << "[DEBUG] DO_SET_MODE 전송 (main_mode=" << (int)main_mode
@@ -1005,8 +996,10 @@ void ApplicationManager::cleanupROS2() {
     status_ros2_subscriber_ = nullptr;
     thermal_ros2_publisher_ = nullptr;
     lidar_ros2_publisher_ = nullptr;
-    vehicle_command_pub_.reset();
-    vehicle_command_fallback_pub_.reset();
+    if (fc_bridge_) {
+        fc_bridge_->stop();
+        fc_bridge_.reset();
+    }
 
     if (rclcpp::ok()) {
         rclcpp::shutdown();

@@ -67,6 +67,11 @@ void CollisionAvoidance::positionBroadcastCallback() {
     msg.vz = offboard_mgr_->getCurrentVz();
     msg.mission_state = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
 
+    // 안전 데이터 (편대 공유)
+    msg.battery_remaining = offboard_mgr_->getBatteryRemaining();
+    msg.gps_fix_type = offboard_mgr_->getGPSFixType();
+    msg.gps_satellites = offboard_mgr_->getGPSSatellites();
+
     position_pub_->publish(msg);
 }
 

@@ -1,145 +1,66 @@
 #ifdef ENABLE_ROS2
 
 #include "status_ros2_subscriber.h"
+#include "../../../navigation/src/offboard/bridge/fc_bridge_client.h"
 #include <iostream>
 #include <chrono>
-#include <algorithm>
 #include <map>
 
-// px4_msgs가 없으면 기본 구조체 사용
-#ifndef px4_msgs_FOUND
-namespace px4_msgs {
-namespace msg {
-struct VehicleStatus {
-    uint8_t nav_state;
-    bool arming_state;
-    bool failsafe;
-    uint8_t vehicle_type;
-    uint8_t system_type;
-};
-struct BatteryStatus {
-    float voltage_v;
-    float current_a;
-    float remaining;  // 0.0 ~ 1.0
-    uint8_t battery_warning;
-};
-struct VehicleGpsPosition {
-    int32_t lat;
-    int32_t lon;
-    float alt;
-    uint8_t satellites_used;
-    uint8_t fix_type;
-};
-}
-}
-#endif
+using namespace std::chrono_literals;
 
-StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node, StatusOverlay* status_overlay, const std::string& px4_ns)
+StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node,
+                                           StatusOverlay* status_overlay,
+                                           FCBridgeClient* fc_bridge)
     : node_(node)
     , status_overlay_(status_overlay)
+    , fc_bridge_(fc_bridge)
     , last_state_update_(std::chrono::steady_clock::now())
     , last_battery_update_(std::chrono::steady_clock::now())
     , last_gps_update_(std::chrono::steady_clock::now())
 {
     if (!node_ || !status_overlay_) {
-        std::cerr << "  ✗ StatusROS2Subscriber: node 또는 status_overlay가 nullptr입니다" << std::endl;
+        std::cerr << "  [StatusROS2Subscriber] node 또는 status_overlay가 nullptr입니다" << std::endl;
         return;
     }
 
-    std::cout << "  → ROS2 노드 이름: " << node_->get_name() << std::endl;
-    std::cout << "  → ROS2 네임스페이스: " << node_->get_namespace() << std::endl;
-    std::cout << "  → PX4 토픽 접두사: " << (px4_ns.empty() ? "(없음 - 단독비행)" : px4_ns) << std::endl;
+    std::cout << "  [StatusROS2Subscriber] v2.0 DDS Domain 분리" << std::endl;
+    std::cout << "  → FC 상태: FCBridgeClient (UDP IPC, 10Hz 폴링)" << std::endl;
+    std::cout << "  → 커스텀 토픽: ROS2 Domain 1 (WiFi)" << std::endl;
 
-    // PX4 uXRCE-DDS QoS 설정
-    // PX4는 BEST_EFFORT와 TRANSIENT_LOCAL을 사용하므로 구독자도 동일하게 설정
-    // History depth를 더 크게 설정 (배터리/GPS 메시지의 payload size 문제 해결)
-    // PX4는 UNKNOWN이지만, 구독자는 명시적으로 설정 필요
-    // 배터리 메시지의 payload size 에러를 방지하기 위해 depth를 증가
-    rclcpp::QoS px4_qos(100);  // depth를 10에서 100으로 증가 (payload size 문제 해결)
-    px4_qos.reliability(rclcpp::ReliabilityPolicy::BestEffort);
-    px4_qos.durability(rclcpp::DurabilityPolicy::TransientLocal);  // PX4 Publisher와 일치
-    px4_qos.history(rclcpp::HistoryPolicy::KeepLast);  // 명시적으로 설정
-    
-    std::cout << "  [DEBUG] QoS 설정: Reliability=BestEffort, Durability=TransientLocal, History=KeepLast, Depth=10" << std::endl;
-    
-    // PX4 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_status_v1)
-    try {
-        vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-            px4_ns + "/fmu/out/vehicle_status_v1", px4_qos,
-            std::bind(&StatusROS2Subscriber::vehicleStatusCallback, this, std::placeholders::_1));
-        std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_status_v1 (uXRCE-DDS, BestEffort QoS)" << std::endl;
-        std::cout << "    → QGC에서 비행 모드 변경 시 즉시 반영됩니다" << std::endl;
-        std::cout << "    ⚠ 토픽 수신 대기 중... (PX4가 연결되면 자동으로 수신됩니다)" << std::endl;
-        std::cout << "    [DEBUG] 구독자 생성 완료: vehicle_status_sub_=" << (vehicle_status_sub_ ? "OK" : "NULL") << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ 구독자 생성 실패: " << e.what() << std::endl;
+    // ========== FC 상태 폴링 타이머 (10Hz) ==========
+    if (fc_bridge_) {
+        fc_poll_timer_ = node_->create_wall_timer(
+            100ms, std::bind(&StatusROS2Subscriber::pollFCState, this));
+        std::cout << "  [OK] FC 상태 폴링 타이머 시작 (10Hz, FCBridgeClient)" << std::endl;
+    } else {
+        std::cerr << "  [WARN] FCBridgeClient가 nullptr → FC 상태 폴링 비활성화" << std::endl;
     }
-    
-    // 배터리 상태 구독 (uXRCE-DDS: /fmu/out/battery_status)
-    try {
-        battery_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
-            px4_ns + "/fmu/out/battery_status", px4_qos,
-            std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
-        std::cout << "  ✓ ROS2 구독: /fmu/out/battery_status (uXRCE-DDS, BestEffort QoS)" << std::endl;
-        std::cout << "    [DEBUG] 구독자 생성 완료: battery_sub_=" << (battery_sub_ ? "OK" : "NULL") << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ 배터리 구독자 생성 실패: " << e.what() << std::endl;
-    }
-    
-    // GPS 상태 구독 (uXRCE-DDS: /fmu/out/vehicle_gps_position)
-    // 실제 메시지 타입은 px4_msgs/msg/SensorGps
-    try {
-        gps_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
-            px4_ns + "/fmu/out/vehicle_gps_position", px4_qos,
-            std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
-        std::cout << "  ✓ ROS2 구독: /fmu/out/vehicle_gps_position (uXRCE-DDS, SensorGps, BestEffort QoS)" << std::endl;
-        std::cout << "    [DEBUG] 구독자 생성 완료: gps_sub_=" << (gps_sub_ ? "OK" : "NULL") << std::endl;
-        std::cout << "    ⚠ 토픽 수신 대기 중... (PX4가 연결되고 GPS/배터리 데이터를 발행하면 자동으로 수신됩니다)" << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ GPS 구독자 생성 실패: " << e.what() << std::endl;
-    }
-    
-    // 폴백 구독자: FC가 -n 옵션 없이 실행될 경우 네임스페이스 없는 토픽 수신
-    // micro-ros-agent는 ROS_NAMESPACE를 bridged 토픽에 적용하지 않음 (설계상)
-    // PX4 네임스페이스는 uxrce_dds_client의 -n 옵션에서만 결정됨
-    if (!px4_ns.empty()) {
-        try {
-            vehicle_status_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-                "/fmu/out/vehicle_status_v1", px4_qos,
-                std::bind(&StatusROS2Subscriber::vehicleStatusCallback, this, std::placeholders::_1));
-            battery_fallback_sub_ = node_->create_subscription<px4_msgs::msg::BatteryStatus>(
-                "/fmu/out/battery_status", px4_qos,
-                std::bind(&StatusROS2Subscriber::batteryCallback, this, std::placeholders::_1));
-            gps_fallback_sub_ = node_->create_subscription<px4_msgs::msg::SensorGps>(
-                "/fmu/out/vehicle_gps_position", px4_qos,
-                std::bind(&StatusROS2Subscriber::gpsCallback, this, std::placeholders::_1));
-            std::cout << "  ✓ 폴백 구독 생성: /fmu/out/* (FC -n 미사용 대비)" << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "  ⚠ 폴백 구독 생성 실패: " << e.what() << std::endl;
-        }
-    }
+
+    // ========== Domain 1 커스텀 토픽 구독 ==========
 
     // OFFBOARD 모드 상태 구독 (/offboard/status) - VIM4 커스텀 토픽
     offboard_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
         "/offboard/status", 10,
         std::bind(&StatusROS2Subscriber::offboardStatusCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /offboard/status (OFFBOARD 모드 상태)" << std::endl;
-    
+    std::cout << "  [OK] ROS2 구독: /offboard/status" << std::endl;
+
     // 소화탄 갯수 구독 (/ammunition/current) - 커스텀 토픽
     ammunition_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
         "/ammunition/current", 10,
         std::bind(&StatusROS2Subscriber::ammunitionCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /ammunition/current" << std::endl;
-    
+    std::cout << "  [OK] ROS2 구독: /ammunition/current" << std::endl;
+
     // 편대 정보 구독 (/formation/current) - 커스텀 토픽
     formation_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
         "/formation/current", 10,
         std::bind(&StatusROS2Subscriber::formationCallback, this, std::placeholders::_1));
-    std::cout << "  ✓ ROS2 구독: /formation/current" << std::endl;
+    std::cout << "  [OK] ROS2 구독: /formation/current" << std::endl;
 }
 
 StatusROS2Subscriber::~StatusROS2Subscriber() {
-    // 구독자들은 자동으로 해제됨
+    if (fc_poll_timer_) {
+        fc_poll_timer_->cancel();
+    }
 }
 
 void StatusROS2Subscriber::setModeChangeCallback(ModeChangeCallback callback) {
@@ -148,62 +69,155 @@ void StatusROS2Subscriber::setModeChangeCallback(ModeChangeCallback callback) {
 
 void StatusROS2Subscriber::spin() {
     if (node_) {
-        // rclcpp::spin_some은 같은 노드에 대해 여러 스레드에서 동시 호출 시 문제 발생
-        // 단일 스레드에서만 호출하도록 주의
-        // timeout을 0으로 설정하여 즉시 반환 (non-blocking)
         rclcpp::spin_some(node_);
-        
-        // 디버깅: 주기적으로 spin 호출 확인 (10초마다)
-        static auto last_spin_log = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_spin_log).count();
-        if (elapsed >= 10) {
-            static int spin_count = 0;
-            spin_count++;
-            std::cout << "  [DEBUG] StatusROS2Subscriber::spin() 호출됨 (총 " << spin_count << "회)" << std::endl;
-            last_spin_log = now;
+    }
+}
+
+// ========== FC 상태 폴링 (FCBridgeClient, 10Hz) ==========
+
+void StatusROS2Subscriber::pollFCState() {
+    if (!fc_bridge_ || !status_overlay_) return;
+
+    FCState state = fc_bridge_->getLatestState();
+
+    // FC 연결 확인
+    if (!fc_bridge_->isConnected() || !state.fc_connected) {
+        return;
+    }
+
+    // 첫 수신 확인
+    static bool first_received = false;
+    if (!first_received) {
+        std::cout << "  [FC Bridge] 첫 FC 상태 수신 (nav=" << (int)state.nav_state
+                  << ", arm=" << (int)state.arming_state << ")" << std::endl;
+        first_received = true;
+    }
+
+    // ========== nav_state / arming_state 처리 ==========
+    std::string mode = navStateToModeString(state.nav_state);
+    bool is_armed = (state.arming_state == 2);
+
+    // 내부 상태 업데이트 (항상)
+    current_nav_state_.store(state.nav_state);
+    current_arming_state_.store(state.arming_state);
+
+    // 외부 컴포넌트에 상태 전달
+    if (vehicle_status_callback_) {
+        vehicle_status_callback_(state.nav_state, state.arming_state);
+    }
+
+    // OSD 모드 업데이트
+    bool mode_changed = (mode != confirmed_mode_);
+    bool armed_changed = (is_armed != confirmed_armed_);
+
+    if (mode_changed || armed_changed) {
+        status_overlay_->updatePx4State(mode, is_armed);
+
+        std::cout << "  [비행 모드 변경] " << confirmed_mode_ << " → " << mode
+                  << " (nav_state=" << (int)state.nav_state << ")"
+                  << ", 시동: " << (confirmed_armed_ ? "ON" : "OFF")
+                  << " → " << (is_armed ? "ON" : "OFF") << std::endl;
+
+        // OFFBOARD(14)에서 다른 모드로 변경 시 콜백 호출
+        if (last_nav_state_ == 14 && state.nav_state != 14) {
+            std::cout << "    OFFBOARD 모드 종료 감지 (nav: 14 → " << (int)state.nav_state << ")" << std::endl;
+            if (mode_change_callback_) {
+                mode_change_callback_(last_nav_state_, state.nav_state);
+            }
         }
+
+        confirmed_mode_ = mode;
+        confirmed_armed_ = is_armed;
+        last_nav_state_ = state.nav_state;
+        last_state_update_ = std::chrono::steady_clock::now();
     } else {
-        static bool warned = false;
-        if (!warned) {
-            std::cerr << "  ⚠ StatusROS2Subscriber::spin(): node_가 nullptr입니다" << std::endl;
-            warned = true;
+        // 주기적 상태 확인 (30초마다)
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - last_state_update_).count();
+        if (elapsed >= 30) {
+            std::cout << "  [상태] 모드: " << mode << " (nav=" << (int)state.nav_state
+                      << "), 시동: " << (is_armed ? "ON" : "OFF") << std::endl;
+            last_state_update_ = now;
+        }
+    }
+
+    // ========== 배터리 처리 ==========
+    float remaining = state.battery_remaining;
+    if (remaining >= 0.0f && remaining <= 1.0f) {
+        battery_remaining_.store(remaining);
+
+        int percentage = static_cast<int>(remaining * 100.0f);
+        if (percentage < 0) percentage = 0;
+        if (percentage > 100) percentage = 100;
+
+        status_overlay_->setBattery(percentage);
+
+        // 주기적 배터리 출력 (5초마다)
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - last_battery_update_).count();
+        if (elapsed >= 5) {
+            std::cout << "  [배터리] " << percentage << "% (remaining=" << remaining << ")" << std::endl;
+            last_battery_update_ = now;
+        }
+    }
+
+    // ========== GPS 처리 ==========
+    gps_fix_type_.store(state.gps_fix_type);
+
+    int satellites = static_cast<int>(state.gps_satellites);
+    if (satellites < 0) satellites = 0;
+    if (satellites > 50) satellites = 50;
+
+    float hdop = state.gps_hdop;
+    if (hdop < 0.0f) hdop = 0.0f;
+
+    status_overlay_->setGpsInfo(satellites, hdop);
+
+    // 주기적 GPS 출력 (5초마다)
+    {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            now - last_gps_update_).count();
+        if (elapsed >= 5) {
+            std::cout << "  [GPS] 위성: " << satellites << ", HDOP: " << hdop
+                      << ", fix_type: " << (int)state.gps_fix_type << std::endl;
+            last_gps_update_ = now;
         }
     }
 }
 
 // PX4 nav_state를 모드 문자열로 변환
 std::string StatusROS2Subscriber::navStateToModeString(uint8_t nav_state) {
-    // PX4 navigation state enum (px4_msgs/VehicleStatus)
-    // QGC 표시 이름과 일치하도록 수정
     static std::map<uint8_t, std::string> nav_state_map = {
         {0, "MANUAL"},
-        {1, "Altitude"},           // ALTCTL → QGC: "Altitude"
-        {2, "Position"},           // POSCTL → QGC: "Position"
-        {3, "Mission"},            // AUTO_MISSION → QGC: "Mission"
-        {4, "Hold"},               // AUTO_LOITER → QGC: "Hold"
+        {1, "Altitude"},
+        {2, "Position"},
+        {3, "Mission"},
+        {4, "Hold"},
         {5, "AUTO_RTL"},
-        {6, "Position Slow"},      // POSITION_SLOW → QGC: "Position Slow"
+        {6, "Position Slow"},
         {7, "FREE5"},
         {8, "ALTITUDE_CRUISE"},
         {9, "FREE3"},
-        {10, "Acro"},              // ACRO → QGC: "Acro"
+        {10, "Acro"},
         {11, "FREE2"},
         {12, "DESCEND"},
         {13, "TERMINATION"},
         {14, "OFFBOARD"},
-        {15, "Stabilized"},        // STAB → QGC: "Stabilized"
+        {15, "Stabilized"},
         {16, "FREE1"},
         {17, "AUTO_TAKEOFF"},
         {18, "AUTO_LAND"},
-        {19, "Follow Target"},     // AUTO_FOLLOW_TARGET → QGC: "Follow Target"
-        {20, "Precision Landing"}, // AUTO_PRECLAND → QGC: "Precision Landing"
+        {19, "Follow Target"},
+        {20, "Precision Landing"},
         {21, "ORBIT"},
-        {22, "VTOL Takeoff"},      // AUTO_VTOL_TAKEOFF → QGC: "VTOL Takeoff"
+        {22, "VTOL Takeoff"},
         {23, "EXTERNAL1"},
         {24, "EXTERNAL2"},
     };
-    
+
     auto it = nav_state_map.find(nav_state);
     if (it != nav_state_map.end()) {
         return it->second;
@@ -211,263 +225,13 @@ std::string StatusROS2Subscriber::navStateToModeString(uint8_t nav_state) {
     return "UNKNOWN";
 }
 
-void StatusROS2Subscriber::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg) {
-    // 디버깅: 콜백 호출 확인 (항상 출력)
-    static int callback_count = 0;
-    callback_count++;
-    
-    if (!status_overlay_) {
-        std::cerr << "  ⚠ vehicleStatusCallback: status_overlay_가 nullptr입니다" << std::endl;
-        return;
-    }
-    
-    if (!msg) {
-        std::cerr << "  ⚠ vehicleStatusCallback: msg가 nullptr입니다" << std::endl;
-        return;
-    }
-    
-    // 첫 수신 확인 (토픽 연결 확인)
-    static bool first_received = false;
-    if (!first_received) {
-        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_status_v1 첫 메시지 수신!" << std::endl;
-        std::cout << "    → PX4 uXRCE-DDS 연결 성공" << std::endl;
-        // PX4 arming_state: 1 = STANDBY (disarmed), 2 = ARMED
-        bool first_armed = (msg->arming_state == 2);
-        std::cout << "    [DEBUG] 첫 메시지 nav_state=" << (int)msg->nav_state 
-                  << ", arming_state=" << (int)msg->arming_state 
-                  << ", armed=" << (first_armed ? "ON" : "OFF") << std::endl;
-        first_received = true;
-    }
-    
-    // PX4 nav_state를 모드 문자열로 변환
-    std::string mode = navStateToModeString(msg->nav_state);
-    // PX4 arming_state: 1 = STANDBY (disarmed), 2 = ARMED
-    // arm_handler.cpp와 동일한 로직 사용
-    bool is_armed = (msg->arming_state == 2);
-    
-    // 상태 변경 감지 (이전 값과 비교)
-    static std::string last_mode = "";
-    static bool last_armed = false;
-    bool mode_changed = (mode != last_mode);
-    bool armed_changed = (is_armed != last_armed);
-    
-    // 디버깅: 모든 메시지 수신 시 출력 (변경 여부와 관계없이)
-    static int call_count = 0;
-    call_count++;
-    if (call_count % 10 == 0 || mode_changed || armed_changed) {
-        std::cout << "  [DEBUG] vehicleStatusCallback 호출됨 (nav_state=" << (int)msg->nav_state 
-                  << " → mode=\"" << mode << "\", arming_state=" << (int)msg->arming_state 
-                  << " (1=STANDBY, 2=ARMED), armed=" << (is_armed ? "ON" : "OFF") << ")" << std::endl;
-    }
-    
-    // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    status_overlay_->updatePx4State(mode, is_armed);
-
-    // 사전 조건 체크용 상태 저장
-    current_nav_state_.store(msg->nav_state);
-    current_arming_state_.store(msg->arming_state);
-    last_vehicle_status_time_ = std::chrono::steady_clock::now();
-
-    // ArmHandler 등 외부 컴포넌트에 상태 전달
-    if (vehicle_status_callback_) {
-        vehicle_status_callback_(msg->nav_state, msg->arming_state);
-    }
-    
-    // 상태 변경 시 즉시 출력 (QGC에서 변경 시 바로 확인 가능)
-    if (mode_changed || armed_changed) {
-        std::cout << "  [비행 모드 변경] " << last_mode << " → " << mode
-                  << " (nav_state=" << (int)msg->nav_state << ")"
-                  << ", 시동: " << (last_armed ? "ON" : "OFF")
-                  << " → " << (is_armed ? "ON" : "OFF") << std::endl;
-        std::cout << "    → StatusOverlay::updatePx4State() 호출 완료" << std::endl;
-
-        // OFFBOARD(14)에서 다른 모드로 변경 시 콜백 호출 (mission_running_ 리셋용)
-        if (last_nav_state_ == 14 && msg->nav_state != 14) {
-            std::cout << "    ★ OFFBOARD 모드 종료 감지! (nav_state: 14 → " << (int)msg->nav_state << ")" << std::endl;
-            if (mode_change_callback_) {
-                mode_change_callback_(last_nav_state_, msg->nav_state);
-            }
-        }
-
-        last_mode = mode;
-        last_armed = is_armed;
-        last_nav_state_ = msg->nav_state;
-        last_state_update_ = std::chrono::steady_clock::now();
-    }
-    // 주기적으로 출력 (10초마다, 변경이 없을 때)
-    else {
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-            now - last_state_update_).count();
-        if (elapsed >= 10) {
-            std::cout << "  [상태 확인] 모드: " << mode << " (nav_state=" << (int)msg->nav_state 
-                      << "), 시동: " << (is_armed ? "ON" : "OFF") << std::endl;
-            last_state_update_ = now;
-        }
-    }
-}
-
-void StatusROS2Subscriber::batteryCallback(const px4_msgs::msg::BatteryStatus::SharedPtr msg) {
-    // 디버깅: 콜백 호출 확인 (항상 출력)
-    static int callback_count = 0;
-    callback_count++;
-    
-    if (!status_overlay_) {
-        std::cerr << "  ⚠ batteryCallback: status_overlay_가 nullptr입니다" << std::endl;
-        return;
-    }
-    
-    if (!msg) {
-        std::cerr << "  ⚠ batteryCallback: msg가 nullptr입니다" << std::endl;
-        return;
-    }
-    
-    // 배터리 퍼센트 계산 (remaining은 0.0 ~ 1.0)
-    // remaining이 유효한 값인지 확인 (invalid 값은 -1.0)
-    float remaining = msg->remaining;
-    if (remaining < 0.0f || remaining > 1.0f) {
-        // 유효하지 않은 값이면 voltage 기반으로 추정
-        // 일반적으로 4S 배터리는 16.8V (100%) ~ 14.0V (0%)
-        if (msg->voltage_v > 0.0f) {
-            float voltage = msg->voltage_v;
-            if (voltage >= 16.8f) {
-                remaining = 1.0f;
-            } else if (voltage <= 14.0f) {
-                remaining = 0.0f;
-            } else {
-                remaining = (voltage - 14.0f) / (16.8f - 14.0f);
-            }
-        } else {
-            return;  // voltage도 유효하지 않으면 업데이트하지 않음
-        }
-    }
-    
-    int percentage = static_cast<int>(remaining * 100.0f);
-    if (percentage < 0) percentage = 0;
-    if (percentage > 100) percentage = 100;
-    
-    // 첫 수신 확인 (항상 출력)
-    static bool first_received = false;
-    if (!first_received) {
-        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/battery_status 첫 메시지 수신!" << std::endl;
-        std::cout << "    [DEBUG] 메시지 필드 확인:" << std::endl;
-        std::cout << "      - voltage_v: " << msg->voltage_v << std::endl;
-        std::cout << "      - current_a: " << msg->current_a << std::endl;
-        std::cout << "      - remaining: " << msg->remaining << std::endl;
-        std::cout << "      - connected: " << (msg->connected ? "true" : "false") << std::endl;
-        std::cout << "    → 배터리: " << percentage << "% (voltage: " << msg->voltage_v 
-                  << "V, remaining: " << remaining << ")" << std::endl;
-        first_received = true;
-    }
-    
-    // 사전 조건 체크용 상태 저장
-    battery_remaining_.store(remaining);
-
-    // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    status_overlay_->setBattery(percentage);
-    
-    // 디버깅: 주기적으로 출력 (5초마다)
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        now - last_battery_update_).count();
-    if (elapsed >= 5) {
-        std::cout << "  [배터리 업데이트] " << percentage << "% (voltage: " << msg->voltage_v 
-                  << "V, current: " << msg->current_a << "A, remaining: " << remaining 
-                  << ", 콜백 호출: " << callback_count << "회)" << std::endl;
-        last_battery_update_ = now;
-    }
-}
-
-void StatusROS2Subscriber::gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg) {
-    // 디버깅: 콜백 호출 확인 (항상 출력)
-    static int callback_count = 0;
-    callback_count++;
-    
-    try {
-        if (!status_overlay_) {
-            std::cerr << "  ⚠ gpsCallback: status_overlay_가 nullptr입니다" << std::endl;
-            return;
-        }
-        
-        if (!msg) {
-            std::cerr << "  ⚠ gpsCallback: msg가 nullptr입니다" << std::endl;
-            return;
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ gpsCallback 예외 (초기 검사): " << e.what() << std::endl;
-        return;
-    }
-    
-    // 첫 수신 확인 (항상 출력)
-    static bool first_received = false;
-    if (!first_received) {
-        std::cout << "  ✓ [토픽 수신 확인] /fmu/out/vehicle_gps_position 첫 메시지 수신!" << std::endl;
-        std::cout << "    [DEBUG] 메시지 필드 확인:" << std::endl;
-        std::cout << "      - latitude_deg: " << msg->latitude_deg << std::endl;
-        std::cout << "      - longitude_deg: " << msg->longitude_deg << std::endl;
-        std::cout << "      - fix_type: " << (int)msg->fix_type << std::endl;
-        std::cout << "      - satellites_used: " << (int)msg->satellites_used << std::endl;
-        std::cout << "      - hdop: " << msg->hdop << std::endl;
-        first_received = true;
-    }
-    
-    // 사전 조건 체크용 상태 저장
-    gps_fix_type_.store(msg->fix_type);
-
-    // GPS 위성 수 가져오기 (예외 처리)
-    int satellites = 0;
-    float hdop = 0.0f;
-    try {
-        satellites = static_cast<int>(msg->satellites_used);
-        if (satellites < 0) satellites = 0;
-        if (satellites > 20) satellites = 20;  // 최대값 제한
-        
-        // HDOP 값 가져오기
-        hdop = msg->hdop;
-        if (hdop < 0.0f) hdop = 0.0f;
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ gpsCallback 예외 (필드 접근): " << e.what() << std::endl;
-        return;
-    }
-    
-    // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    try {
-        status_overlay_->setGpsInfo(satellites, hdop);
-    } catch (const std::exception& e) {
-        std::cerr << "  ✗ gpsCallback 예외 (StatusOverlay 업데이트): " << e.what() << std::endl;
-        return;
-    }
-    
-    // 디버깅: 주기적으로 출력 (5초마다)
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        now - last_gps_update_).count();
-    if (elapsed >= 5) {
-        try {
-            double lat = static_cast<double>(msg->latitude_deg);
-            double lon = static_cast<double>(msg->longitude_deg);
-            std::cout << "  [GPS 업데이트] 위도: " << lat << ", 경도: " << lon 
-                      << ", 위성: " << satellites << ", HDOP: " << hdop 
-                      << ", fix_type: " << (int)msg->fix_type 
-                      << " (콜백 호출: " << callback_count << "회)" << std::endl;
-            last_gps_update_ = now;
-        } catch (const std::exception& e) {
-            std::cerr << "  ✗ gpsCallback 예외 (주기적 출력): " << e.what() << std::endl;
-        }
-    }
-}
-
 void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::SharedPtr msg) {
-    if (!status_overlay_) {
-        return;
-    }
-    
-    // 문자열을 DroneStatus로 변환
+    if (!status_overlay_) return;
+
     std::string status_str = msg->data;
-    
-    // 문자열을 enum으로 변환
+
     StatusOverlay::DroneStatus status = StatusOverlay::DroneStatus::IDLE;
-    
+
     if (status_str == "IDLE") {
         status = StatusOverlay::DroneStatus::IDLE;
     } else if (status_str == "ARMING") {
@@ -493,11 +257,9 @@ void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::S
     } else if (status_str == "DISARMED") {
         status = StatusOverlay::DroneStatus::DISARMED;
     }
-    
-    // StatusOverlay 업데이트
+
     status_overlay_->updateOffboardStatus(status);
-    
-    // 디버깅: 상태 변경 시 출력
+
     static std::string last_status = "";
     if (status_str != last_status) {
         std::cout << "  [OFFBOARD 모드] 상태: " << status_str << std::endl;
@@ -506,21 +268,13 @@ void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::S
 }
 
 void StatusROS2Subscriber::ammunitionCallback(const std_msgs::msg::Int32::SharedPtr msg) {
-    if (!status_overlay_) {
-        return;
-    }
-    
-    // 현재 소화탄 갯수 업데이트 (최대값은 설정에서 유지)
+    if (!status_overlay_) return;
+
     int current = msg->data;
     if (current < 0) current = 0;
-    
-    // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    // setAmmunition은 current와 max를 모두 받으므로, 현재 max 값을 유지해야 함
-    // 하지만 현재 max 값을 가져올 수 없으므로, 일단 기본값 6을 사용
-    // TODO: 최대값도 토픽으로 받거나, 별도 메서드 추가 필요
-    status_overlay_->setAmmunition(current, 6);  // 기본 최대값 6
-    
-    // 디버깅: 값 변경 시 출력
+
+    status_overlay_->setAmmunition(current, 6);
+
     static int last_ammo = -1;
     if (current != last_ammo) {
         std::cout << "  [소화탄 업데이트] " << current << "/6발" << std::endl;
@@ -529,21 +283,13 @@ void StatusROS2Subscriber::ammunitionCallback(const std_msgs::msg::Int32::Shared
 }
 
 void StatusROS2Subscriber::formationCallback(const std_msgs::msg::Int32::SharedPtr msg) {
-    if (!status_overlay_) {
-        return;
-    }
-    
-    // 편대 번호 업데이트 (전체 편대 수는 설정에서 유지)
+    if (!status_overlay_) return;
+
     int current = msg->data;
     if (current < 1) current = 1;
-    
-    // StatusOverlay 업데이트 (상태바에 즉시 반영)
-    // setFormation은 current와 total을 모두 받으므로, 현재 total 값을 유지해야 함
-    // 하지만 현재 total 값을 가져올 수 없으므로, 일단 기본값 3을 사용
-    // TODO: 전체 편대 수도 토픽으로 받거나, 별도 메서드 추가 필요
-    status_overlay_->setFormation(current, 3);  // 기본 전체 편대 수 3
-    
-    // 디버깅: 값 변경 시 출력
+
+    status_overlay_->setFormation(current, 3);
+
     static int last_formation = -1;
     if (current != last_formation) {
         std::cout << "  [편대 업데이트] " << current << "/3" << std::endl;
@@ -552,9 +298,8 @@ void StatusROS2Subscriber::formationCallback(const std_msgs::msg::Int32::SharedP
 }
 
 bool StatusROS2Subscriber::isFCConnected() const {
-    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::steady_clock::now() - last_vehicle_status_time_).count();
-    return elapsed < 3;  // 3초 이내 VehicleStatus 수신
+    if (!fc_bridge_) return false;
+    return fc_bridge_->isConnected();
 }
 
 bool StatusROS2Subscriber::isGPSFixed() const {
@@ -562,4 +307,3 @@ bool StatusROS2Subscriber::isGPSFixed() const {
 }
 
 #endif // ENABLE_ROS2
-

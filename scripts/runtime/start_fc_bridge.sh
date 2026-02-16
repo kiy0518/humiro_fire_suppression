@@ -1,15 +1,16 @@
 #!/bin/bash
 # =============================================================================
-# Humiro Fire Suppression 실행 wrapper 스크립트
+# FC Bridge 실행 wrapper 스크립트
 # =============================================================================
-# systemd 서비스에서 사용하기 위한 환경 설정 포함 실행 스크립트
+# Domain 0 (loopback 전용) — /fmu/* 토픽을 UDP IPC로 변환
+# micro-ros-agent와 같은 Domain 0에서 실행, 메인앱과 UDP로 통신
 # =============================================================================
 
 # 프로젝트 루트
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# 환경 변수 로드 (set -a로 자동 export → C++ std::getenv()에서 접근 가능)
+# 환경 변수 로드
 if [ -f "$PROJECT_ROOT/config/device_config.env" ]; then
     set -a
     source "$PROJECT_ROOT/config/device_config.env"
@@ -18,12 +19,10 @@ fi
 
 # ROS2 환경 설정
 export HOME=/home/khadas
-# Domain 1: 편대 비행 토픽 (WiFi 전용)
-# FC 통신은 fc_bridge (Domain 0, loopback)에서 처리
-export ROS_DOMAIN_ID=1
-export ROS_NAMESPACE=${ROS_NAMESPACE:-drone1}
+export ROS_DOMAIN_ID=0
+export ROS_NAMESPACE=${ROS_NAMESPACE:-drone${DRONE_ID:-1}}
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_wifi_only.xml"
+export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_loopback_only.xml"
 
 # ROS2 환경 로드
 if [ -f "/opt/ros/humble/setup.bash" ]; then
@@ -43,21 +42,27 @@ if [ -f "$PX4_ROS2_WS/install/setup.bash" ]; then
 fi
 
 # 라이브러리 경로 설정
-if [ -d "$MICRO_ROS_WS/install/micro_ros_agent/lib" ]; then
-    export LD_LIBRARY_PATH="$MICRO_ROS_WS/install/micro_ros_agent/lib:$LD_LIBRARY_PATH"
-fi
-
 export LD_LIBRARY_PATH="/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
 
 if [ -d "$PX4_ROS2_WS/install/px4_msgs/lib" ]; then
     export LD_LIBRARY_PATH="$PX4_ROS2_WS/install/px4_msgs/lib:$LD_LIBRARY_PATH"
 fi
 
+# IPC 포트 (환경 변수로 오버라이드 가능)
+export FC_BRIDGE_STATE_PORT=${FC_BRIDGE_STATE_PORT:-17001}
+export FC_BRIDGE_COMMAND_PORT=${FC_BRIDGE_COMMAND_PORT:-17002}
+
 # 실행 파일 경로
-EXECUTABLE="$PROJECT_ROOT/application/build/humiro_fire_suppression"
+EXECUTABLE="$PROJECT_ROOT/navigation/build/offboard_control/fc_bridge"
+
+echo "========================================"
+echo "  FC Bridge Wrapper"
+echo "  Domain: ${ROS_DOMAIN_ID}"
+echo "  Namespace: ${ROS_NAMESPACE}"
+echo "  FastDDS: loopback only"
+echo "  State Port: ${FC_BRIDGE_STATE_PORT}"
+echo "  Command Port: ${FC_BRIDGE_COMMAND_PORT}"
+echo "========================================"
 
 # 실행
-cd "$PROJECT_ROOT/application/build"
-exec "$EXECUTABLE" "$@"
-
-
+exec "$EXECUTABLE" --ros-args -r __ns:=/${ROS_NAMESPACE}

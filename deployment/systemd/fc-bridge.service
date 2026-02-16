@@ -1,0 +1,19 @@
+[Unit]
+Description=FC Bridge (Domain 0, loopback IPC)
+After=mavlink-router.service micro-ros-agent.service
+Requires=micro-ros-agent.service
+
+[Service]
+Type=simple
+User=khadas
+ExecStart=/home/khadas/humiro_fire_suppression/scripts/runtime/start_fc_bridge.sh
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+# 환경 변수 (systemd에서 설정)
+Environment=HOME=/home/khadas
+
+[Install]
+WantedBy=multi-user.target

@@ -186,9 +186,10 @@ if(ENABLE_ROS2)
     add_subdirectory(${ROS2_DIR} ${ROS2_BUILD_DIR})
     target_link_libraries(humiro_fire_suppression ros2_comm_lib)
 
-    # OffboardManager + FormationController + CollisionAvoidance 소스 파일 추가
+    # OffboardManager + FormationController + CollisionAvoidance + FCBridgeClient 소스 파일 추가
     target_sources(humiro_fire_suppression PRIVATE
         ${NAVIGATION_DIR}/offboard_manager.cpp
+        ${NAVIGATION_DIR}/bridge/fc_bridge_client.cpp
         ${NAVIGATION_DIR}/formation/formation_controller.cpp
         ${NAVIGATION_DIR}/collision/collision_avoidance.cpp
     )

@@ -9,24 +9,22 @@
  *
  * 각 상태(PREPARE, ARM, TAKEOFF 등)를 독립 핸들러로 분리.
  * 조건 기반 전환 (카운터 기반 → nav_state, arming_state, 고도, 거리 확인).
+ *
+ * v2.0: DDS Domain 분리 - FCBridgeClient를 통해 FC와 통신 (px4_msgs 제거)
  */
 
 #ifndef OFFBOARD_MANAGER_H
 #define OFFBOARD_MANAGER_H
 
 #include <rclcpp/rclcpp.hpp>
-#include <px4_msgs/msg/offboard_control_mode.hpp>
-#include <px4_msgs/msg/trajectory_setpoint.hpp>
-#include <px4_msgs/msg/vehicle_command.hpp>
-#include <px4_msgs/msg/vehicle_status.hpp>
-#include <px4_msgs/msg/vehicle_local_position.hpp>
-#include <px4_msgs/msg/vehicle_global_position.hpp>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <mutex>
 #include <memory>
 
+#include "bridge/fc_bridge_protocol.h"
+#include "bridge/fc_bridge_client.h"
 #include "mission_context.h"
 #include "handlers/state_handler.h"
 
@@ -48,7 +46,12 @@ enum class MissionState {
 
 class OffboardManager {
 public:
-    explicit OffboardManager(rclcpp::Node::SharedPtr node, const std::string& px4_ns = "");
+    /**
+     * @param node ROS2 노드 (Domain 1, 편대 토픽용)
+     * @param fc_bridge FC Bridge 클라이언트 (로컬 UDP IPC)
+     */
+    explicit OffboardManager(rclcpp::Node::SharedPtr node,
+                             std::shared_ptr<FCBridgeClient> fc_bridge);
     ~OffboardManager();
 
     /**
@@ -133,45 +136,36 @@ public:
     bool isCollisionActive() const { return collision_action_.load() != 0; }
     int getCollisionAction() const { return collision_action_.load(); }
 
+    // ========== FC Bridge 접근 (StatusROS2Subscriber 등에서 사용) ==========
+    FCBridgeClient* getFCBridge() const { return fc_bridge_.get(); }
+
+    // ========== FC 상태 Getter (FCBridgeClient에서 가져온 데이터) ==========
+    float getBatteryRemaining() const { return battery_remaining_.load(); }
+    uint8_t getGPSFixType() const { return gps_fix_type_.load(); }
+    uint8_t getGPSSatellites() const { return gps_satellites_.load(); }
+
 private:
     // ========== 타이머 콜백 (핵심!) ==========
     void timerCallback();
 
-    // ========== 메시지 발행 ==========
+    // ========== FC Bridge를 통한 메시지 발행 ==========
     void publishOffboardControlMode();
-    void publishTrajectorySetpoint();
+    void publishSetpoint(const FCCommand& cmd);
     void publishVehicleCommand(uint16_t command, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f);
 
-    // ========== 콜백 ==========
-    void vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg);
-    void vehicleLocalPositionCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
-    void vehicleGlobalPositionCallback(const px4_msgs::msg::VehicleGlobalPosition::SharedPtr msg);
+    // ========== FC 상태 업데이트 (FCBridgeClient에서 폴링) ==========
+    void updateFromFCState();
 
     // ========== 헬퍼 함수 ==========
     float calculateTargetYaw(float target_north, float target_east);
     void gpsToLocalNED(double target_lat, double target_lon, float target_alt,
                        float& local_x, float& local_y, float& local_z);
 
-    // ========== ROS2 노드 ==========
+    // ========== ROS2 노드 (Domain 1, 편대 토픽용) ==========
     rclcpp::Node::SharedPtr node_;
 
-    // ========== Publishers ==========
-    rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_control_mode_pub_;
-    rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_pub_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_pub_;
-    // 폴백 Publishers (FC가 -n 미사용 시 네임스페이스 없는 토픽으로도 발행)
-    rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_control_mode_fallback_pub_;
-    rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr trajectory_setpoint_fallback_pub_;
-    rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr vehicle_command_fallback_pub_;
-
-    // ========== Subscribers ==========
-    rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
-    rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr vehicle_local_position_sub_;
-    rclcpp::Subscription<px4_msgs::msg::VehicleGlobalPosition>::SharedPtr vehicle_global_position_sub_;
-    // 폴백 Subscribers (FC가 -n 미사용 시 네임스페이스 없는 토픽 수신)
-    rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_fallback_sub_;
-    rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr vehicle_local_position_fallback_sub_;
-    rclcpp::Subscription<px4_msgs::msg::VehicleGlobalPosition>::SharedPtr vehicle_global_position_fallback_sub_;
+    // ========== FC Bridge 클라이언트 (로컬 UDP IPC) ==========
+    std::shared_ptr<FCBridgeClient> fc_bridge_;
 
     // ========== Timer ==========
     rclcpp::TimerBase::SharedPtr timer_;
@@ -199,6 +193,11 @@ private:
     std::atomic<float> actual_vx_{0.0f};    // PX4 실제 NED 속도
     std::atomic<float> actual_vy_{0.0f};
     std::atomic<float> actual_vz_{0.0f};
+
+    // ========== 배터리/GPS (FCBridgeClient에서 수신) ==========
+    std::atomic<float> battery_remaining_{0.0f};
+    std::atomic<uint8_t> gps_fix_type_{0};
+    std::atomic<uint8_t> gps_satellites_{0};
 
     // ========== Home 위치 ==========
     double home_lat_{0.0};
@@ -235,7 +234,6 @@ private:
     static constexpr uint64_t ROTATE_START = 110;    // 11초: 회전 시작
     static constexpr uint64_t ROTATE_END = 170;      // 17초: 회전 완료
     static constexpr uint64_t MOVE_START = 180;      // 18초: 이동 시작
-    // RTL_TIMEOUT 제거 - 미션 시간 제한 없음 (미션 완료 또는 수동 개입으로만 RTL)
     static constexpr uint64_t TARGET_HOVER_TICKS = 50; // 5초: 목표지점 호버링 (10Hz)
     static constexpr uint64_t SUPPRESS_HOVER_TICKS = 300; // 30초: 진압 편대 대기 (10Hz)
 
@@ -252,9 +250,10 @@ private:
     static constexpr float MAX_YAW_RATE = 0.5f;      // 최대 회전 속도 (rad/s, ~28.6 deg/s)
     static constexpr float WAYPOINT_THRESHOLD = 2.0f; // 도착 판정 거리 (m)
 
-    // ========== OFFBOARD 모드 복구 ==========
-    std::chrono::steady_clock::time_point last_offboard_recovery_{};
-    int offboard_recovery_count_{0};  // 연속 복구 횟수 (디버그용)
+    // ========== OFFBOARD 모드 이탈 디바운스 (RC OVERRIDE 감지) ==========
+    std::chrono::steady_clock::time_point offboard_lost_start_{};
+    bool offboard_lost_tracking_{false};
+    int offboard_recovery_count_{0};
 
     // ========== 충돌 방지 ==========
     class CollisionAvoidance* collision_avoidance_{nullptr};

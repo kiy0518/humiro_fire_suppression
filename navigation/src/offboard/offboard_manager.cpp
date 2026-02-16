@@ -1,11 +1,10 @@
 /**
  * @file offboard_manager.cpp
- * @brief PX4 Offboard 제어 - 단순화된 버전
+ * @brief PX4 Offboard 제어 - DDS Domain 분리 버전
  *
- * 제공된 offboard_control.cpp 기반으로 작성
- * - 단일 타이머에서 heartbeat + setpoint 동시 발행
- * - PX4 호환 QoS (sensor_data 프로파일)
- * - 상태 카운터 기반 단계 진행
+ * v2.0: px4_msgs ROS2 토픽 제거, FCBridgeClient (로컬 UDP IPC)로 대체.
+ * FC 통신은 fc_bridge 프로세스(Domain 0)가 담당하고,
+ * 이 모듈은 Domain 1 (WiFi, 편대 토픽)에서만 동작.
  */
 
 #include "offboard_manager.h"
@@ -23,61 +22,10 @@
 
 using namespace std::chrono_literals;
 
-OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node, const std::string& px4_ns)
-    : node_(node)
+OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node,
+                                 std::shared_ptr<FCBridgeClient> fc_bridge)
+    : node_(node), fc_bridge_(fc_bridge)
 {
-
-    // ========== PX4 호환 QoS 설정 (매우 중요!) ==========
-    // PX4는 Best Effort + Volatile 조합을 요구
-    // sensor_data 프로파일 = BEST_EFFORT + VOLATILE + KEEP_LAST
-    rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
-    auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 10), qos_profile);
-
-    // ========== Publishers ==========
-    offboard_control_mode_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
-        px4_ns + "/fmu/in/offboard_control_mode", qos);
-    trajectory_setpoint_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
-        px4_ns + "/fmu/in/trajectory_setpoint", qos);
-    vehicle_command_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-        px4_ns + "/fmu/in/vehicle_command", qos);
-
-    // ========== Subscribers ==========
-    vehicle_status_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-        px4_ns + "/fmu/out/vehicle_status_v1", qos,
-        std::bind(&OffboardManager::vehicleStatusCallback, this, std::placeholders::_1));
-
-    vehicle_local_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-        px4_ns + "/fmu/out/vehicle_local_position", qos,
-        std::bind(&OffboardManager::vehicleLocalPositionCallback, this, std::placeholders::_1));
-
-    vehicle_global_position_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
-        px4_ns + "/fmu/out/vehicle_global_position", qos,
-        std::bind(&OffboardManager::vehicleGlobalPositionCallback, this, std::placeholders::_1));
-
-    // ========== 폴백 Pub/Sub (FC가 -n 미사용 시 네임스페이스 없는 토픽) ==========
-    // micro-ros-agent는 ROS_NAMESPACE를 bridged 토픽에 적용하지 않음 (설계상)
-    // PX4 네임스페이스는 uxrce_dds_client의 -n 옵션에서만 결정됨
-    if (!px4_ns.empty()) {
-        offboard_control_mode_fallback_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
-            "/fmu/in/offboard_control_mode", qos);
-        trajectory_setpoint_fallback_pub_ = node_->create_publisher<px4_msgs::msg::TrajectorySetpoint>(
-            "/fmu/in/trajectory_setpoint", qos);
-        vehicle_command_fallback_pub_ = node_->create_publisher<px4_msgs::msg::VehicleCommand>(
-            "/fmu/in/vehicle_command", qos);
-
-        vehicle_status_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleStatus>(
-            "/fmu/out/vehicle_status_v1", qos,
-            std::bind(&OffboardManager::vehicleStatusCallback, this, std::placeholders::_1));
-        vehicle_local_position_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
-            "/fmu/out/vehicle_local_position", qos,
-            std::bind(&OffboardManager::vehicleLocalPositionCallback, this, std::placeholders::_1));
-        vehicle_global_position_fallback_sub_ = node_->create_subscription<px4_msgs::msg::VehicleGlobalPosition>(
-            "/fmu/out/vehicle_global_position", qos,
-            std::bind(&OffboardManager::vehicleGlobalPositionCallback, this, std::placeholders::_1));
-
-        RCLCPP_INFO(node_->get_logger(), "Fallback pub/sub created for /fmu/* (FC without -n)");
-    }
-
     // ========== 드론 ID (MAV_SYS_ID) ==========
     const char* drone_id_env = getenv("DRONE_ID");
     if (drone_id_env) {
@@ -95,15 +43,15 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node, const std::string
     hover_at_target_handler_ = std::make_unique<HoverAtTargetHandler>();
     rtl_handler_ = std::make_unique<RtlHandler>();
 
-    // ctx_ 명령 발행 콜백 설정
+    // ctx_ 명령 발행 콜백 설정 (FCBridgeClient를 통해 전송)
     ctx_.publishCommand = [this](uint16_t cmd, float p1, float p2, float p3) {
         publishVehicleCommand(cmd, p1, p2, p3);
     };
     ctx_.logger = node_->get_logger();
     ctx_.target_system = target_system_;
 
-    RCLCPP_INFO(node_->get_logger(), "OffboardManager initialized (ns=%s, target_sys=%d, handler_arch=ON)",
-                px4_ns.empty() ? "none" : px4_ns.c_str(), (int)target_system_);
+    RCLCPP_INFO(node_->get_logger(), "OffboardManager initialized (fc_bridge=IPC, target_sys=%d, handler_arch=ON)",
+                (int)target_system_);
 }
 
 OffboardManager::~OffboardManager()
@@ -116,8 +64,6 @@ OffboardManager::~OffboardManager()
 bool OffboardManager::executeMission3(const MissionConfig& config)
 {
     // ★ 미션 시작 구간 mutex (중복 스레드 동시 시작 방지)
-    // ApplicationManager에서 스레드로 호출 시, 중복 커스텀 메시지로 두 스레드가
-    // 동시에 진입하면 타이머가 2개 생성되는 race condition 방지
     {
         std::lock_guard<std::mutex> lock(mission_start_mutex_);
 
@@ -125,7 +71,6 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         if (mission_running_.load()) {
             auto state = current_state_.load();
             if (arming_state_.load() != 2) {  // 2 = ARMED
-                // 이륙 시퀀스 진행 중(PREPARING/OFFBOARD/ARMING/TAKEOFF)이면 좌표만 저장
                 if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
                     state == MissionState::ARMING || state == MissionState::TAKEOFF) {
                     RCLCPP_INFO(node_->get_logger(),
@@ -139,7 +84,6 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
                     }
                     return true;
                 }
-                // 이륙 시퀀스가 아닌데 DISARMED → 이전 미션 비정상 종료, 상태 리셋
                 RCLCPP_WARN(node_->get_logger(),
                     "[MISSION] Stale mission state detected! (mission_running=true, armed=OFF, state=%s) → Resetting",
                     getStateName(state).c_str());
@@ -147,7 +91,6 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
                 current_state_.store(MissionState::IDLE);
                 abort_requested_.store(false);
                 if (timer_) timer_->cancel();
-                // 아래로 흘러서 새 미션 시작
             } else {
                 RCLCPP_INFO(node_->get_logger(), "[MISSION] Mission already running, updating target...");
                 return updateMissionTarget(config.target_waypoint);
@@ -164,10 +107,10 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         prev_vx_ = 0.0f;
         prev_vy_ = 0.0f;
 
-        // Home 위치 리셋 (현재 위치를 새 Home으로 사용)
+        // Home 위치 리셋
         home_set_ = false;
 
-        // 시작 위치 저장 (PX4 로컬 NED 좌표)
+        // 시작 위치 저장
         start_local_x_ = current_local_x_.load();
         start_local_y_ = current_local_y_.load();
         start_local_z_ = current_local_z_.load();
@@ -188,16 +131,6 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         RCLCPP_INFO(node_->get_logger(), "  Target: Lat=%.7f, Lon=%.7f",
                     config.target_waypoint.latitude, config.target_waypoint.longitude);
         RCLCPP_INFO(node_->get_logger(), "  Hover duration: %.1f sec", config.hover_duration_sec);
-        RCLCPP_INFO(node_->get_logger(), "==============================================");
-        RCLCPP_INFO(node_->get_logger(), "Mission sequence:");
-        RCLCPP_INFO(node_->get_logger(), "  1. Heartbeat 발행 (2초)");
-        RCLCPP_INFO(node_->get_logger(), "  2. OFFBOARD 모드 전환");
-        RCLCPP_INFO(node_->get_logger(), "  3. ARM (시동)");
-        RCLCPP_INFO(node_->get_logger(), "  4. 이륙 및 호버링");
-        RCLCPP_INFO(node_->get_logger(), "  5. 목표 방향 회전");
-        RCLCPP_INFO(node_->get_logger(), "  6. 목표 위치 이동");
-        RCLCPP_INFO(node_->get_logger(), "  7. 목표지점 호버링 (5초)");
-        RCLCPP_INFO(node_->get_logger(), "  8. RTL (자동 귀환)");
         RCLCPP_INFO(node_->get_logger(), "==============================================\n");
 
         // 상태 초기화 → 핸들러 기반
@@ -208,7 +141,7 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         timer_ = node_->create_wall_timer(
             100ms,
             std::bind(&OffboardManager::timerCallback, this));
-    } // ★ mutex 해제 — 이후 대기 루프는 mutex 밖에서 실행
+    } // ★ mutex 해제
 
     // 미션 완료 또는 중단까지 대기
     while (mission_running_.load()) {
@@ -216,20 +149,16 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         if (state == MissionState::LANDED || state == MissionState::ERROR) {
             break;
         }
-
-        // RTL 상태에서 disarm 감지 (타이머가 취소된 경우를 위한 백업 체크)
         if (state == MissionState::RTL && arming_state_.load() == 1) {
             RCLCPP_INFO(node_->get_logger(), "[RTL] Disarm detected in wait loop, mission complete!");
             current_state_.store(MissionState::LANDED);
             mission_running_.store(false);
             break;
         }
-
         std::this_thread::sleep_for(100ms);
     }
 
-    // 타이머 정지 + 상태 리셋 (mutex 보호: abort→재시작 race condition 방지)
-    // abort 후 새 미션이 이미 시작되었으면 새 타이머/상태를 건드리지 않음
+    // 타이머 정지 + 상태 리셋
     {
         std::lock_guard<std::mutex> lock(mission_start_mutex_);
         if (!mission_running_.load()) {
@@ -263,45 +192,66 @@ bool OffboardManager::executeMission4(const MissionConfig& config)
 
 void OffboardManager::timerCallback()
 {
-    // ★ DDS 연결 유지: OffboardControlMode를 항상 발행
+    // ★ FCBridgeClient에서 FC 상태 폴링 (10Hz)
+    updateFromFCState();
+
+    // ★ OFFBOARD heartbeat 발행
     auto state = current_state_.load();
     if (state != MissionState::RTL && state != MissionState::LANDED) {
         publishOffboardControlMode();
     }
 
-    // ★ 조종기(RC) 모드 전환 감지: ARM 이후 OFFBOARD에서 이탈하면 미션 중단
-    // 조종기가 POSCTL/MANUAL/ALTCTL 등으로 전환 시 미션을 정리하고 조종기에 제어권 위임
-    if (mission_running_.load() && arming_state_.load() == 2 && nav_state_.load() != 14 &&
+    // ★ RC 모드 전환 감지 (디바운스: 2초)
+    if (mission_running_.load() && arming_state_.load() == 2 &&
         state != MissionState::RTL && state != MissionState::LANDED &&
         state != MissionState::IDLE) {
-        RCLCPP_WARN(node_->get_logger(),
-            "[RC OVERRIDE] nav_state=%d (not OFFBOARD), 조종기 모드 전환 감지 → 미션 중단 (state=%s)",
-            nav_state_.load(), getStateName(state).c_str());
-        if (current_handler_) {
-            current_handler_->onExit(ctx_);
-            current_handler_ = nullptr;
+        if (nav_state_.load() != 14) {
+            if (!offboard_lost_tracking_) {
+                offboard_lost_start_ = std::chrono::steady_clock::now();
+                offboard_lost_tracking_ = true;
+                RCLCPP_WARN(node_->get_logger(),
+                    "[OFFBOARD] nav_state=%d (not OFFBOARD), monitoring... (state=%s)",
+                    nav_state_.load(), getStateName(state).c_str());
+            } else {
+                auto elapsed = std::chrono::steady_clock::now() - offboard_lost_start_;
+                if (elapsed > std::chrono::seconds(2)) {
+                    RCLCPP_WARN(node_->get_logger(),
+                        "[RC OVERRIDE] nav_state=%d for %.1fs → mission abort (state=%s)",
+                        nav_state_.load(),
+                        std::chrono::duration<float>(elapsed).count(),
+                        getStateName(state).c_str());
+                    offboard_lost_tracking_ = false;
+                    if (current_handler_) {
+                        current_handler_->onExit(ctx_);
+                        current_handler_ = nullptr;
+                    }
+                    current_state_.store(MissionState::IDLE);
+                    mission_running_.store(false);
+                    abort_requested_.store(false);
+                    if (timer_) timer_->cancel();
+                    return;
+                }
+            }
+        } else {
+            if (offboard_lost_tracking_) {
+                auto elapsed = std::chrono::steady_clock::now() - offboard_lost_start_;
+                RCLCPP_INFO(node_->get_logger(),
+                    "[OFFBOARD] Recovered after %.0fms (count=%d)",
+                    std::chrono::duration<float>(elapsed).count() * 1000.0f,
+                    offboard_recovery_count_ + 1);
+                offboard_lost_tracking_ = false;
+                offboard_recovery_count_++;
+            }
         }
-        current_state_.store(MissionState::IDLE);
-        mission_running_.store(false);
-        abort_requested_.store(false);
-        if (timer_) {
-            timer_->cancel();
-        }
-        return;
     }
 
-    // 미션이 실행 중이 아니면 heartbeat만 발행하고 종료
-    if (!mission_running_.load()) {
-        return;
-    }
+    if (!mission_running_.load()) return;
 
-    // 중단 요청 확인
+    // 중단 요청
     if (abort_requested_.load()) {
         RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission aborted, triggering RTL...");
         abort_requested_.store(false);
-        if (current_handler_) {
-            current_handler_->onExit(ctx_);
-        }
+        if (current_handler_) current_handler_->onExit(ctx_);
         current_state_.store(MissionState::RTL);
         transitionTo(rtl_handler_.get());
         return;
@@ -309,48 +259,33 @@ void OffboardManager::timerCallback()
 
     state = current_state_.load();
 
-    // ========== 충돌 방지 체크 (10Hz, ARM 이후) ==========
+    // ========== 충돌 방지 (10Hz, ARM 이후) ==========
     if (collision_avoidance_ && arming_state_.load() == 2) {
         auto action = collision_avoidance_->checkAndUpdate();
         bool active = (action != CollisionAction::NONE);
 
         if (active && !was_collision_active_) {
+            hold_x_ = current_local_x_.load();
+            hold_y_ = current_local_y_.load();
+            hold_z_ = current_local_z_.load();
+            hold_yaw_ = current_yaw_.load();
             if (action == CollisionAction::HOLD) {
-                hold_x_ = current_local_x_.load();
-                hold_y_ = current_local_y_.load();
-                hold_z_ = current_local_z_.load();
-                hold_yaw_ = current_yaw_.load();
-                RCLCPP_WARN(node_->get_logger(),
-                    "[COLLISION] HOLD at (%.1f, %.1f, %.1f) - threat drone %d",
-                    hold_x_, hold_y_, -hold_z_,
-                    collision_avoidance_->getThreatId());
+                RCLCPP_WARN(node_->get_logger(), "[COLLISION] HOLD at (%.1f, %.1f, %.1f)",
+                            hold_x_, hold_y_, -hold_z_);
             } else {
-                hold_x_ = current_local_x_.load();
-                hold_y_ = current_local_y_.load();
-                hold_z_ = current_local_z_.load();
-                hold_yaw_ = current_yaw_.load();
                 evade_offset_n_ = collision_avoidance_->getEvadeOffsetN();
                 evade_offset_e_ = collision_avoidance_->getEvadeOffsetE();
-                RCLCPP_WARN(node_->get_logger(),
-                    "[COLLISION] EVADE RIGHT offset=(%.1f, %.1f) - threat drone %d",
-                    evade_offset_n_, evade_offset_e_,
-                    collision_avoidance_->getThreatId());
+                RCLCPP_WARN(node_->get_logger(), "[COLLISION] EVADE RIGHT offset=(%.1f, %.1f)",
+                            evade_offset_n_, evade_offset_e_);
             }
         } else if (!active && was_collision_active_) {
-            RCLCPP_INFO(node_->get_logger(),
-                "[COLLISION] CLEAR - resuming %s",
-                getStateName(state).c_str());
+            RCLCPP_INFO(node_->get_logger(), "[COLLISION] CLEAR - resuming %s", getStateName(state).c_str());
             evade_offset_n_ = 0.0f;
             evade_offset_e_ = 0.0f;
-
-            // HOVER_AT_TARGET에서 새 타겟 감지 → NAVIGATE 전환
             if (state == MissionState::HOVER_AT_TARGET) {
                 float dx = target_ned_x_ - current_local_x_.load();
                 float dy = target_ned_y_ - current_local_y_.load();
                 if (std::sqrt(dx * dx + dy * dy) > WAYPOINT_THRESHOLD * 2) {
-                    RCLCPP_INFO(node_->get_logger(),
-                        "[COLLISION] Post-clear: deferred target (%.1fm), NAVIGATE",
-                        std::sqrt(dx * dx + dy * dy));
                     current_state_.store(MissionState::NAVIGATE);
                     syncContextFromMembers();
                     transitionTo(navigate_handler_.get());
@@ -364,7 +299,6 @@ void OffboardManager::timerCallback()
         collision_action_.store(static_cast<int>(action));
         was_collision_active_ = active;
 
-        // ctx_에 충돌 상태 동기화
         ctx_.collision_action.store(static_cast<int>(action));
         ctx_.hold_x = hold_x_;
         ctx_.hold_y = hold_y_;
@@ -400,86 +334,39 @@ void OffboardManager::timerCallback()
                 return;
         }
 
-        // setpoint 발행
+        // setpoint 발행 (핸들러 → FCCommand 변환 → FCBridgeClient)
         if (current_handler_) {
             px4_msgs::msg::TrajectorySetpoint sp{};
             sp.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
             if (current_handler_->fillSetpoint(ctx_, sp)) {
-                trajectory_setpoint_pub_->publish(sp);
-                if (trajectory_setpoint_fallback_pub_) trajectory_setpoint_fallback_pub_->publish(sp);
+                FCCommand setpoint_cmd = FCCommand::makeSetpoint(
+                    sp.position[0], sp.position[1], sp.position[2],
+                    sp.velocity[0], sp.velocity[1], sp.velocity[2],
+                    sp.yaw, sp.yawspeed);
+                fc_bridge_->sendSetpoint(setpoint_cmd);
             }
         }
     }
 }
 
-void OffboardManager::publishOffboardControlMode()
+// ========== FC 상태 업데이트 (FCBridgeClient에서 폴링) ==========
+
+void OffboardManager::updateFromFCState()
 {
-    px4_msgs::msg::OffboardControlMode msg{};
-    msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-    msg.position = true;
-    msg.velocity = false;
-    msg.acceleration = false;
-    msg.attitude = false;
-    msg.body_rate = false;
+    if (!fc_bridge_ || !fc_bridge_->isConnected()) return;
 
-    offboard_control_mode_pub_->publish(msg);
-    if (offboard_control_mode_fallback_pub_) offboard_control_mode_fallback_pub_->publish(msg);
+    FCState state = fc_bridge_->getLatestState();
+    if (!state.isValid()) return;
 
-    // 디버그: heartbeat 발행 시점 로깅 (RTL 이슈 디버깅용)
-    static uint64_t hb_count = 0;
-    if (++hb_count % 50 == 0) {  // 5초마다
-        RCLCPP_DEBUG(node_->get_logger(), "[HB] Heartbeat #%ld published (state=%s, nav=%d)",
-                     hb_count, getStateName(current_state_.load()).c_str(), nav_state_.load());
-    }
-}
-
-void OffboardManager::publishTrajectorySetpoint()
-{
-    // 모든 상태가 핸들러로 대체됨 — 이 함수는 더 이상 호출되지 않음
-    // (선언은 헤더에 남아있으므로 빈 구현 유지)
-    RCLCPP_WARN_ONCE(node_->get_logger(),
-        "[LEGACY] publishTrajectorySetpoint() called - should not happen in handler mode");
-}
-
-void OffboardManager::publishVehicleCommand(uint16_t command, float param1, float param2, float param3)
-{
-    px4_msgs::msg::VehicleCommand msg{};
-    msg.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
-    msg.command = command;
-    msg.param1 = param1;
-    msg.param2 = param2;
-    msg.param3 = param3;
-    msg.target_system = target_system_;
-    msg.target_component = 1;
-    msg.source_system = target_system_;
-    msg.source_component = 1;
-    msg.from_external = true;
-
-    vehicle_command_pub_->publish(msg);
-    if (vehicle_command_fallback_pub_) vehicle_command_fallback_pub_->publish(msg);
-
-    // 디버그: 명령 전송 로깅
-    const char* cmd_name = "UNKNOWN";
-    if (command == 176) cmd_name = "DO_SET_MODE";
-    else if (command == 400) cmd_name = "ARM_DISARM";
-    else if (command == 20) cmd_name = "NAV_RETURN_TO_LAUNCH";
-
-    RCLCPP_INFO(node_->get_logger(), "[CMD] %s (cmd=%d, p1=%.1f, p2=%.1f, p3=%.1f)",
-                cmd_name, command, param1, param2, param3);
-}
-
-void OffboardManager::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg)
-{
     uint8_t old_nav = nav_state_.load();
     uint8_t old_arm = arming_state_.load();
 
-    nav_state_.store(msg->nav_state);
-    arming_state_.store(msg->arming_state);
+    nav_state_.store(state.nav_state);
+    arming_state_.store(state.arming_state);
 
-    // 상태 변화 로깅
-    if (old_nav != msg->nav_state) {
+    if (old_nav != state.nav_state) {
         const char* nav_name = "UNKNOWN";
-        switch (msg->nav_state) {
+        switch (state.nav_state) {
             case 0: nav_name = "MANUAL"; break;
             case 2: nav_name = "ALTCTL"; break;
             case 3: nav_name = "POSCTL"; break;
@@ -489,64 +376,91 @@ void OffboardManager::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::
             case 17: nav_name = "AUTO_TAKEOFF"; break;
             case 18: nav_name = "AUTO_LAND"; break;
         }
-        RCLCPP_INFO(node_->get_logger(), "[STATUS] nav_state: %d -> %d (%s) | my_state=%s, timer=%s",
-                    old_nav, msg->nav_state, nav_name,
-                    getStateName(current_state_.load()).c_str(),
-                    (timer_ && !timer_->is_canceled()) ? "ACTIVE" : "CANCELLED");
+        RCLCPP_INFO(node_->get_logger(), "[STATUS] nav_state: %d -> %d (%s) | my_state=%s",
+                    old_nav, state.nav_state, nav_name,
+                    getStateName(current_state_.load()).c_str());
 
-        // OFFBOARD에서 다른 모드로 전환 감지 (RC 조종기에 의한 전환)
-        if (old_nav == 14 && msg->nav_state != 14 && mission_running_.load()) {
+        if (old_nav == 14 && state.nav_state != 14 && mission_running_.load()) {
             RCLCPP_WARN(node_->get_logger(),
-                        "[RC OVERRIDE] OFFBOARD → %s (nav=%d), 조종기에 의한 모드 전환 감지!",
-                        nav_name, msg->nav_state);
-        }
-        // RTL에서 OFFBOARD로 전환 시 경고
-        if (old_nav == 5 && msg->nav_state == 14) {
-            RCLCPP_WARN(node_->get_logger(),
-                        "[WARNING] PX4 switched from AUTO_RTL to OFFBOARD! (timer=%s, arming=%d)",
-                        (timer_ && !timer_->is_canceled()) ? "ACTIVE" : "CANCELLED",
-                        msg->arming_state);
+                        "[RC OVERRIDE] OFFBOARD → %s (nav=%d)", nav_name, state.nav_state);
         }
     }
-    if (old_arm != msg->arming_state) {
+    if (old_arm != state.arming_state) {
         RCLCPP_INFO(node_->get_logger(), "[STATUS] arming: %d -> %d %s",
-                    old_arm, msg->arming_state,
-                    (msg->arming_state == 2 ? "(ARMED)" : "(DISARMED)"));
+                    old_arm, state.arming_state,
+                    (state.arming_state == 2 ? "(ARMED)" : "(DISARMED)"));
     }
-}
 
-void OffboardManager::vehicleLocalPositionCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg)
-{
-    current_local_x_.store(msg->x);
-    current_local_y_.store(msg->y);
-    current_local_z_.store(msg->z);
-    current_yaw_.store(msg->heading);
-    actual_vx_.store(msg->vx);
-    actual_vy_.store(msg->vy);
-    actual_vz_.store(msg->vz);
+    // 위치/속도
+    current_local_x_.store(state.local_x);
+    current_local_y_.store(state.local_y);
+    current_local_z_.store(state.local_z);
+    current_yaw_.store(state.yaw);
+    actual_vx_.store(state.vx);
+    actual_vy_.store(state.vy);
+    actual_vz_.store(state.vz);
     position_received_.store(true);
-}
 
-void OffboardManager::vehicleGlobalPositionCallback(const px4_msgs::msg::VehicleGlobalPosition::SharedPtr msg)
-{
-    current_lat_.store(msg->lat);
-    current_lon_.store(msg->lon);
-    current_alt_amsl_.store(msg->alt);
+    // GPS
+    current_lat_.store(state.latitude);
+    current_lon_.store(state.longitude);
+    current_alt_amsl_.store(state.altitude_amsl);
 
-    // Home 위치 저장 (최초 1회)
-    if (!home_set_) {
-        home_lat_ = msg->lat;
-        home_lon_ = msg->lon;
-        home_alt_amsl_ = msg->alt;
+    // 배터리/GPS 상태
+    battery_remaining_.store(state.battery_remaining);
+    gps_fix_type_.store(state.gps_fix_type);
+    gps_satellites_.store(state.gps_satellites);
+
+    // Home 위치 (최초 1회)
+    if (!home_set_ && state.latitude != 0.0 && state.longitude != 0.0) {
+        home_lat_ = state.latitude;
+        home_lon_ = state.longitude;
+        home_alt_amsl_ = state.altitude_amsl;
         home_set_ = true;
         RCLCPP_INFO(node_->get_logger(), "[HOME] Position set: (%.7f, %.7f, %.1f m)",
                     home_lat_, home_lon_, home_alt_amsl_);
     }
 }
 
+// ========== FC Bridge를 통한 메시지 발행 ==========
+
+void OffboardManager::publishOffboardControlMode()
+{
+    if (!fc_bridge_) return;
+    fc_bridge_->sendHeartbeat(true, false, false);
+
+    static uint64_t hb_count = 0;
+    if (++hb_count % 50 == 0) {
+        RCLCPP_DEBUG(node_->get_logger(), "[HB] Heartbeat #%ld via IPC (state=%s, nav=%d)",
+                     hb_count, getStateName(current_state_.load()).c_str(), nav_state_.load());
+    }
+}
+
+void OffboardManager::publishSetpoint(const FCCommand& cmd)
+{
+    if (!fc_bridge_) return;
+    fc_bridge_->sendSetpoint(cmd);
+}
+
+void OffboardManager::publishVehicleCommand(uint16_t command, float param1, float param2, float param3)
+{
+    if (!fc_bridge_) return;
+
+    fc_bridge_->sendVehicleCommand(command, param1, param2, param3, target_system_);
+
+    const char* cmd_name = "UNKNOWN";
+    if (command == 176) cmd_name = "DO_SET_MODE";
+    else if (command == 400) cmd_name = "ARM_DISARM";
+    else if (command == 20) cmd_name = "NAV_RETURN_TO_LAUNCH";
+
+    RCLCPP_INFO(node_->get_logger(), "[CMD] %s (cmd=%d, p1=%.1f, p2=%.1f, p3=%.1f) via IPC",
+                cmd_name, command, param1, param2, param3);
+}
+
+// ========== 헬퍼 함수 ==========
+
 float OffboardManager::calculateTargetYaw(float target_north, float target_east)
 {
-    // NED 좌표계에서 방위각 계산: atan2(East, North)
     return std::atan2(target_east, target_north);
 }
 
@@ -561,14 +475,11 @@ void OffboardManager::gpsToLocalNED(double target_lat, double target_lon, float 
         return;
     }
 
-    // GPS → 로컬 NED 변환
     constexpr double DEG_TO_M_LAT = 111320.0;
     const double deg_to_m_lon = 111320.0 * std::cos(home_lat_ * M_PI / 180.0);
-
-    // NED: X = North, Y = East, Z = Down
     local_x = static_cast<float>((target_lat - home_lat_) * DEG_TO_M_LAT);
     local_y = static_cast<float>((target_lon - home_lon_) * deg_to_m_lon);
-    local_z = -target_alt;  // 상대 고도 (Down이 양수)
+    local_z = -target_alt;
 }
 
 void OffboardManager::abortMission()
@@ -584,7 +495,7 @@ void OffboardManager::abortMission()
 void OffboardManager::emergencyRTL()
 {
     RCLCPP_ERROR(node_->get_logger(), "[EMERGENCY] RTL triggered!");
-    publishVehicleCommand(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH);
+    publishVehicleCommand(20);  // VEHICLE_CMD_NAV_RETURN_TO_LAUNCH
     current_state_.store(MissionState::RTL);
 }
 
@@ -596,25 +507,18 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     }
 
     auto state = current_state_.load();
-
-    // RTL/LANDED/ERROR 상태에서는 업데이트 불가
-    if (state == MissionState::RTL || state == MissionState::LANDED ||
-        state == MissionState::ERROR) {
+    if (state == MissionState::RTL || state == MissionState::LANDED || state == MissionState::ERROR) {
         RCLCPP_WARN(node_->get_logger(), "[UPDATE] Cannot update target in %s state", getStateName(state).c_str());
         return false;
     }
 
-    // 충돌 방지 상태 확인
     bool collision_active = (collision_action_.load() != 0);
 
-    // HOVER_AT_TARGET: 새 목표 수신 시 NAVIGATE 복귀 (리더/팔로워 모두)
     if (state == MissionState::HOVER_AT_TARGET) {
         if (collision_active) {
-            // 충돌 중: 좌표만 저장, 상태 전환 보류 (해제 시 timerCallback에서 처리)
-            RCLCPP_WARN(node_->get_logger(),
-                "[UPDATE] HOVER_AT_TARGET new target, but collision active - deferring state change");
+            RCLCPP_WARN(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET new target, collision active - deferring");
         } else {
-            RCLCPP_INFO(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET → NAVIGATE (new target received%s)",
+            RCLCPP_INFO(node_->get_logger(), "[UPDATE] HOVER_AT_TARGET → NAVIGATE (new target%s)",
                         continuous_update_mode_.load() ? ", continuous" : "");
             current_state_.store(MissionState::NAVIGATE);
             syncContextFromMembers();
@@ -623,54 +527,34 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
         }
     }
 
-    // 미션 설정 업데이트
     mission_config_.target_waypoint = new_target;
 
-    // ★★★ start_local 보존: HOVER/ROTATE 위치 유지를 위해 start_local을 리셋하지 않음 ★★★
-    // start_local_x/y는 executeMission3()에서 1회 설정 (이륙 위치)
-    // HOVER/ROTATE에서 start_local을 hover 기준점으로 사용하므로,
-    // 여기서 리셋하면 position hold가 무력화됨 (위치오차=0 → 보정력=0 → 바람에 표류)
     float ref_local_x = current_local_x_.load();
     float ref_local_y = current_local_y_.load();
-
-    // 현재 GPS 위치 기준으로 새 목표 NED 좌표 계산
     double cur_lat = current_lat_.load();
     double cur_lon = current_lon_.load();
 
     constexpr double DEG_TO_M_LAT = 111320.0;
     double deg_to_m_lon = 111320.0 * std::cos(cur_lat * M_PI / 180.0);
 
-    // 현재 위치에서 새 목표까지의 오프셋
     float offset_north = static_cast<float>((new_target.latitude - cur_lat) * DEG_TO_M_LAT);
     float offset_east = static_cast<float>((new_target.longitude - cur_lon) * deg_to_m_lon);
-
-    // 현재 로컬 위치 + 오프셋 = 새 목표 NED (start_local 대신 현재 로컬 좌표 사용)
-    float old_x = target_ned_x_;
-    float old_y = target_ned_y_;
 
     target_ned_x_ = ref_local_x + offset_north;
     target_ned_y_ = ref_local_y + offset_east;
 
-    // 고도 설정: 팔로워(연속 추적)는 AMSL→NED 변환, 리더/단독은 AGL 직접 사용
     if (continuous_update_mode_.load() && home_set_ && new_target.altitude > 0.0f) {
-        // 팔로워: 리더의 AMSL 고도를 수신 → home 기준 NED 변환
         target_ned_z_ = -(new_target.altitude - home_alt_amsl_);
     } else if (new_target.altitude > 0.0f) {
-        // 리더/단독: target_alt는 시작 위치 기준 상대 고도(AGL)
         target_ned_z_ = start_local_z_ - new_target.altitude;
     }
-    // altitude == 0이면 기존 target_ned_z_ 유지 (고도 변경 없음)
 
-    // 새 목표 방향 계산 (yaw_override가 있으면 리더 헤딩 사용)
     if (!std::isnan(yaw_override)) {
         target_yaw_ = yaw_override;
     } else {
         target_yaw_ = calculateTargetYaw(offset_north, offset_east);
     }
 
-    // initial_yaw_도 보존: HOVER에서 yaw_setpoint로 사용됨, 리셋하면 yaw hold도 무력화
-
-    // 로깅 (continuous_update_mode에서는 5초마다만)
     bool should_log = true;
     if (continuous_update_mode_.load()) {
         static uint32_t continuous_log_count = 0;
@@ -678,18 +562,12 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     }
 
     if (should_log) {
-        RCLCPP_INFO(node_->get_logger(), "==============================================");
-        RCLCPP_INFO(node_->get_logger(), "  [UPDATE] New Target%s",
-                    continuous_update_mode_.load() ? " (continuous)" : " - Smooth Turn");
-        RCLCPP_INFO(node_->get_logger(), "  State: %s | GPS: (%.7f, %.7f) | NED: (%.1f, %.1f, %.1f)",
-                    getStateName(state).c_str(), new_target.latitude, new_target.longitude,
-                    target_ned_x_, target_ned_y_, target_ned_z_);
-        RCLCPP_INFO(node_->get_logger(), "  Yaw: %.1f deg", target_yaw_ * 180.0f / M_PI);
-        RCLCPP_INFO(node_->get_logger(), "==============================================");
+        RCLCPP_INFO(node_->get_logger(), "[UPDATE] New Target%s: GPS(%.7f,%.7f) NED(%.1f,%.1f,%.1f) Yaw=%.1f°",
+                    continuous_update_mode_.load() ? " (continuous)" : "",
+                    new_target.latitude, new_target.longitude,
+                    target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
     }
 
-    // ★★★ 상태별 목적지 업데이트 처리 (핸들러 모드) ★★★
-    // ctx_에도 목표 반영
     ctx_.target_ned_x = target_ned_x_;
     ctx_.target_ned_y = target_ned_y_;
     ctx_.target_ned_z = target_ned_z_;
@@ -699,26 +577,20 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
 
     if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
         state == MissionState::ARMING || state == MissionState::TAKEOFF) {
-        if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> Target saved, state unchanged (%s)", getStateName(state).c_str());
+        // 이륙 시퀀스: 좌표만 저장
     } else if (collision_active) {
-        if (should_log) RCLCPP_WARN(node_->get_logger(), "  -> Target saved, state change DEFERRED (collision active, state=%s)", getStateName(state).c_str());
+        // 충돌 중: 상태 변경 보류
     } else if (state == MissionState::NAVIGATE) {
-        if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> NAVIGATE state maintained (smooth turn)");
+        // NAVIGATE: 부드러운 선회
     } else if (state == MissionState::ROTATE || state == MissionState::HOVER) {
-        if (continuous_update_mode_.load()) {
-            if (should_log) RCLCPP_INFO(node_->get_logger(), "  -> Target updated, state unchanged (continuous)");
-        } else {
-            // ROTATE/HOVER 중: 새 목적지로 ROTATE 재시작 (핸들러)
+        if (!continuous_update_mode_.load()) {
             current_state_.store(MissionState::ROTATE);
             transitionTo(rotate_handler_.get());
-            RCLCPP_INFO(node_->get_logger(), "  -> ROTATE restart for new target (heading realign)");
         }
     } else {
-        // 기타 (HOVER_AT_TARGET 등): NAVIGATE 핸들러로 전환
         current_state_.store(MissionState::NAVIGATE);
         syncContextFromMembers();
         transitionTo(navigate_handler_.get());
-        RCLCPP_INFO(node_->get_logger(), "  -> State changed to NAVIGATE (immediate move)");
     }
 
     return true;
@@ -726,7 +598,6 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
 
 void OffboardManager::resetToIdle()
 {
-    // 핸들러 정리
     if (current_handler_) {
         current_handler_->onExit(ctx_);
         current_handler_ = nullptr;
@@ -740,16 +611,11 @@ void OffboardManager::resetToIdle()
     was_collision_active_ = false;
     evade_offset_n_ = 0.0f;
     evade_offset_e_ = 0.0f;
-
-    // 편대 비행 상태 리셋
     formation_mode_ = false;
     formation_ready_to_rotate_.store(false);
     formation_ready_to_navigate_.store(false);
-
-    // OFFBOARD 복구 카운터 리셋
+    offboard_lost_tracking_ = false;
     offboard_recovery_count_ = 0;
-
-    // Home 위치 리셋 (다음 미션에서 현재 위치 기준으로 재설정)
     home_set_ = false;
 
     if (timer_) {
@@ -757,7 +623,7 @@ void OffboardManager::resetToIdle()
         timer_.reset();
     }
 
-    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE (formation/recovery cleared)");
+    RCLCPP_INFO(node_->get_logger(), "[RESET] State reset to IDLE");
 }
 
 void OffboardManager::setFormationReadyToRotate(bool ready) {
@@ -775,13 +641,11 @@ void OffboardManager::setContinuousUpdateMode(bool enabled) {
     RCLCPP_INFO(node_->get_logger(), "[FORMATION] continuous_update_mode = %s", enabled ? "true" : "false");
 }
 
-// ========== 핸들러 아키텍처 메서드 ==========
+// ========== 핸들러 아키텍처 ==========
 
 void OffboardManager::transitionTo(StateHandler* handler)
 {
-    if (current_handler_) {
-        current_handler_->onExit(ctx_);
-    }
+    if (current_handler_) current_handler_->onExit(ctx_);
     current_handler_ = handler;
     if (current_handler_) {
         ctx_.state_enter_time = std::chrono::steady_clock::now();
@@ -793,28 +657,18 @@ void OffboardManager::transitionTo(StateHandler* handler)
 void OffboardManager::advanceToNextHandler()
 {
     if (!current_handler_) return;
-
     current_handler_->onExit(ctx_);
 
     if (current_handler_ == prepare_handler_.get()) {
-        // PREPARE → OFFBOARD
         current_state_.store(MissionState::OFFBOARD);
         transitionTo(offboard_handler_.get());
-
     } else if (current_handler_ == offboard_handler_.get()) {
-        // OFFBOARD → ARM
         current_state_.store(MissionState::ARMING);
         transitionTo(arm_handler_.get());
-
     } else if (current_handler_ == arm_handler_.get()) {
-        // ARM 완료 → TAKEOFF (핸들러)
         current_state_.store(MissionState::TAKEOFF);
         transitionTo(takeoff_handler_.get());
-
     } else if (current_handler_ == takeoff_handler_.get()) {
-        // TAKEOFF 완료 → 목표 NED 계산 → HOVER 또는 NAVIGATE(팔로워)
-
-        // 목표 NED 좌표 계산
         double cur_lat = current_lat_.load();
         double cur_lon = current_lon_.load();
         double tgt_lat = mission_config_.target_waypoint.latitude;
@@ -830,52 +684,34 @@ void OffboardManager::advanceToNextHandler()
         target_ned_z_ = start_local_z_ - mission_config_.takeoff_altitude;
         target_yaw_ = calculateTargetYaw(offset_north, offset_east);
 
-        // ctx_에도 반영
         ctx_.target_ned_x = target_ned_x_;
         ctx_.target_ned_y = target_ned_y_;
         ctx_.target_ned_z = target_ned_z_;
         ctx_.target_yaw = target_yaw_;
 
-        RCLCPP_INFO(node_->get_logger(), "[NAV] GPS: (%.7f, %.7f) → (%.7f, %.7f)",
-                    cur_lat, cur_lon, tgt_lat, tgt_lon);
         RCLCPP_INFO(node_->get_logger(), "[NAV] Target NED: (%.1f, %.1f, %.1f), Yaw: %.1f°",
-                    target_ned_x_, target_ned_y_, target_ned_z_,
-                    target_yaw_ * 180.0f / M_PI);
+                    target_ned_x_, target_ned_y_, target_ned_z_, target_yaw_ * 180.0f / M_PI);
 
         if (continuous_update_mode_.load()) {
-            // 팔로워: HOVER/ROTATE 건너뛰고 바로 NAVIGATE 핸들러
             current_state_.store(MissionState::NAVIGATE);
             transitionTo(navigate_handler_.get());
-            RCLCPP_INFO(node_->get_logger(),
-                "[TAKEOFF→NAV] 편대 추적 즉시 시작 (NAVIGATE direct)");
         } else {
-            // 리더/단독: HOVER 핸들러로 전환
             current_state_.store(MissionState::HOVER);
             transitionTo(hover_handler_.get());
         }
-
     } else if (current_handler_ == hover_handler_.get()) {
-        // HOVER 완료 → ROTATE 핸들러
         current_state_.store(MissionState::ROTATE);
         transitionTo(rotate_handler_.get());
-
     } else if (current_handler_ == rotate_handler_.get()) {
-        // ROTATE 완료 → NAVIGATE 핸들러
         current_state_.store(MissionState::NAVIGATE);
         transitionTo(navigate_handler_.get());
-
     } else if (current_handler_ == navigate_handler_.get()) {
-        // NAVIGATE 완료 → HOVER_AT_TARGET 핸들러
         current_state_.store(MissionState::HOVER_AT_TARGET);
         transitionTo(hover_at_target_handler_.get());
-
     } else if (current_handler_ == hover_at_target_handler_.get()) {
-        // HOVER_AT_TARGET 완료 → RTL 핸들러
         current_state_.store(MissionState::RTL);
         transitionTo(rtl_handler_.get());
-
     } else if (current_handler_ == rtl_handler_.get()) {
-        // RTL 완료 (disarm 감지) → LANDED
         current_handler_ = nullptr;
         current_state_.store(MissionState::LANDED);
         mission_running_.store(false);
@@ -885,7 +721,6 @@ void OffboardManager::advanceToNextHandler()
 
 void OffboardManager::syncContextFromMembers()
 {
-    // 기존 atomic 멤버 → ctx_ 동기화 (핸들러가 읽을 수 있도록)
     ctx_.current_local_x.store(current_local_x_.load());
     ctx_.current_local_y.store(current_local_y_.load());
     ctx_.current_local_z.store(current_local_z_.load());
@@ -907,7 +742,6 @@ void OffboardManager::syncContextFromMembers()
 
 void OffboardManager::syncMembersFromContext()
 {
-    // ctx_ → 기존 멤버 동기화 (핸들러가 설정한 값을 레거시 코드에서 사용)
     start_local_x_ = ctx_.start_local_x;
     start_local_y_ = ctx_.start_local_y;
     start_local_z_ = ctx_.start_local_z;

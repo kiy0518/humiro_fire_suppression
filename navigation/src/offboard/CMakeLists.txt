@@ -27,9 +27,12 @@ include_directories(
   ${humiro_msgs_INCLUDE_DIRS}
 )
 
-# ========== OffboardManager library (단순화된 버전) ==========
+# ========== OffboardManager library ==========
+# px4_msgs는 handler 인터페이스(state_handler.h)에서 TrajectorySetpoint 사용
+# FC 통신은 FCBridgeClient (UDP IPC)로 대체됨
 add_library(offboard_manager STATIC
   offboard_manager.cpp
+  bridge/fc_bridge_client.cpp
 )
 
 target_link_libraries(offboard_manager
@@ -38,9 +41,22 @@ target_link_libraries(offboard_manager
   ${humiro_msgs_LIBRARIES}
 )
 
+# ========== fc_bridge 실행파일 (Domain 0, loopback) ==========
+# /fmu/* ROS2 토픽 ↔ UDP IPC 변환 프로세스
+add_executable(fc_bridge
+  bridge/fc_bridge_node.cpp
+  bridge/fc_bridge_server.cpp
+)
+
+target_link_libraries(fc_bridge
+  ${rclcpp_LIBRARIES}
+  ${px4_msgs_LIBRARIES}
+)
+
 # Install
 install(TARGETS
   offboard_manager
+  fc_bridge
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
