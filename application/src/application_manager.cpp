@@ -577,11 +577,32 @@ void ApplicationManager::initializeCustomMessage() {
                     return;
                 }
 
-                if (status_overlay_) {
-                    status_overlay_->setCustomMessage("Launch Command Received", 3.0);
+                int idx = fire_gpio_index_.load();
+                if (idx >= FIRE_GPIO_COUNT) {
+                    std::cout << "[FIRE_LAUNCH] 모든 GPIO 발사 완료 (" << FIRE_GPIO_COUNT << "/" << FIRE_GPIO_COUNT << ")" << std::endl;
+                    if (status_overlay_) {
+                        status_overlay_->setCustomMessage("All Rounds Fired!", 3.0);
+                    }
+                    return;
                 }
 
-                // TODO: 발사 로직 구현
+                int gpio = FIRE_GPIO_PINS[idx];
+                fire_gpio_index_.store(idx + 1);
+                int remaining = FIRE_GPIO_COUNT - (idx + 1);
+
+                std::cout << "[FIRE_LAUNCH] 발사 " << (idx + 1) << "/" << FIRE_GPIO_COUNT
+                          << " → GPIO " << gpio << " (잔탄: " << remaining << ")" << std::endl;
+
+                if (status_overlay_) {
+                    std::string msg = "Fire " + std::to_string(idx + 1) + "/" + std::to_string(FIRE_GPIO_COUNT);
+                    status_overlay_->setCustomMessage(msg, 2.0);
+                    status_overlay_->setAmmunition(remaining, FIRE_GPIO_COUNT);
+                }
+
+                // GPIO 제어는 별도 스레드에서 실행 (3초 대기 포함)
+                std::thread([this, gpio]() {
+                    fireGpioPin(gpio);
+                }).detach();
             }
         );
 
@@ -1238,30 +1259,9 @@ void ApplicationManager::cameraInitLoop() {
 }
 
 void ApplicationManager::ammunitionSimulationLoop() {
-    int current_ammo = 6;
-    const int max_ammo = 6;
-    auto last_update = std::chrono::steady_clock::now();
-    
+    // 시뮬레이션 제거 — 실제 GPIO 발사(60002)로 대체됨
     while (is_running_) {
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_update).count();
-        
-        if (elapsed >= 1) {
-            if (current_ammo > 0) {
-                current_ammo--;
-                if (status_overlay_) {
-                    status_overlay_->setAmmunition(current_ammo, max_ammo);
-                }
-            } else {
-                current_ammo = max_ammo;
-                if (status_overlay_) {
-                    status_overlay_->setAmmunition(current_ammo, max_ammo);
-                }
-            }
-            last_update = now;
-        }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 }
 
@@ -1612,6 +1612,54 @@ void ApplicationManager::finishMission(bool reset_offboard) {
 bool ApplicationManager::isTargetedToMe(uint8_t target_system) const {
     // 브로드캐스트(0 또는 255) 또는 자신의 ID와 일치하면 true
     return target_system == 0 || target_system == 255 || target_system == drone_id_;
+}
+
+void ApplicationManager::fireGpioPin(int gpio_num) {
+    const std::string gpio_path = "/sys/class/gpio/gpio" + std::to_string(gpio_num);
+    const std::string export_path = "/sys/class/gpio/export";
+
+    // 1. GPIO export (이미 export 되어있으면 무시)
+    {
+        std::ofstream f(export_path);
+        if (f.is_open()) {
+            f << gpio_num;
+            f.close();
+        }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));  // sysfs 안정화 대기
+
+    // 2. direction = out
+    {
+        std::ofstream f(gpio_path + "/direction");
+        if (!f.is_open()) {
+            std::cerr << "[GPIO] direction 열기 실패: " << gpio_path << std::endl;
+            return;
+        }
+        f << "out";
+    }
+
+    // 3. value = 1 (ON)
+    {
+        std::ofstream f(gpio_path + "/value");
+        if (!f.is_open()) {
+            std::cerr << "[GPIO] value 열기 실패: " << gpio_path << std::endl;
+            return;
+        }
+        f << "1";
+    }
+    std::cout << "[GPIO] " << gpio_num << " ON" << std::endl;
+
+    // 4. 3초 대기
+    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+
+    // 5. value = 0 (OFF)
+    {
+        std::ofstream f(gpio_path + "/value");
+        if (f.is_open()) {
+            f << "0";
+        }
+    }
+    std::cout << "[GPIO] " << gpio_num << " OFF" << std::endl;
 }
 
 float ApplicationManager::readTargetAltitudeFromConfig() const {

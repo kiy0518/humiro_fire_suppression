@@ -156,6 +156,12 @@ private:
 
     // target_system 검증 (멀티 드론 환경에서 자신에게 보낸 메시지인지 확인)
     bool isTargetedToMe(uint8_t target_system) const;
+
+    // GPIO 격발 제어 (60002 수신 시 순차 발사)
+    void fireGpioPin(int gpio_num);
+    static constexpr int FIRE_GPIO_PINS[] = {447, 446, 449, 448, 450, 492};  // T1,T0,T3,T2,T4,Y8
+    static constexpr int FIRE_GPIO_COUNT = 6;
+    std::atomic<int> fire_gpio_index_{0};  // 다음 발사할 GPIO 인덱스
     // void testExeMission(const custom_message::FireMissionStart& start);
     // void testExeMission3(const custom_message::FireMissionStart& start);
 };

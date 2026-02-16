@@ -430,9 +430,11 @@
                     el.className = 'log-info';
                 }
                 el.textContent = line;
+                // 스크롤이 하단 근처인지 확인 (추가 전에 체크)
+                const atBottom = (output.scrollHeight - output.scrollTop - output.clientHeight) < 30;
                 output.appendChild(el);
                 while (output.children.length > MAX_LOG_LINES) output.removeChild(output.firstChild);
-                output.scrollTop = output.scrollHeight;
+                if (atBottom) output.scrollTop = output.scrollHeight;
             };
             es.onerror = function() {
                 if (es.readyState === EventSource.CLOSED) {
