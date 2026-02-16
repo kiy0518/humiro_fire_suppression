@@ -732,6 +732,7 @@ def api_services():
     """서비스 상태 API"""
     services = [
         "micro-ros-agent",
+        "fc-bridge",
         "mavlink-router",
         "humiro-fire-suppression",
     ]
@@ -772,6 +773,7 @@ def api_service_control(action, service):
     """서비스 제어 API"""
     allowed_services = [
         "micro-ros-agent",
+        "fc-bridge",
         "mavlink-router",
         "humiro-fire-suppression",
     ]
@@ -1549,6 +1551,13 @@ def api_router_port_reset():
         else:
             steps.append(f'   ⚠ humiro-fire-suppression 중지 실패: {result.stderr}')
 
+        # 1.5. fc-bridge 서비스 중지
+        subprocess.run(
+            ['sudo', 'systemctl', 'stop', 'fc-bridge'],
+            capture_output=True, text=True, timeout=5
+        )
+        steps.append('   ✓ fc-bridge 중지')
+
         # 2. mavlink-router 서비스 재시작
         steps.append('2. mavlink-router 서비스 재시작 중...')
         result = subprocess.run(
@@ -1563,6 +1572,14 @@ def api_router_port_reset():
         # 3. 2초 대기 (라우터 초기화 대기)
         time.sleep(2)
         steps.append('3. 라우터 초기화 대기 (2초)...')
+
+        # 3.5. fc-bridge 시작
+        subprocess.run(
+            ['sudo', 'systemctl', 'start', 'fc-bridge'],
+            capture_output=True, text=True, timeout=10
+        )
+        steps.append('   ✓ fc-bridge 시작')
+        time.sleep(1)
 
         # 4. humiro-fire-suppression 서비스 시작
         steps.append('4. humiro-fire-suppression 서비스 시작 중...')
@@ -1929,13 +1946,19 @@ Port = {application_port}
         subprocess.run(['pkill', '-f', 'humiro_fire_suppression/application/build/humiro_fire_suppression'],
                        capture_output=True, text=True, timeout=5)
 
-        # 1b. micro-ros-agent 중지 + 강제 종료 (UDP 8888 포트 확실히 해제)
+        # 1b. fc-bridge 중지 (micro-ros-agent 의존)
+        subprocess.run(['sudo', 'systemctl', 'stop', 'fc-bridge'],
+                       capture_output=True, text=True, timeout=10)
+        subprocess.run(['pkill', '-f', 'offboard_control/fc_bridge'],
+                       capture_output=True, text=True, timeout=5)
+
+        # 1c. micro-ros-agent 중지 + 강제 종료 (UDP 8888 포트 확실히 해제)
         subprocess.run(['sudo', 'systemctl', 'stop', 'micro-ros-agent'],
                        capture_output=True, text=True, timeout=10)
         subprocess.run(['sudo', 'pkill', '-9', '-f', 'micro_ros_agent'],
                        capture_output=True, text=True, timeout=5)
 
-        # 1c. mavlink-router 중지
+        # 1d. mavlink-router 중지
         subprocess.run(['sudo', 'systemctl', 'stop', 'mavlink-router'],
                        capture_output=True, text=True, timeout=10)
 
@@ -2017,7 +2040,14 @@ Port = {application_port}
         # 설정 캐시 리로드
         config_manager.reload()
 
-        # 3d. 애플리케이션 재시작
+        # 3d. fc-bridge 시작 (micro-ros-agent 이후, 앱 이전)
+        subprocess.run(
+            ['sudo', 'systemctl', 'start', 'fc-bridge'],
+            capture_output=True, text=True, timeout=10
+        )
+        time.sleep(1)  # fc-bridge DDS discovery 대기
+
+        # 3e. 애플리케이션 재시작
         app_result = subprocess.run(
             ['sudo', 'systemctl', 'start', 'humiro-fire-suppression'],
             capture_output=True, text=True, timeout=10

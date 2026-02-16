@@ -31,17 +31,15 @@ int main(int argc, char* argv[])
     // ROS2 초기화
     rclcpp::init(argc, argv);
 
-    // 드론 네임스페이스 결정
+    // PX4 토픽 네임스페이스 결정
+    // FC_BRIDGE_PX4_NS: PX4 토픽 접두사 (예: "/drone1" → "/drone1/fmu/out/*")
+    // 비어있으면 네임스페이스 없음 (FC 모드 기본값: "/fmu/out/*")
     std::string px4_ns;
-    const char* ns_env = std::getenv("ROS_NAMESPACE");
-    if (ns_env) {
-        px4_ns = std::string("/") + ns_env;
-    } else {
-        // DRONE_ID 기반 폴백
-        const char* drone_id_env = std::getenv("DRONE_ID");
-        int drone_id = drone_id_env ? std::atoi(drone_id_env) : 1;
-        px4_ns = "/drone" + std::to_string(drone_id);
+    const char* px4_ns_env = std::getenv("FC_BRIDGE_PX4_NS");
+    if (px4_ns_env && px4_ns_env[0] != '\0') {
+        px4_ns = px4_ns_env;
     }
+    // 기본값: 빈 문자열 (micro-ros-agent가 네임스페이스 없이 실행될 때)
 
     // IPC 포트 (환경 변수 오버라이드 가능)
     uint16_t state_port = FC_BRIDGE_STATE_PORT;

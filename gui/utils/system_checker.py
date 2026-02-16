@@ -250,6 +250,7 @@ class SystemChecker:
         """서비스 상태 확인"""
         services = [
             "micro-ros-agent",
+            "fc-bridge",
             "mavlink-router",
             "humiro-fire-suppression",
         ]
