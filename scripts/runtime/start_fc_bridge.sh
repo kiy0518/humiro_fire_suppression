@@ -54,9 +54,17 @@ fi
 export FC_BRIDGE_STATE_PORT=${FC_BRIDGE_STATE_PORT:-17001}
 export FC_BRIDGE_COMMAND_PORT=${FC_BRIDGE_COMMAND_PORT:-17002}
 
-# PX4 토픽 네임스페이스 (FC 모드에서는 비어있음 — micro-ros-agent가 네임스페이스 미사용)
-# SITL 편대 등에서 /droneN/fmu/* 형태일 경우 FC_BRIDGE_PX4_NS=/droneN 으로 설정
-export FC_BRIDGE_PX4_NS=${FC_BRIDGE_PX4_NS:-}
+# PX4 토픽 네임스페이스 자동 감지
+# - SITL 모드: PX4 SITL이 /droneN/fmu/* 형태로 토픽 생성 → /drone{DRONE_ID} 설정
+# - FC 모드: micro-ros-agent가 네임스페이스 미사용 → 빈값
+if [ -z "${FC_BRIDGE_PX4_NS+x}" ]; then
+    MAVLINK_CONF="/etc/mavlink-router/main.conf"
+    if [ -f "$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "$MAVLINK_CONF"; then
+        export FC_BRIDGE_PX4_NS="/drone${DRONE_ID:-1}"
+    else
+        export FC_BRIDGE_PX4_NS=""
+    fi
+fi
 
 # 실행 파일 경로
 EXECUTABLE="$PROJECT_ROOT/navigation/build/offboard_control/fc_bridge"

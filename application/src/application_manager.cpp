@@ -96,6 +96,12 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
                 if (eq == std::string::npos) continue;
                 std::string key = line.substr(0, eq);
                 std::string val = line.substr(eq + 1);
+                // ROS_/RMW_/FASTRTPS_ 환경변수는 wrapper 스크립트에서 관리
+                // device_config.env가 덮어쓰지 않도록 스킵
+                if (key.rfind("ROS_", 0) == 0 || key.rfind("RMW_", 0) == 0 ||
+                    key.rfind("FASTRTPS_", 0) == 0) {
+                    continue;
+                }
                 setenv(key.c_str(), val.c_str(), 1);
                 loaded++;
             }
@@ -199,6 +205,17 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
                       << ", cmd:" << command_port << ")" << std::endl;
         } else {
             std::cerr << "  ✗ FCBridgeClient 시작 실패!" << std::endl;
+        }
+        // SITL 모드 감지 (mavlink-router 설정 확인)
+        {
+            std::ifstream mav_conf("/etc/mavlink-router/main.conf");
+            if (mav_conf.is_open()) {
+                std::string content((std::istreambuf_iterator<char>(mav_conf)),
+                                     std::istreambuf_iterator<char>());
+                is_sitl_mode_ = (content.find("[UdpEndpoint SITL]") != std::string::npos) ||
+                                 (content.find("[UdpEndpoint PC_SITL]") != std::string::npos);
+                std::cout << "  [모드 감지] " << (is_sitl_mode_ ? "SITL" : "FC") << " 모드" << std::endl;
+            }
         }
     } catch (const std::exception& e) {
         std::cerr << "  ✗ ROS2 초기화 실패: " << e.what() << std::endl;
@@ -1376,12 +1393,17 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No FC", 5.0);
             return;
         }
-        // F-2: GPS fix 상태 확인
+        // F-2: GPS fix 상태 확인 (SITL 모드에서는 스킵)
         if (!status_ros2_subscriber_->isGPSFixed()) {
-            std::cerr << "[미션 거부] GPS 미고정 (fix_type="
-                      << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ", 최소 3 필요)" << std::endl;
-            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
-            return;
+            if (is_sitl_mode_) {
+                std::cout << "[미션] GPS 미고정이지만 SITL 모드이므로 스킵 (fix_type="
+                          << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ")" << std::endl;
+            } else {
+                std::cerr << "[미션 거부] GPS 미고정 (fix_type="
+                          << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ", 최소 3 필요)" << std::endl;
+                if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
+                return;
+            }
         }
         // F-3: 배터리 잔량 확인 (20% 미만 거부)
         float battery = status_ros2_subscriber_->getBatteryRemaining();

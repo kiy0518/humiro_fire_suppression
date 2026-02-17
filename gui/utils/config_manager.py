@@ -173,7 +173,6 @@ class ConfigManager:
             "MAV_SYS_ID": str(drone_id),
             "MAV_COMP_ID": "191",
             "EXTERNAL_UDP_PORT": str(16001 + (drone_id - 1) * 10),
-            "ROS_DOMAIN_ID": "0",
             "QGC_UDP_PORT": str(gcs_port),
             "FC_MAVLINK_PORT": "14540",
             "XRCE_DDS_PORT": "8888",
