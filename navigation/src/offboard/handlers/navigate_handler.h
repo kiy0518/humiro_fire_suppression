@@ -100,28 +100,27 @@ public:
         float ff_vx = 0.0f, ff_vy = 0.0f;
 
         if (!ctx.continuous_update_mode.load()) {
-            // 단독/리더: position + velocity 피드포워드
-            float current_ff_speed = std::sqrt(ctx.prev_vx * ctx.prev_vx + ctx.prev_vy * ctx.prev_vy);
-            float speed = ctx.flight_speed;
+            // 하이브리드: 원거리에서 velocity 피드포워드, 근거리에서 position-only
+            constexpr float FF_CUTOFF = 10.0f;  // 이 거리 이내에서 피드포워드 OFF
 
-            // 감속 프로파일
-            constexpr float DECEL_RADIUS = 80.0f;
-            if (dist < DECEL_RADIUS) {
-                float decel_speed = speed * (dist / DECEL_RADIUS);
-                speed = std::max(0.3f, std::min(decel_speed, current_ff_speed));
-            }
+            if (dist > FF_CUTOFF) {
+                float speed = ctx.flight_speed;
 
-            if (dist > 0.3f) {
+                constexpr float DECEL_RADIUS = 30.0f;
+                if (dist < DECEL_RADIUS) {
+                    float decel_speed = speed * (dist / DECEL_RADIUS);
+                    float current_ff_speed = std::sqrt(ctx.prev_vx * ctx.prev_vx + ctx.prev_vy * ctx.prev_vy);
+                    speed = std::max(0.5f, std::min(decel_speed, current_ff_speed));
+                }
+
                 float target_vx = (dx / dist) * speed;
                 float target_vy = (dy / dist) * speed;
 
-                constexpr float VELOCITY_ALPHA = 0.15f;
+                constexpr float VELOCITY_ALPHA = 0.25f;
                 ff_vx = ctx.prev_vx * (1.0f - VELOCITY_ALPHA) + target_vx * VELOCITY_ALPHA;
                 ff_vy = ctx.prev_vy * (1.0f - VELOCITY_ALPHA) + target_vy * VELOCITY_ALPHA;
-            } else {
-                ff_vx = ctx.prev_vx * 0.5f;
-                ff_vy = ctx.prev_vy * 0.5f;
             }
+            // dist <= FF_CUTOFF: ff_vx/vy = 0 → velocity=NAN으로 전환 (아래에서 처리)
             ctx.prev_vx = ff_vx;
             ctx.prev_vy = ff_vy;
         }
@@ -148,10 +147,10 @@ public:
 
         // === Setpoint 발행 ===
         sp.position = {eff_x, eff_y, navigate_z_};
-        if (ctx.continuous_update_mode.load()) {
-            sp.velocity = {NAN, NAN, NAN};  // 연속 추적: position only
+        if (ctx.continuous_update_mode.load() || (ff_vx == 0.0f && ff_vy == 0.0f)) {
+            sp.velocity = {NAN, NAN, NAN};  // position only (편대 팔로워 또는 근거리)
         } else {
-            sp.velocity = {ff_vx, ff_vy, NAN};  // 단독: 피드포워드
+            sp.velocity = {ff_vx, ff_vy, NAN};  // 원거리: 피드포워드
         }
         sp.yaw = NAN;
         sp.yawspeed = yawspeed;

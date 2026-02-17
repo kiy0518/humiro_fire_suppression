@@ -87,7 +87,7 @@ public:
 
 private:
     static constexpr float TARGET_HOVER_SEC = 5.0f;
-    static constexpr float SUPPRESS_HOVER_SEC = 30.0f;
+    static constexpr float SUPPRESS_HOVER_SEC = 5.0f;
 
     float final_z_{0.0f};
     float hover_duration_{5.0f};
