@@ -3,6 +3,18 @@
 {% block title %}카메라{% endblock %}
 
 {% block content %}
+<style>
+.debug-log-panel { border-top: 1px solid #30363d; }
+.debug-log-output {
+    background: #0d1117; color: #c9d1d9;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.7rem; padding: 6px 8px; height: 150px;
+    overflow-y: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.3;
+}
+.debug-log-output .log-error { color: #f85149; }
+.debug-log-output .log-warn { color: #ffa657; }
+.debug-log-output .log-info { color: #58a6ff; }
+</style>
 <div class="container-fluid py-4">
     <!-- 뷰 모드 선택 -->
     <div class="row mb-3">
@@ -45,6 +57,9 @@
                         </div>
                     </div>
                 </div>
+                <div id="logPanel1" class="debug-log-panel" style="display:none;">
+                    <div class="debug-log-output" id="logOutput1"></div>
+                </div>
                 <div class="card-footer py-1 text-center">
                     <small class="text-muted">{{ drone_configs[1].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(1)">
@@ -52,6 +67,9 @@
                     </button>
                     <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(1)">
                         <i class="bi bi-fullscreen"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="toggleLog(1)" title="디버그 로그">
+                        <i class="bi bi-terminal" id="logIcon1"></i>
                     </button>
                 </div>
             </div>
@@ -76,6 +94,9 @@
                         </div>
                     </div>
                 </div>
+                <div id="logPanel2" class="debug-log-panel" style="display:none;">
+                    <div class="debug-log-output" id="logOutput2"></div>
+                </div>
                 <div class="card-footer py-1 text-center">
                     <small class="text-muted">{{ drone_configs[2].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(2)">
@@ -83,6 +104,9 @@
                     </button>
                     <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(2)">
                         <i class="bi bi-fullscreen"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="toggleLog(2)" title="디버그 로그">
+                        <i class="bi bi-terminal" id="logIcon2"></i>
                     </button>
                 </div>
             </div>
@@ -107,6 +131,9 @@
                         </div>
                     </div>
                 </div>
+                <div id="logPanel3" class="debug-log-panel" style="display:none;">
+                    <div class="debug-log-output" id="logOutput3"></div>
+                </div>
                 <div class="card-footer py-1 text-center">
                     <small class="text-muted">{{ drone_configs[3].ip }}:8080</small>
                     <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshStream(3)">
@@ -114,6 +141,9 @@
                     </button>
                     <button class="btn btn-sm btn-link p-0 ms-1" onclick="openFullscreen(3)">
                         <i class="bi bi-fullscreen"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="toggleLog(3)" title="디버그 로그">
+                        <i class="bi bi-terminal" id="logIcon3"></i>
                     </button>
                 </div>
             </div>
@@ -326,6 +356,14 @@
             document.getElementById('viewMulti').checked = true;
             refreshAllStreams();
         } else {
+            // 멀티뷰 → 단일뷰 전환 시 로그 스트림 정리
+            [1, 2, 3].forEach(id => {
+                stopLogStream(id);
+                const panel = document.getElementById(`logPanel${id}`);
+                if (panel) panel.style.display = 'none';
+                const icon = document.getElementById(`logIcon${id}`);
+                if (icon) icon.classList.remove('text-success');
+            });
             document.getElementById('multiView').style.display = 'none';
             document.getElementById('singleView').style.display = 'block';
             document.getElementById('viewSingle').checked = true;
@@ -352,6 +390,73 @@
             console.error('설정 로드 실패:', e);
         }
     }
+
+    // === 디버그 로그 뷰어 ===
+    const logSources = {};
+    const MAX_LOG_LINES = 200;
+
+    function toggleLog(droneId) {
+        const panel = document.getElementById(`logPanel${droneId}`);
+        const icon = document.getElementById(`logIcon${droneId}`);
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            icon.classList.add('text-success');
+            startLogStream(droneId);
+        } else {
+            panel.style.display = 'none';
+            icon.classList.remove('text-success');
+            stopLogStream(droneId);
+        }
+    }
+
+    function startLogStream(droneId) {
+        stopLogStream(droneId);
+        const output = document.getElementById(`logOutput${droneId}`);
+        output.innerHTML = '<div class="text-muted">연결 중...</div>';
+        try {
+            const ip = droneIPs[droneId];
+            const es = new EventSource(`http://${ip}:5000/api/service-log-stream?n=30`);
+            logSources[droneId] = es;
+            let firstMessage = true;
+            es.onmessage = function(event) {
+                if (firstMessage) { output.innerHTML = ''; firstMessage = false; }
+                const line = event.data;
+                const el = document.createElement('div');
+                if (line.includes('error') || line.includes('Error') || line.includes('FAIL') || line.includes('✗')) {
+                    el.className = 'log-error';
+                } else if (line.includes('warn') || line.includes('Warn') || line.includes('⚠')) {
+                    el.className = 'log-warn';
+                } else if (line.includes('✓') || line.includes('Started') || line.includes('완료')) {
+                    el.className = 'log-info';
+                }
+                el.textContent = line;
+                output.appendChild(el);
+                while (output.children.length > MAX_LOG_LINES) output.removeChild(output.firstChild);
+                output.scrollTop = output.scrollHeight;
+            };
+            es.onerror = function() {
+                if (es.readyState === EventSource.CLOSED) {
+                    const err = document.createElement('div');
+                    err.className = 'log-warn';
+                    err.textContent = '--- 연결 종료 ---';
+                    output.appendChild(err);
+                }
+            };
+        } catch (e) {
+            console.error(`Log stream error for drone ${droneId}:`, e);
+        }
+    }
+
+    function stopLogStream(droneId) {
+        if (logSources[droneId]) {
+            logSources[droneId].close();
+            delete logSources[droneId];
+        }
+    }
+
+    window.addEventListener('beforeunload', function() {
+        Object.keys(logSources).forEach(id => stopLogStream(id));
+    });
 
     // 초기화
     document.addEventListener('DOMContentLoaded', function() {

@@ -2404,6 +2404,47 @@ def api_check_fc_param(param_name):
     return jsonify(result)
 
 
+# ==================== 서비스 로그 스트리밍 API ====================
+
+@app.route('/api/service-log-stream')
+def api_service_log_stream():
+    """humiro-fire-suppression 서비스 로그 실시간 스트리밍 (SSE)"""
+    lines = request.args.get('n', '30')
+
+    def generate():
+        proc = None
+        try:
+            proc = subprocess.Popen(
+                ['journalctl', '-u', 'humiro-fire-suppression',
+                 '-f', '-n', lines, '--no-pager', '-o', 'cat'],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1
+            )
+            for line in iter(proc.stdout.readline, ''):
+                if line:
+                    yield f"data: {line.rstrip()}\n\n"
+        except GeneratorExit:
+            pass
+        finally:
+            if proc and proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*',
+        }
+    )
+
+
 # ==================== 헬퍼 함수 ====================
 
 def run_build(targets: list, clean_build: bool):
