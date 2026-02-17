@@ -9,9 +9,7 @@ source "$PROJECT_ROOT/setup_env.sh"
 
 export HOME=/home/khadas
 export ROS_DOMAIN_ID=
-# ROS_NAMESPACE는 PX4 uXRCE-DDS와 호환성 문제가 있을 수 있으므로 제거
-# PX4 uXRCE-DDS는 기본적으로 네임스페이스를 사용하지 않음
-# export ROS_NAMESPACE=
+export ROS_NAMESPACE=
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 # FC DDS 토픽이 WiFi로 유출되지 않도록 eth0 전용 프로파일 사용
 export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"

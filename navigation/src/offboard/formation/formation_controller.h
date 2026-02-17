@@ -216,6 +216,9 @@ private:
     std::string leader_phase_{"IDLE"};
     std::atomic<bool> leader_alive_{false};
 
+    // === SUPPRESS 대기 로그 제어 ===
+    bool suppress_wait_logged_{false};
+
     // === 콜백 ===
     CommandCallback command_callback_;
 

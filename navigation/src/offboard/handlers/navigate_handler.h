@@ -47,7 +47,11 @@ public:
         float dist = std::sqrt(dx * dx + dy * dy);
 
         // 도착 판정 (EVADE 중에는 판정 안 함)
-        if (dist < ctx.WAYPOINT_THRESHOLD && ctx.collision_action.load() == 0) {
+        // continuous_update_mode: 편대 팔로워는 리더가 10Hz로 목표를 갱신하므로
+        // 자체 도착 판정을 하면 HOVER_AT_TARGET→RTL→LANDED 체인이 발생하여
+        // 오프셋 추적이 중단됨 → 편대 팔로워는 도착 판정 안 함
+        if (!ctx.continuous_update_mode.load() &&
+            dist < ctx.WAYPOINT_THRESHOLD && ctx.collision_action.load() == 0) {
             RCLCPP_INFO(ctx.logger, "[NAVIGATE] 목표 도착! 거리: %.2fm (%.1fs)",
                         dist, ctx.elapsedSec());
             return TransitionResult::COMPLETE;

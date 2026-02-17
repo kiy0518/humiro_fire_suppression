@@ -316,10 +316,38 @@ void FormationController::leaderStatusTimerCallback() {
         }
     }
 
-    // HOVER_AT_TARGET 도달 시 → SUPPRESS 자동 전환 (별도 스레드로 실행하여 타이머 블로킹 방지)
+    // HOVER_AT_TARGET 도달 시 → 팔로워 오프셋 도달 확인 후 SUPPRESS 전환
     if (current == MissionState::HOVER_AT_TARGET && formation_phase_ != "SUPPRESS") {
-        formation_phase_ = "SUPPRESS";  // 즉시 상태 전환 (중복 호출 방지)
-        std::thread([this]() { triggerSuppressPhase(); }).detach();
+        // 팔로워들이 오프셋 위치에 도달했는지 확인 (CMD_SUPPRESS 전 필수)
+        bool followers_ready = true;
+        {
+            std::lock_guard<std::mutex> lock(followers_mutex_);
+            if (followers_.empty()) {
+                followers_ready = true;  // 팔로워 없으면 즉시 진행
+            } else {
+                for (auto& [id, info] : followers_) {
+                    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now() - info.last_update).count();
+                    if (elapsed > 5 || info.mission_state != "FOLLOWING" ||
+                        info.offset_error > FORMATION_COMPLETE_THRESHOLD_M) {
+                        followers_ready = false;
+                        if (!suppress_wait_logged_) {
+                            std::cout << "[Formation] SUPPRESS 대기: drone" << (int)id
+                                      << " offset_error=" << info.offset_error
+                                      << "m, state=" << info.mission_state << std::endl;
+                            suppress_wait_logged_ = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (followers_ready) {
+            suppress_wait_logged_ = false;
+            formation_phase_ = "SUPPRESS";
+            std::thread([this]() { triggerSuppressPhase(); }).detach();
+        }
     }
 
     // RTL 상태 시 → 팔로워들에게 RTL 명령
@@ -453,7 +481,23 @@ void FormationController::onLeaderPose(const humiro_msgs::msg::LeaderPose::Share
     }
 
     // 미션이 실행 중일 때만 오프셋 추적
-    if (!offboard_mgr_->isMissionRunning()) return;
+    // 단, continuous_update_mode(편대 팔로워)에서는 navigate_handler의 도착 판정을
+    // 비활성화했으므로 mission_running은 항상 true여야 정상.
+    // 만약 abort/error로 mission_running이 false가 되었다면 추적 중단.
+    if (!offboard_mgr_->isMissionRunning()) {
+        // FOLLOWING 상태인데 미션이 아닌 경우: CMD_FOLLOW 미션 시작 전 (PREPARING)
+        // → 이 경우에만 return, 비정상 종료 시 로그 출력
+        MissionState ms = offboard_mgr_->getCurrentState();
+        if (ms != MissionState::IDLE && ms != MissionState::LANDED) {
+            // 비정상: 미션이 끝났는데 FOLLOWING 상태 — 로그만 출력
+            static int warn_count = 0;
+            if (warn_count++ % 50 == 0) {
+                std::cout << "[Formation] ⚠ 오프셋 추적 중단: mission_running=false, state="
+                          << OffboardManager::getStateName(ms) << std::endl;
+            }
+        }
+        return;
+    }
 
     // 오프셋 목표 GPS 계산
     GPSCoordinate target = calculateOffsetTarget(*msg);
@@ -608,59 +652,15 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
         case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS: {
             follower_phase_ = FollowerPhase::SUPPRESSING;
             suppress_detour_active_ = false;
-            std::cout << "  → SUPPRESS: 진압 편대 전환" << std::endl;
 
-            // 타겟 GPS + 자신의 SUPPRESS_DISTANCE/ANGLE로 진압 위치 계산
-            if (offboard_mgr_ && msg->target_latitude != 0.0) {
-                double angle_rad = suppress_angle_deg_ * M_PI / 180.0;
-                double dist = (double)suppress_distance_m_;
-                double target_lat_rad = msg->target_latitude * M_PI / 180.0;
-                double cos_lat = std::cos(target_lat_rad);
-
-                GPSCoordinate suppress_pos;
-                suppress_pos.latitude = msg->target_latitude
-                    + (dist * std::cos(angle_rad)) / DEG_TO_M_LAT;
-                suppress_pos.longitude = msg->target_longitude
-                    + (dist * std::sin(angle_rad)) / (DEG_TO_M_LAT * cos_lat);
-                suppress_pos.altitude = offboard_mgr_->getCurrentAltAmsl();
-
-                // ★★★ 횡단 방지: 진압 위치가 경로 반대쪽이면 cross-track 미러링 ★★★
-                if (fixed_heading_set_) {
-                    float h_cos = std::cos(fixed_heading_rad_);
-                    float h_sin = std::sin(fixed_heading_rad_);
-                    double cos_lat2 = std::cos(offboard_mgr_->getCurrentLat() * M_PI / 180.0);
-
-                    // 팔로워의 경로선 수직 거리
-                    double fw_n = (offboard_mgr_->getCurrentLat() - leader_start_lat_) * DEG_TO_M_LAT;
-                    double fw_e = (offboard_mgr_->getCurrentLon() - leader_start_lon_) * DEG_TO_M_LAT * cos_lat2;
-                    double fw_cross = -fw_n * h_sin + fw_e * h_cos;
-
-                    // 진압 위치의 경로선 기준 분해
-                    double sp_n = (suppress_pos.latitude - leader_start_lat_) * DEG_TO_M_LAT;
-                    double sp_e = (suppress_pos.longitude - leader_start_lon_) * DEG_TO_M_LAT * cos_lat2;
-                    double sp_along = sp_n * h_cos + sp_e * h_sin;
-                    double sp_cross = -sp_n * h_sin + sp_e * h_cos;
-
-                    // 반대쪽이면 cross-track 부호 반전 (미러링)
-                    if (fw_cross * sp_cross < 0 && std::abs(fw_cross) > 2.0 && std::abs(sp_cross) > 2.0) {
-                        double mirrored_cross = -sp_cross;
-
-                        // 미러링된 위치 재구성 (along-track 유지, cross-track 반전)
-                        double new_n = sp_along * (double)h_cos + mirrored_cross * (double)(-h_sin);
-                        double new_e = sp_along * (double)h_sin + mirrored_cross * (double)h_cos;
-                        suppress_pos.latitude = leader_start_lat_ + new_n / DEG_TO_M_LAT;
-                        suppress_pos.longitude = leader_start_lon_ + new_e / (DEG_TO_M_LAT * cos_lat2);
-
-                        std::cout << "  → ★ 횡단 방지 미러링: fw_cross=" << fw_cross
-                                  << "m, sp_cross=" << sp_cross << "m → " << mirrored_cross << "m"
-                                  << std::endl;
-                    }
-                }
-
-                offboard_mgr_->updateMissionTarget(suppress_pos);
-                std::cout << "  → 진압 위치: " << suppress_pos.latitude << ", "
-                          << suppress_pos.longitude << " (dist=" << dist
-                          << "m, angle=" << suppress_angle_deg_ << "°)" << std::endl;
+            // 현재 오프셋 위치를 진압 위치로 사용 (급격한 위치 변경 방지)
+            // follower_phase_ = SUPPRESSING이면 onLeaderPose에서 오프셋 추적이 중단되므로
+            // OffboardManager는 마지막 설정된 오프셋 목표 위치를 계속 유지
+            if (last_offset_valid_) {
+                std::cout << "  → SUPPRESS: 진압 전환 (현재 오프셋 위치 유지: "
+                          << last_target_lat_ << ", " << last_target_lon_ << ")" << std::endl;
+            } else {
+                std::cout << "  → SUPPRESS: 진압 전환 (오프셋 미설정, 현재 위치 유지)" << std::endl;
             }
             break;
         }

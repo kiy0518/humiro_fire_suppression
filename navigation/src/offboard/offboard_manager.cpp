@@ -496,7 +496,14 @@ void OffboardManager::emergencyRTL()
 {
     RCLCPP_ERROR(node_->get_logger(), "[EMERGENCY] RTL triggered!");
     publishVehicleCommand(20);  // VEHICLE_CMD_NAV_RETURN_TO_LAUNCH
+
+    // 핸들러 정리: setpoint 발행 중단 (PX4 RTL 모드와 충돌 방지)
+    if (current_handler_) {
+        current_handler_->onExit(ctx_);
+        current_handler_ = nullptr;
+    }
     current_state_.store(MissionState::RTL);
+    mission_running_.store(false);
 }
 
 bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float yaw_override)
