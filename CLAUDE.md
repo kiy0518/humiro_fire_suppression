@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.19.3
+**최신 태그**: v0.19.4
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -546,7 +546,8 @@ struct MissionConfig {
 
 class OffboardManager {
 public:
-    bool executeMission3(const MissionConfig& config);  // 미션 실행 (미션 중이면 경로 변경)
+    bool executeMissionSolo(const MissionConfig& config);     // 단독 미션
+    bool executeMissionFormation(const MissionConfig& config); // 편대 미션
     bool updateMissionTarget(const GPSCoordinate& new_target);  // 부드러운 경로 변경
     bool isMissionRunning() const;
     void abortMission();

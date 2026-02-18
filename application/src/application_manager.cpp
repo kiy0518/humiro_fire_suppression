@@ -233,7 +233,9 @@ void ApplicationManager::initializeOffboard() {
         std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
         offboard_manager_ = new OffboardManager(ros2_node_, fc_bridge_);
         offboard_manager_->setFireAmmoState(&fire_gpio_index_, FIRE_GPIO_COUNT);
-        std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC)" << std::endl;
+        offboard_manager_->setThermalData(&thermal_data_);
+        offboard_manager_->setThermalTrackingMode(true);  // 기본: 자동 모드
+        std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC, 열원추적 ON)" << std::endl;
     }
 #endif
 }
@@ -1440,7 +1442,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             }
             std::cout << "  ✓ 리셋 완료, 새 미션 시작 진행" << std::endl;
         } else {
-            // 미션 진행 중 → 새 좌표로 경로 변경 (executeMission3 호출)
+            // 미션 진행 중 → 새 좌표로 경로 변경
             std::cout << "[미션 경로 변경] 미션 진행 중, 새 좌표로 업데이트 (상태="
                       << OffboardManager::getStateName(current_state) << ")" << std::endl;
 
@@ -1466,9 +1468,9 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
             // 미션 진행 중 → 내부에서 updateMissionTarget() 실행
             if (use_formation)
-                offboard_manager_->executeMission4(config);
+                offboard_manager_->executeMissionFormation(config);
             else
-                offboard_manager_->executeMission3(config);
+                offboard_manager_->executeMissionSolo(config);
             return;
         }
     }
@@ -1567,8 +1569,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         bool success = false;
         try {
             success = use_formation
-                ? offboard_manager_->executeMission4(config)
-                : offboard_manager_->executeMission3(config);
+                ? offboard_manager_->executeMissionFormation(config)
+                : offboard_manager_->executeMissionSolo(config);
         } catch (const std::runtime_error& e) {
             // executor 관련 예외는 특별히 처리
             std::string error_msg = e.what();

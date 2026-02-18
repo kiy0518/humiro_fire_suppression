@@ -14,12 +14,14 @@ bool ThermalProcessor::extract_thermal_data(const cv::Mat& thermal_frame, Therma
     }
     
     try {
+        const auto& tc = ThermalConfig::get();
+
         // 열화상 데이터 리사이즈
         cv::Mat frame_small;
-        cv::resize(thermal_frame, frame_small, cv::Size(THERMAL_WIDTH, THERMAL_HEIGHT), 0, 0, cv::INTER_NEAREST);
-        
+        cv::resize(thermal_frame, frame_small, cv::Size(tc.thermal_width, tc.thermal_height), 0, 0, cv::INTER_NEAREST);
+
         // 하단 픽셀 제거
-        cv::Mat frame_cropped = frame_small(cv::Rect(0, 0, THERMAL_WIDTH, THERMAL_CROPPED_HEIGHT));
+        cv::Mat frame_cropped = frame_small(cv::Rect(0, 0, tc.thermal_width, tc.thermal_cropped_height));
         
         // 화점 검출 (녹색 채널 또는 그레이스케일)
         cv::Mat thermal_gray;
@@ -48,10 +50,10 @@ bool ThermalProcessor::extract_thermal_data(const cv::Mat& thermal_frame, Therma
         min_val = std::max(0.0, std::min(255.0, min_val));
         
         // RGB 좌표계로 변환
-        int rgb_center_x = RGB_CROP_X + CENTER_X;
-        int rgb_center_y = RGB_CROP_Y + CENTER_Y;
-        int rgb_max_x = RGB_CROP_X + max_loc.x;
-        int rgb_max_y = RGB_CROP_Y + max_loc.y;
+        int rgb_center_x = tc.rgb_crop_x + tc.center_x;
+        int rgb_center_y = tc.rgb_crop_y + tc.center_y;
+        int rgb_max_x = tc.rgb_crop_x + max_loc.x;
+        int rgb_max_y = tc.rgb_crop_y + max_loc.y;
         
         // 경계 체크
         rgb_center_x = std::max(0, std::min(OUTPUT_WIDTH - 1, rgb_center_x));
@@ -75,14 +77,14 @@ bool ThermalProcessor::extract_thermal_data(const cv::Mat& thermal_frame, Therma
             max_color = cv::Vec3b(0, 0, 255);  // 빨간색
         }
         
-        int rel_x = max_loc.x - CENTER_X;
-        int rel_y = max_loc.y - CENTER_Y;
+        int rel_x = max_loc.x - tc.center_x;
+        int rel_y = max_loc.y - tc.center_y;
         
         // 열화상 프레임 준비 (오버레이용)
         cv::Mat thermal_frame_for_overlay;
         if (OVERLAY_THERMAL) {
-            cv::resize(thermal_frame, thermal_frame_for_overlay, 
-                      cv::Size(THERMAL_WIDTH, THERMAL_CROPPED_HEIGHT), 0, 0, cv::INTER_LINEAR);
+            cv::resize(thermal_frame, thermal_frame_for_overlay,
+                      cv::Size(tc.thermal_width, tc.thermal_cropped_height), 0, 0, cv::INTER_LINEAR);
         }
         
         // 온도 변환 (픽셀 값 → 섭씨 온도)

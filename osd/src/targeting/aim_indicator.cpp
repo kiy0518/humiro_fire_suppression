@@ -9,8 +9,9 @@ AimIndicator::~AimIndicator() {
 }
 
 void AimIndicator::drawAimMarker(cv::Mat& frame, const ThermalData& data) {
-    int center_x = data.center_x;
-    int center_y = data.center_y;
+    // 십자선/원은 항상 화면 정중앙
+    int center_x = frame.cols / 2;
+    int center_y = frame.rows / 2;
     int max_x = data.hotspot_x;
     int max_y = data.hotspot_y;
     

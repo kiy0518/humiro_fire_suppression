@@ -105,4 +105,68 @@
 // 내부 통신은 기존 큐 방식 유지 (성능 보장)
 // CMakeLists.txt의 -DENABLE_ROS2 옵션으로 제어됨 (기본값: OFF)
 
+// ========== 런타임 열화상 오버레이 설정 (device_config.env에서 로드) ==========
+#include <cstdlib>
+#include <algorithm>
+#include <iostream>
+
+struct ThermalConfig {
+    int thermal_dx;
+    int thermal_dy;
+    float scale_x;
+    float scale_y;
+
+    // 파생 값 (scale/dx/dy에서 자동 계산)
+    int thermal_width;
+    int thermal_height;
+    int thermal_cropped_height;
+    int center_x;
+    int center_y;
+    int rgb_crop_x;
+    int rgb_crop_y;
+    int status_bar_height;
+
+    static const ThermalConfig& get() {
+        static ThermalConfig cfg;
+        return cfg;
+    }
+
+private:
+    ThermalConfig() {
+        const char* dx_env = std::getenv("THERMAL_DX");
+        const char* dy_env = std::getenv("THERMAL_DY");
+        const char* sx_env = std::getenv("THERMAL_SCALE_X");
+        const char* sy_env = std::getenv("THERMAL_SCALE_Y");
+        // 하위 호환: THERMAL_SCALE만 있으면 가로세로 동일 적용
+        const char* s_env = std::getenv("THERMAL_SCALE");
+
+        thermal_dx = dx_env ? std::atoi(dx_env) : THERMAL_DX;
+        thermal_dy = dy_env ? std::atoi(dy_env) : THERMAL_DY;
+        float fallback = s_env ? static_cast<float>(std::atof(s_env)) : SCALE;
+        scale_x = sx_env ? static_cast<float>(std::atof(sx_env)) : fallback;
+        scale_y = sy_env ? static_cast<float>(std::atof(sy_env)) : fallback;
+
+        // 파생 값 계산
+        thermal_width = static_cast<int>(640 * scale_x);
+        thermal_height = static_cast<int>(480 * scale_y);
+        thermal_cropped_height = thermal_height - CUT_PIXELS;
+        center_x = thermal_width / 2;
+        center_y = thermal_cropped_height / 2;
+        rgb_crop_x = (640 - thermal_width) / 2 + thermal_dx;
+
+        int raw_y = (480 - thermal_height) / 2 + thermal_dy;
+        int max_y = (480 - thermal_height + CUT_PIXELS);
+        rgb_crop_y = std::min(raw_y, max_y);
+
+        const char* sbh_env = std::getenv("STATUS_BAR_HEIGHT");
+        status_bar_height = sbh_env ? std::atoi(sbh_env) : 30;
+
+        std::cout << "[ThermalConfig] dx=" << thermal_dx
+                  << " dy=" << thermal_dy
+                  << " scale=(" << scale_x << "," << scale_y << ")"
+                  << " → crop=(" << rgb_crop_x << "," << rgb_crop_y << ")"
+                  << " size=" << thermal_width << "x" << thermal_cropped_height << std::endl;
+    }
+};
+
 #endif // CONFIG_H

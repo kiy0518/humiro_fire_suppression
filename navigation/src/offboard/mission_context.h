@@ -15,6 +15,9 @@
 #include <functional>
 #include <rclcpp/rclcpp.hpp>
 
+// Forward declaration (포인터만 사용, thermal 헤더 의존성 없음)
+struct ThermalData;
+
 // GPS 좌표 구조체
 struct GPSCoordinate {
     double latitude = 0.0;
@@ -89,6 +92,11 @@ struct MissionContext {
     std::atomic<int>* fire_gpio_index_ptr{nullptr};  // 현재 발사 인덱스 포인터
     int fire_gpio_count{0};                           // 총 소화탄 수 (6)
 
+    // === 열원 추적 (thermal tracking) ===
+    ThermalData* thermal_data_ptr{nullptr};               // ApplicationManager의 thermal_data_ 포인터
+    std::atomic<bool> thermal_tracking_auto{true};         // 자동 모드 (true=자동, false=수동)
+    std::atomic<bool> thermal_tracking_active{false};      // 추적 활성 (수동 모드: GUI 버튼으로 제어)
+
     // === 충돌 방지 ===
     std::atomic<int> collision_action{0};  // 0=NONE, 1=HOLD, 2=EVADE_RIGHT
     float hold_x{0.0f}, hold_y{0.0f}, hold_z{0.0f}, hold_yaw{0.0f};
@@ -141,6 +149,7 @@ struct MissionContext {
         prev_vy = 0.0f;
         formation_ready_to_rotate.store(false);
         formation_ready_to_navigate.store(false);
+        thermal_tracking_active.store(false);
         collision_action.store(0);
         hold_x = hold_y = hold_z = hold_yaw = 0.0f;
         evade_offset_n = evade_offset_e = 0.0f;

@@ -60,13 +60,13 @@ public:
      * @param config 미션 설정
      * @return 미션 성공 여부
      */
-    bool executeMission3(const MissionConfig& config);
+    bool executeMissionSolo(const MissionConfig& config);
 
     /**
-     * @brief 군집비행 미션 (executeMission3 + 진압 대기 30초)
+     * @brief 군집비행 미션 (executeMissionSolo + 진압 대기 30초)
      * HOVER_AT_TARGET에서 30초간 진압 편대 유지 후 RTL
      */
-    bool executeMission4(const MissionConfig& config);
+    bool executeMissionFormation(const MissionConfig& config);
 
     /**
      * @brief 미션 진행 중 목표 좌표 업데이트 (경로 변경)
@@ -108,6 +108,11 @@ public:
 
     // ========== 소화탄 상태 연결 (ApplicationManager 연동) ==========
     void setFireAmmoState(std::atomic<int>* index_ptr, int total_count);
+
+    // ========== 열원 추적 (ApplicationManager 연동) ==========
+    void setThermalData(struct ThermalData* data_ptr);
+    void setThermalTrackingMode(bool auto_mode);     // 자동/수동 모드
+    void setThermalTrackingActive(bool active);       // 수동 모드 트리거
 
     // ========== 편대 비행 게이트 (FormationController 연동) ==========
     void setFormationReadyToRotate(bool ready);
@@ -178,7 +183,7 @@ private:
     std::atomic<uint64_t> setpoint_counter_{0};
     std::atomic<bool> abort_requested_{false};
     std::atomic<bool> mission_running_{false};
-    std::mutex mission_start_mutex_;  // 중복 미션 시작 방지 (executeMission3 진입 보호)
+    std::mutex mission_start_mutex_;  // 중복 미션 시작 방지 (executeMissionSolo 진입 보호)
 
     // ========== FC 상태 ==========
     std::atomic<uint8_t> nav_state_{0};
@@ -275,6 +280,7 @@ private:
     std::unique_ptr<StateHandler> rotate_handler_;
     std::unique_ptr<StateHandler> navigate_handler_;
     std::unique_ptr<StateHandler> hover_at_target_handler_;
+    std::unique_ptr<StateHandler> tracking_hover_handler_;
     std::unique_ptr<StateHandler> rtl_handler_;
     StateHandler* current_handler_{nullptr};  // 현재 활성 핸들러 (소유권 없음)
 

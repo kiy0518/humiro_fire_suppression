@@ -285,8 +285,8 @@ void StatusOverlay::draw(cv::Mat& frame) {
     
     std::lock_guard<std::mutex> lock(data_mutex_);
     
-    // 상단 상태바 그리기 (0,0) ~ (OUTPUT_WIDTH, RGB_CROP_Y)
-    int status_bar_height = RGB_CROP_Y;
+    // 상단 상태바 그리기 (device_config.env의 STATUS_BAR_HEIGHT)
+    int status_bar_height = ThermalConfig::get().status_bar_height;
     cv::Scalar status_bar_color(34, 34, 34);  // 진회색
     cv::Rect status_bar_rect(0, 0, frame.cols, status_bar_height);
     cv::rectangle(frame, status_bar_rect, status_bar_color, -1);  // -1 = 채우기

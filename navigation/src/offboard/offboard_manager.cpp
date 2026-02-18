@@ -17,6 +17,7 @@
 #include "handlers/rotate_handler.h"
 #include "handlers/navigate_handler.h"
 #include "handlers/hover_at_target_handler.h"
+#include "handlers/tracking_hover_handler.h"
 #include "handlers/rtl_handler.h"
 #include <cstdlib>
 
@@ -41,6 +42,7 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node,
     rotate_handler_ = std::make_unique<RotateHandler>();
     navigate_handler_ = std::make_unique<NavigateHandler>();
     hover_at_target_handler_ = std::make_unique<HoverAtTargetHandler>();
+    tracking_hover_handler_ = std::make_unique<TrackingHoverHandler>();
     rtl_handler_ = std::make_unique<RtlHandler>();
 
     // ctx_ 명령 발행 콜백 설정 (FCBridgeClient를 통해 전송)
@@ -61,7 +63,7 @@ OffboardManager::~OffboardManager()
     }
 }
 
-bool OffboardManager::executeMission3(const MissionConfig& config)
+bool OffboardManager::executeMissionSolo(const MissionConfig& config)
 {
     // ★ 미션 시작 구간 mutex (중복 스레드 동시 시작 방지)
     {
@@ -123,7 +125,7 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
         syncContextFromMembers();
 
         RCLCPP_INFO(node_->get_logger(), "==============================================");
-        RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMission3)");
+        RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMissionSolo)");
         RCLCPP_INFO(node_->get_logger(), "  Start position (NED): (%.1f, %.1f, %.1f)",
                     start_local_x_, start_local_y_, start_local_z_);
         RCLCPP_INFO(node_->get_logger(), "==============================================");
@@ -183,11 +185,11 @@ bool OffboardManager::executeMission3(const MissionConfig& config)
     }
 }
 
-bool OffboardManager::executeMission4(const MissionConfig& config)
+bool OffboardManager::executeMissionFormation(const MissionConfig& config)
 {
-    RCLCPP_INFO(node_->get_logger(), "[MISSION4] 군집비행 미션 시작 (suppress_hover=30s)");
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] 군집비행 미션 시작 (suppress_hover=30s)");
     formation_mode_ = true;
-    return executeMission3(config);
+    return executeMissionSolo(config);
 }
 
 void OffboardManager::timerCallback()
@@ -654,6 +656,21 @@ void OffboardManager::setFireAmmoState(std::atomic<int>* index_ptr, int total_co
     RCLCPP_INFO(node_->get_logger(), "[FIRE] 소화탄 상태 연결 (총 %d발)", total_count);
 }
 
+void OffboardManager::setThermalData(ThermalData* data_ptr) {
+    ctx_.thermal_data_ptr = data_ptr;
+    RCLCPP_INFO(node_->get_logger(), "[THERMAL] ThermalData 포인터 연결");
+}
+
+void OffboardManager::setThermalTrackingMode(bool auto_mode) {
+    ctx_.thermal_tracking_auto.store(auto_mode);
+    RCLCPP_INFO(node_->get_logger(), "[THERMAL] 추적 모드: %s", auto_mode ? "자동" : "수동");
+}
+
+void OffboardManager::setThermalTrackingActive(bool active) {
+    ctx_.thermal_tracking_active.store(active);
+    RCLCPP_INFO(node_->get_logger(), "[THERMAL] 추적 %s", active ? "활성화" : "비활성화");
+}
+
 // ========== 핸들러 아키텍처 ==========
 
 void OffboardManager::transitionTo(StateHandler* handler)
@@ -720,7 +737,15 @@ void OffboardManager::advanceToNextHandler()
         transitionTo(navigate_handler_.get());
     } else if (current_handler_ == navigate_handler_.get()) {
         current_state_.store(MissionState::HOVER_AT_TARGET);
-        transitionTo(hover_at_target_handler_.get());
+        // 열원 추적: ThermalData 포인터가 설정되어 있으면 TrackingHoverHandler 사용
+        if (ctx_.thermal_data_ptr) {
+            transitionTo(tracking_hover_handler_.get());
+        } else {
+            transitionTo(hover_at_target_handler_.get());
+        }
+    } else if (current_handler_ == tracking_hover_handler_.get()) {
+        current_state_.store(MissionState::RTL);
+        transitionTo(rtl_handler_.get());
     } else if (current_handler_ == hover_at_target_handler_.get()) {
         current_state_.store(MissionState::RTL);
         transitionTo(rtl_handler_.get());

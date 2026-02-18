@@ -46,14 +46,15 @@ void ThermalOverlay::overlayThermal(cv::Mat& rgb_frame, const cv::Mat& thermal_f
     }
     
     try {
-        int overlay_x = RGB_CROP_X;
-        int overlay_y = RGB_CROP_Y;
-        
+        const auto& tc = ThermalConfig::get();
+        int overlay_x = tc.rgb_crop_x;
+        int overlay_y = tc.rgb_crop_y;
+
         int thermal_h = thermal_frame.rows;
         int thermal_w = thermal_frame.cols;
-        
-        int overlay_w = std::min({THERMAL_WIDTH, OUTPUT_WIDTH - overlay_x, thermal_w});
-        int overlay_h = std::min({THERMAL_CROPPED_HEIGHT, OUTPUT_HEIGHT - overlay_y, thermal_h});
+
+        int overlay_w = std::min({tc.thermal_width, OUTPUT_WIDTH - overlay_x, thermal_w});
+        int overlay_h = std::min({tc.thermal_cropped_height, OUTPUT_HEIGHT - overlay_y, thermal_h});
         
         if (overlay_w <= 0 || overlay_h <= 0) {
             return;
