@@ -111,6 +111,28 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
         }
     }
 
+    // app_config.env 자동 로드 (프로그램 파라미터)
+    {
+        std::string app_config_path = "/home/khadas/humiro_fire_suppression/config/app_config.env";
+        std::ifstream app_config_file(app_config_path);
+        if (app_config_file.is_open()) {
+            std::string line;
+            int loaded = 0;
+            while (std::getline(app_config_file, line)) {
+                if (line.empty() || line[0] == '#') continue;
+                auto eq = line.find('=');
+                if (eq == std::string::npos) continue;
+                std::string key = line.substr(0, eq);
+                std::string val = line.substr(eq + 1);
+                setenv(key.c_str(), val.c_str(), 1);
+                loaded++;
+            }
+            std::cout << "[Config] app_config.env 로드: " << loaded << "개 항목" << std::endl;
+        } else {
+            std::cerr << "[Config] app_config.env 없음: " << app_config_path << std::endl;
+        }
+    }
+
     // OpenCV 경고 억제
     setenv("OPENCV_FFMPEG_LOGLEVEL", "-8", 0);
     setenv("OPENCV_LOG_LEVEL", "ERROR", 0);
@@ -235,7 +257,11 @@ void ApplicationManager::initializeOffboard() {
         offboard_manager_->setFireAmmoState(&fire_gpio_index_, FIRE_GPIO_COUNT);
         offboard_manager_->setThermalData(&thermal_data_);
         offboard_manager_->setThermalTrackingMode(true);  // 기본: 자동 모드
-        std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC, 열원추적 ON)" << std::endl;
+        if (lidar_interface_) {
+            offboard_manager_->setLidarInterface(lidar_interface_);
+        }
+        std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC, 열원추적 ON, LiDAR="
+                  << (lidar_interface_ ? "연결" : "없음") << ")" << std::endl;
     }
 #endif
 }

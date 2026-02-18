@@ -16,6 +16,7 @@
 #include "handlers/hover_handler.h"
 #include "handlers/rotate_handler.h"
 #include "handlers/navigate_handler.h"
+#include "handlers/distance_adjust_handler.h"
 #include "handlers/hover_at_target_handler.h"
 #include "handlers/tracking_hover_handler.h"
 #include "handlers/rtl_handler.h"
@@ -41,9 +42,13 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node,
     hover_handler_ = std::make_unique<HoverHandler>();
     rotate_handler_ = std::make_unique<RotateHandler>();
     navigate_handler_ = std::make_unique<NavigateHandler>();
+    distance_adjust_handler_ = std::make_unique<DistanceAdjustHandler>();
     hover_at_target_handler_ = std::make_unique<HoverAtTargetHandler>();
     tracking_hover_handler_ = std::make_unique<TrackingHoverHandler>();
     rtl_handler_ = std::make_unique<RtlHandler>();
+
+    // ========== OSD 상태 퍼블리셔 ==========
+    offboard_status_pub_ = node_->create_publisher<std_msgs::msg::String>("/offboard/status", 10);
 
     // ctx_ 명령 발행 콜백 설정 (FCBridgeClient를 통해 전송)
     ctx_.publishCommand = [this](uint16_t cmd, float p1, float p2, float p3) {
@@ -65,6 +70,22 @@ OffboardManager::~OffboardManager()
 
 bool OffboardManager::executeMissionSolo(const MissionConfig& config)
 {
+    formation_mode_ = false;
+    RCLCPP_INFO(node_->get_logger(), "[SOLO] 단독비행 미션 시작");
+    return executeMissionInternal(config);
+}
+
+bool OffboardManager::executeMissionFormation(const MissionConfig& config)
+{
+    formation_mode_ = true;
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] 편대비행 미션 시작");
+    return executeMissionInternal(config);
+}
+
+bool OffboardManager::executeMissionInternal(const MissionConfig& config)
+{
+    const char* mode_str = formation_mode_ ? "FORMATION" : "SOLO";
+
     // ★ 미션 시작 구간 mutex (중복 스레드 동시 시작 방지)
     {
         std::lock_guard<std::mutex> lock(mission_start_mutex_);
@@ -125,7 +146,7 @@ bool OffboardManager::executeMissionSolo(const MissionConfig& config)
         syncContextFromMembers();
 
         RCLCPP_INFO(node_->get_logger(), "==============================================");
-        RCLCPP_INFO(node_->get_logger(), "  Starting Mission (executeMissionSolo)");
+        RCLCPP_INFO(node_->get_logger(), "  Starting Mission [%s]", mode_str);
         RCLCPP_INFO(node_->get_logger(), "  Start position (NED): (%.1f, %.1f, %.1f)",
                     start_local_x_, start_local_y_, start_local_z_);
         RCLCPP_INFO(node_->get_logger(), "==============================================");
@@ -154,6 +175,7 @@ bool OffboardManager::executeMissionSolo(const MissionConfig& config)
         if (state == MissionState::RTL && arming_state_.load() == 1) {
             RCLCPP_INFO(node_->get_logger(), "[RTL] Disarm detected in wait loop, mission complete!");
             current_state_.store(MissionState::LANDED);
+            publishOffboardStatus("DISARMED");
             mission_running_.store(false);
             break;
         }
@@ -165,6 +187,8 @@ bool OffboardManager::executeMissionSolo(const MissionConfig& config)
         std::lock_guard<std::mutex> lock(mission_start_mutex_);
         if (!mission_running_.load()) {
             if (timer_) {
+                RCLCPP_INFO(node_->get_logger(), "[CLEANUP] 타이머 cancel (nav=%d, arm=%d)",
+                            nav_state_.load(), arming_state_.load());
                 timer_->cancel();
                 timer_.reset();
             }
@@ -176,20 +200,13 @@ bool OffboardManager::executeMissionSolo(const MissionConfig& config)
     auto final_state = current_state_.load();
     if (final_state == MissionState::LANDED) {
         RCLCPP_INFO(node_->get_logger(), "==============================================");
-        RCLCPP_INFO(node_->get_logger(), "  Mission Complete!");
+        RCLCPP_INFO(node_->get_logger(), "  Mission Complete! [%s]", mode_str);
         RCLCPP_INFO(node_->get_logger(), "==============================================");
         return true;
     } else {
-        RCLCPP_ERROR(node_->get_logger(), "Mission failed (state: %s)", getStateName(final_state).c_str());
+        RCLCPP_ERROR(node_->get_logger(), "Mission failed [%s] (state: %s)", mode_str, getStateName(final_state).c_str());
         return false;
     }
-}
-
-bool OffboardManager::executeMissionFormation(const MissionConfig& config)
-{
-    RCLCPP_INFO(node_->get_logger(), "[FORMATION] 군집비행 미션 시작 (suppress_hover=30s)");
-    formation_mode_ = true;
-    return executeMissionSolo(config);
 }
 
 void OffboardManager::timerCallback()
@@ -198,8 +215,10 @@ void OffboardManager::timerCallback()
     updateFromFCState();
 
     // ★ OFFBOARD heartbeat 발행
+    // RTL 중에도 heartbeat 유지 → PX4 offboard loss failsafe 방지
+    // (heartbeat 중단 시 PX4가 pre-failsafe 모드=OFFBOARD를 기억하여 disarm 후 복귀함)
     auto state = current_state_.load();
-    if (state != MissionState::RTL && state != MissionState::LANDED) {
+    if (mission_running_.load() && state != MissionState::LANDED) {
         publishOffboardControlMode();
     }
 
@@ -331,6 +350,7 @@ void OffboardManager::timerCallback()
                 current_handler_->onExit(ctx_);
                 current_handler_ = nullptr;
                 current_state_.store(MissionState::ERROR);
+                publishOffboardStatus("IDLE");
                 mission_running_.store(false);
                 RCLCPP_ERROR(node_->get_logger(), "[ERROR] Handler error, mission aborted");
                 return;
@@ -432,9 +452,11 @@ void OffboardManager::publishOffboardControlMode()
     fc_bridge_->sendHeartbeat(true, false, false);
 
     static uint64_t hb_count = 0;
-    if (++hb_count % 50 == 0) {
-        RCLCPP_DEBUG(node_->get_logger(), "[HB] Heartbeat #%ld via IPC (state=%s, nav=%d)",
-                     hb_count, getStateName(current_state_.load()).c_str(), nav_state_.load());
+    hb_count++;
+    if (hb_count % 50 == 0 || hb_count <= 3) {
+        RCLCPP_INFO(node_->get_logger(), "[HB] Heartbeat #%ld (state=%s, nav=%d, armed=%d, running=%d)",
+                     hb_count, getStateName(current_state_.load()).c_str(),
+                     nav_state_.load(), arming_state_.load(), mission_running_.load());
     }
 }
 
@@ -505,6 +527,7 @@ void OffboardManager::emergencyRTL()
         current_handler_ = nullptr;
     }
     current_state_.store(MissionState::RTL);
+    publishOffboardStatus("RETURNING");
     mission_running_.store(false);
 }
 
@@ -613,6 +636,8 @@ void OffboardManager::resetToIdle()
     }
 
     current_state_.store(MissionState::IDLE);
+    publishOffboardStatus("IDLE");
+    last_published_status_.clear();
     mission_running_.store(false);
     abort_requested_.store(false);
     setpoint_counter_.store(0);
@@ -671,6 +696,11 @@ void OffboardManager::setThermalTrackingActive(bool active) {
     RCLCPP_INFO(node_->get_logger(), "[THERMAL] 추적 %s", active ? "활성화" : "비활성화");
 }
 
+void OffboardManager::setLidarInterface(LidarInterface* lidar_ptr) {
+    ctx_.lidar_ptr = lidar_ptr;
+    RCLCPP_INFO(node_->get_logger(), "[LIDAR] LidarInterface 포인터 연결");
+}
+
 // ========== 핸들러 아키텍처 ==========
 
 void OffboardManager::transitionTo(StateHandler* handler)
@@ -681,6 +711,10 @@ void OffboardManager::transitionTo(StateHandler* handler)
         ctx_.state_enter_time = std::chrono::steady_clock::now();
         current_handler_->onEnter(ctx_);
         RCLCPP_INFO(node_->get_logger(), "[STATE] → %s", current_handler_->name());
+
+        // OSD 상태 발행
+        auto state = current_state_.load();
+        publishOffboardStatus(missionStateToStatusString(state));
     }
 }
 
@@ -736,8 +770,21 @@ void OffboardManager::advanceToNextHandler()
         current_state_.store(MissionState::NAVIGATE);
         transitionTo(navigate_handler_.get());
     } else if (current_handler_ == navigate_handler_.get()) {
+        // 거리 조정: LiDAR 포인터가 있고 팔로워가 아닌 경우 DISTANCE_ADJUST
+        if (ctx_.lidar_ptr && !ctx_.continuous_update_mode.load()) {
+            current_state_.store(MissionState::DISTANCE_ADJUST);
+            transitionTo(distance_adjust_handler_.get());
+        } else {
+            current_state_.store(MissionState::HOVER_AT_TARGET);
+            if (ctx_.thermal_data_ptr) {
+                transitionTo(tracking_hover_handler_.get());
+            } else {
+                transitionTo(hover_at_target_handler_.get());
+            }
+        }
+    } else if (current_handler_ == distance_adjust_handler_.get()) {
+        // 거리 조정 완료 → HOVER_AT_TARGET / TRACKING_HOVER
         current_state_.store(MissionState::HOVER_AT_TARGET);
-        // 열원 추적: ThermalData 포인터가 설정되어 있으면 TrackingHoverHandler 사용
         if (ctx_.thermal_data_ptr) {
             transitionTo(tracking_hover_handler_.get());
         } else {
@@ -751,9 +798,10 @@ void OffboardManager::advanceToNextHandler()
         transitionTo(rtl_handler_.get());
     } else if (current_handler_ == rtl_handler_.get()) {
         current_handler_ = nullptr;
+        mission_running_.store(false);  // heartbeat 중단 먼저
         current_state_.store(MissionState::LANDED);
-        mission_running_.store(false);
-        RCLCPP_INFO(node_->get_logger(), "[RTL→LANDED] 미션 완료!");
+        RCLCPP_INFO(node_->get_logger(), "[RTL→LANDED] 미션 완료! (heartbeat 중단됨, nav=%d, arm=%d)",
+                    nav_state_.load(), arming_state_.load());
     }
 }
 
@@ -807,10 +855,43 @@ std::string OffboardManager::getStateName(MissionState state)
         case MissionState::HOVER: return "HOVER";
         case MissionState::ROTATE: return "ROTATE";
         case MissionState::NAVIGATE: return "NAVIGATE";
+        case MissionState::DISTANCE_ADJUST: return "DISTANCE_ADJUST";
         case MissionState::HOVER_AT_TARGET: return "HOVER_AT_TARGET";
         case MissionState::RTL: return "RTL";
         case MissionState::LANDED: return "LANDED";
         case MissionState::ERROR: return "ERROR";
         default: return "UNKNOWN";
     }
+}
+
+std::string OffboardManager::missionStateToStatusString(MissionState state)
+{
+    // MissionState → /offboard/status 토픽 문자열 (OSD DroneStatus와 매핑)
+    switch (state) {
+        case MissionState::IDLE:            return "IDLE";
+        case MissionState::PREPARING:       return "ARMING";    // 준비 = 시동 과정
+        case MissionState::OFFBOARD:        return "ARMING";
+        case MissionState::ARMING:          return "ARMING";
+        case MissionState::TAKEOFF:         return "TAKEOFF";
+        case MissionState::HOVER:           return "HOVERING";
+        case MissionState::ROTATE:          return "ROTATING";
+        case MissionState::NAVIGATE:        return "NAVIGATING";
+        case MissionState::DISTANCE_ADJUST: return "DISTANCE_ADJUST";
+        case MissionState::HOVER_AT_TARGET: return "TRACKING";  // 열원 추적/진압 대기
+        case MissionState::RTL:             return "RETURNING";
+        case MissionState::LANDED:          return "DISARMED";
+        case MissionState::ERROR:           return "IDLE";
+        default:                            return "IDLE";
+    }
+}
+
+void OffboardManager::publishOffboardStatus(const std::string& status)
+{
+    // 같은 상태 중복 발행 방지
+    if (status == last_published_status_) return;
+    last_published_status_ = status;
+
+    auto msg = std_msgs::msg::String();
+    msg.data = status;
+    offboard_status_pub_->publish(msg);
 }

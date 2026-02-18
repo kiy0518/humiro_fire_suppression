@@ -3,6 +3,7 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <cmath>
 
 AimIndicator::AimIndicator() {
 }
@@ -64,12 +65,34 @@ void AimIndicator::drawAimInfo(cv::Mat& frame, const ThermalData& data) {
         text_y = data.hotspot_y + 25;
     }
 
-    // 배경 (가독성)
-    cv::Scalar bg_color(0, 0, 0);
-    cv::rectangle(frame,
-                  cv::Point(text_x - 2, text_y - text_size.height - 2),
-                  cv::Point(text_x + text_size.width + 2, text_y + 4),
-                  bg_color, -1);
+    // 배경 (라운드 엣지, fillPoly + LINE_AA)
+    {
+        cv::Scalar bg_color(0, 0, 0);
+        const int pad = 3;
+        const int r = 6;
+        const int step = 15;
+        int bx = text_x - pad;
+        int by = text_y - text_size.height - pad;
+        int bw = text_size.width + pad * 2;
+        int bh = text_size.height + pad * 2;
+
+        std::vector<cv::Point> pts;
+        for (int a = 180; a <= 270; a += step)
+            pts.emplace_back(bx + r + (int)(r * std::cos(a * M_PI / 180)),
+                             by + r + (int)(r * std::sin(a * M_PI / 180)));
+        for (int a = 270; a <= 360; a += step)
+            pts.emplace_back(bx + bw - r + (int)(r * std::cos(a * M_PI / 180)),
+                             by + r + (int)(r * std::sin(a * M_PI / 180)));
+        for (int a = 0; a <= 90; a += step)
+            pts.emplace_back(bx + bw - r + (int)(r * std::cos(a * M_PI / 180)),
+                             by + bh - r + (int)(r * std::sin(a * M_PI / 180)));
+        for (int a = 90; a <= 180; a += step)
+            pts.emplace_back(bx + r + (int)(r * std::cos(a * M_PI / 180)),
+                             by + bh - r + (int)(r * std::sin(a * M_PI / 180)));
+
+        std::vector<std::vector<cv::Point>> poly = {pts};
+        cv::fillPoly(frame, poly, bg_color, cv::LINE_AA);
+    }
 
     // 온도 텍스트 (최고점 색상과 동일)
     cv::Scalar text_color(data.max_color[0], data.max_color[1], data.max_color[2]);

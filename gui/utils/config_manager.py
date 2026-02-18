@@ -14,17 +14,27 @@ from typing import Dict, Optional, Any, List
 class ConfigManager:
     """설정 파일 관리자"""
 
+    # 프로그램 파라미터 키 (app_config.env에 저장)
+    APP_CONFIG_KEYS = {
+        "SUPPRESS_ANGLE", "SUPPRESS_DISTANCE",
+        "THERMAL_DX", "THERMAL_DY", "THERMAL_SCALE_X", "THERMAL_SCALE_Y",
+        "THERMAL_SCALE", "STATUS_BAR_HEIGHT",
+    }
+
     def __init__(self, project_root: str):
         self.project_root = project_root
         self.config_dir = os.path.join(project_root, "config")
         self.device_config_path = os.path.join(self.config_dir, "device_config.env")
+        self.app_config_path = os.path.join(self.config_dir, "app_config.env")
         self.fc_params_dir = os.path.join(self.config_dir, "fc_params")
         self.backup_dir = os.path.join(self.config_dir, "backup")
         self.custom_params_file = os.path.join(self.config_dir, "custom_params.json")
 
         # 설정 캐시
         self._device_config: Dict[str, str] = {}
+        self._app_config: Dict[str, str] = {}
         self._load_device_config()
+        self._load_app_config()
 
         # FC 파라미터 디렉토리 생성
         os.makedirs(self.fc_params_dir, exist_ok=True)
@@ -34,30 +44,45 @@ class ConfigManager:
         if not os.path.exists(self.custom_params_file):
             self._init_custom_params_file()
 
-    def _load_device_config(self):
-        """device_config.env 로드"""
-        self._device_config = {}
-        if os.path.exists(self.device_config_path):
-            with open(self.device_config_path, "r") as f:
+    @staticmethod
+    def _load_env_file(path: str) -> Dict[str, str]:
+        """env 파일 로드 (공통)"""
+        config = {}
+        if os.path.exists(path):
+            with open(path, "r") as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, value = line.split("=", 1)
-                        # 인라인 주석 제거 (# 이후 부분)
                         value = value.split("#")[0].strip().strip('"\'')
-                        self._device_config[key.strip()] = value
+                        config[key.strip()] = value
+        return config
+
+    def _load_device_config(self):
+        """device_config.env 로드"""
+        self._device_config = self._load_env_file(self.device_config_path)
+
+    def _load_app_config(self):
+        """app_config.env 로드"""
+        self._app_config = self._load_env_file(self.app_config_path)
 
     def reload(self):
         """설정 다시 로드"""
         self._load_device_config()
+        self._load_app_config()
 
     def get(self, key: str, default: str = "") -> str:
-        """설정 값 가져오기"""
+        """설정 값 가져오기 (app_config 우선, device_config 폴백)"""
+        if key in self.APP_CONFIG_KEYS:
+            return self._app_config.get(key, self._device_config.get(key, default))
         return self._device_config.get(key, default)
 
     def set(self, key: str, value: str):
-        """설정 값 변경 (메모리에만)"""
-        self._device_config[key] = value
+        """설정 값 변경 (메모리에만, 키에 따라 올바른 config에 저장)"""
+        if key in self.APP_CONFIG_KEYS:
+            self._app_config[key] = value
+        else:
+            self._device_config[key] = value
 
     def get_drone_id(self) -> int:
         """DRONE_ID 가져오기"""
@@ -79,19 +104,18 @@ class ConfigManager:
         return self.get("WIFI_IP", "192.168.100.11")
 
     def get_all_config(self) -> Dict[str, str]:
-        """모든 설정 가져오기"""
-        return self._device_config.copy()
+        """모든 설정 가져오기 (device + app 통합)"""
+        merged = self._device_config.copy()
+        merged.update(self._app_config)
+        return merged
 
     def save_device_config(self) -> bool:
-        """device_config.env 저장"""
+        """device_config.env 저장 (앱 파라미터 제외)"""
         try:
-            # 백업 생성
             self._create_backup(self.device_config_path)
 
-            # 파일 저장
-            # ROS_NAMESPACE는 라우터 페이지 SITL/FC 모드 토글에서만 관리
-            # 일반 설정 저장 시 포함되면 FC 모드에서 토픽 불일치 발생
-            exclude_keys = {"ROS_NAMESPACE"}
+            # ROS_NAMESPACE와 앱 파라미터 키 제외
+            exclude_keys = {"ROS_NAMESPACE"} | self.APP_CONFIG_KEYS
             with open(self.device_config_path, "w") as f:
                 f.write("# Humiro Fire Suppression Device Configuration\n")
                 f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -104,6 +128,27 @@ class ConfigManager:
         except Exception as e:
             print(f"설정 저장 실패: {e}")
             return False
+
+    def save_app_config(self) -> bool:
+        """app_config.env 저장 (프로그램 파라미터만)"""
+        try:
+            self._create_backup(self.app_config_path)
+
+            with open(self.app_config_path, "w") as f:
+                f.write("# Humiro Fire Suppression Application Parameters\n")
+                f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+
+                for key, value in sorted(self._app_config.items()):
+                    f.write(f"{key}={value}\n")
+
+            return True
+        except Exception as e:
+            print(f"앱 설정 저장 실패: {e}")
+            return False
+
+    def save_all_config(self) -> bool:
+        """device_config.env + app_config.env 모두 저장"""
+        return self.save_device_config() and self.save_app_config()
 
     def _create_backup(self, file_path: str):
         """파일 백업 생성"""
@@ -166,24 +211,28 @@ class ConfigManager:
         fm = formation_defaults.get(role, formation_defaults["Follower_L"])
 
         return {
-            "DRONE_ID": str(drone_id),
-            "ETH0_IP": f"10.0.0.{base_offset + 1}",
-            "FC_IP": f"10.0.0.{base_offset + 2}",
-            "WIFI_IP": f"192.168.100.{base_offset + 1}",
-            "MAV_SYS_ID": str(drone_id),
-            "MAV_COMP_ID": "191",
-            "EXTERNAL_UDP_PORT": str(16001 + (drone_id - 1) * 10),
-            "QGC_UDP_PORT": str(gcs_port),
-            "FC_MAVLINK_PORT": "14540",
-            "XRCE_DDS_PORT": "8888",
-            "ROLE": role,
-            "GCS_PORT_MODE": gcs_port_mode,
-            "LEADER_NAMESPACE": "drone1",
-            "FORMATION_OFFSET_RIGHT": fm["right"],
-            "FORMATION_OFFSET_BEHIND": fm["behind"],
-            "FORMATION_OFFSET_ABOVE": fm["above"],
-            "SUPPRESS_DISTANCE": fm["sup_dist"],
-            "SUPPRESS_ANGLE": fm["sup_angle"],
+            "device": {
+                "DRONE_ID": str(drone_id),
+                "ETH0_IP": f"10.0.0.{base_offset + 1}",
+                "FC_IP": f"10.0.0.{base_offset + 2}",
+                "WIFI_IP": f"192.168.100.{base_offset + 1}",
+                "MAV_SYS_ID": str(drone_id),
+                "MAV_COMP_ID": "191",
+                "EXTERNAL_UDP_PORT": str(16001 + (drone_id - 1) * 10),
+                "QGC_UDP_PORT": str(gcs_port),
+                "FC_MAVLINK_PORT": "14540",
+                "XRCE_DDS_PORT": "8888",
+                "ROLE": role,
+                "GCS_PORT_MODE": gcs_port_mode,
+                "LEADER_NAMESPACE": "drone1",
+                "FORMATION_OFFSET_RIGHT": fm["right"],
+                "FORMATION_OFFSET_BEHIND": fm["behind"],
+                "FORMATION_OFFSET_ABOVE": fm["above"],
+            },
+            "app": {
+                "SUPPRESS_DISTANCE": fm["sup_dist"],
+                "SUPPRESS_ANGLE": fm["sup_angle"],
+            },
         }
 
     @staticmethod
@@ -205,13 +254,16 @@ class ConfigManager:
         """현재 GCS 포트 모드 가져오기"""
         return self.get("GCS_PORT_MODE", "separate")
 
-    def get_vehicle_preset(self, drone_id: int) -> Dict[str, str]:
+    def get_vehicle_preset(self, drone_id: int) -> Dict[str, Dict[str, str]]:
         """기체별 설정 프리셋 반환 (DRONE_ID 기반 자동 계산)
 
         IP 체계:
         - ETH0 (VIM4): 10.0.0.X1 (X = 드론번호)
         - FC: 10.0.0.X2 (X = 드론번호)
         - WIFI: 192.168.100.X1 (X = 드론번호)
+
+        Returns:
+            {"device": {...}, "app": {...}}
         """
         gcs_mode = self.get_gcs_port_mode()
         return self.calculate_config_from_drone_id(drone_id, gcs_mode)
@@ -219,9 +271,9 @@ class ConfigManager:
     def apply_vehicle_preset(self, drone_id: int) -> bool:
         """기체 프리셋 적용 (DRONE_ID 기반 자동 계산 값 적용)"""
         preset = self.get_vehicle_preset(drone_id)
-        for key, value in preset.items():
-            self._device_config[key] = value
-        return self.save_device_config()
+        self._device_config.update(preset["device"])
+        self._app_config.update(preset["app"])
+        return self.save_device_config() and self.save_app_config()
 
     def regenerate_config_from_drone_id(
         self,
@@ -261,16 +313,17 @@ class ConfigManager:
 
         # DRONE_ID 기반 자동 계산 값 적용
         calculated = self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
-        self._device_config.update(calculated)
+        self._device_config.update(calculated["device"])
+        self._app_config.update(calculated["app"])
 
         # WiFi 설정 복원
         if preserve_wifi:
             self._device_config.update(wifi_settings)
 
-        return self.save_device_config()
+        return self.save_device_config() and self.save_app_config()
 
     def get_calculated_preview(self, drone_id: int, gcs_port_mode: str = None) -> Dict[str, str]:
-        """DRONE_ID 변경 시 미리보기 (실제 저장 없이 계산 결과 반환)
+        """DRONE_ID 변경 시 미리보기 (실제 저장 없이 계산 결과 반환, 통합 dict)
 
         Args:
             drone_id: 드론 번호
@@ -278,7 +331,11 @@ class ConfigManager:
         """
         if gcs_port_mode is None:
             gcs_port_mode = self.get_gcs_port_mode()
-        return self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
+        result = self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
+        # 미리보기용: device + app 통합 반환
+        merged = result["device"].copy()
+        merged.update(result["app"])
+        return merged
 
     # === 드론 네트워크 헬퍼 ===
 
@@ -307,14 +364,15 @@ class ConfigManager:
         result = {}
         for did in range(1, max_drones + 1):
             cfg = self.calculate_config_from_drone_id(did, gcs_mode)
+            dev = cfg["device"]
             name = 'Leader' if did == 1 else follower_labels.get(did, f'Follower {did}')
             result[did] = {
-                'ip': cfg['WIFI_IP'],
-                'eth0_ip': cfg['ETH0_IP'],
-                'fc_ip': cfg['FC_IP'],
+                'ip': dev['WIFI_IP'],
+                'eth0_ip': dev['ETH0_IP'],
+                'fc_ip': dev['FC_IP'],
                 'name': name,
-                'gcs_port': int(cfg['QGC_UDP_PORT']),
-                'mav_sys_id': int(cfg['MAV_SYS_ID']),
+                'gcs_port': int(dev['QGC_UDP_PORT']),
+                'mav_sys_id': int(dev['MAV_SYS_ID']),
             }
         return result
 

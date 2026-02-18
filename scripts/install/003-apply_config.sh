@@ -603,6 +603,9 @@ if [ -f $PROJECT_ROOT/config/device_config.env ]; then
     source $PROJECT_ROOT/config/device_config.env
     export DRONE_ID=$DRONE_ID
 fi
+if [ -f $PROJECT_ROOT/config/app_config.env ]; then
+    source $PROJECT_ROOT/config/app_config.env
+fi
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
 export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp

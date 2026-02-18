@@ -7,8 +7,8 @@
  * 최소 1.5초의 안정화 시간을 확보한 후 ARM을 전송한다.
  * (v0.16.2에서는 카운터 기반으로 OFFBOARD→ARM 간 2.5초 간격이 있었음)
  *
- * 전환 조건: arming_state == 2 → COMPLETE
- * 타임아웃: 15초 → ERROR
+ * 전환 조건: arming_state == 2 → 5초 대기 → COMPLETE
+ * 타임아웃: 25초 → ERROR
  */
 
 #ifndef ARM_HANDLER_H
@@ -23,6 +23,8 @@ public:
         ctx.state_enter_time = std::chrono::steady_clock::now();
         last_cmd_time_ = {};
         arm_sent_ = false;
+        arm_confirmed_ = false;
+        arm_confirmed_time_ = {};
 
         // ARM 전 시작 위치 1차 캡처
         if (ctx.position_received.load()) {
@@ -64,16 +66,36 @@ public:
 
         // 조건: PX4가 ARM 확인
         if (ctx.arming_state.load() == 2) {
-            // ARM 확인 시 시작 위치 최종 캡처 (가장 정확한 시점)
-            ctx.start_local_x = ctx.current_local_x.load();
-            ctx.start_local_y = ctx.current_local_y.load();
-            ctx.start_local_z = ctx.current_local_z.load();
-            ctx.initial_yaw = ctx.current_yaw.load();
+            if (!arm_confirmed_) {
+                // ARM 최초 확인 시 시작 위치 캡처 + 이륙 전 대기 시작
+                arm_confirmed_ = true;
+                arm_confirmed_time_ = std::chrono::steady_clock::now();
 
-            RCLCPP_INFO(ctx.logger, "[ARM] 시동 확인! Start NED: (%.1f, %.1f, %.1f) Yaw: %.1f deg (%.1fs)",
-                        ctx.start_local_x, ctx.start_local_y, ctx.start_local_z,
-                        ctx.initial_yaw * 180.0f / M_PI, elapsed);
-            return TransitionResult::COMPLETE;
+                ctx.start_local_x = ctx.current_local_x.load();
+                ctx.start_local_y = ctx.current_local_y.load();
+                ctx.start_local_z = ctx.current_local_z.load();
+                ctx.initial_yaw = ctx.current_yaw.load();
+
+                RCLCPP_INFO(ctx.logger, "[ARM] 시동 확인! Start NED: (%.1f, %.1f, %.1f) Yaw: %.1f deg → %.0fs 후 이륙",
+                            ctx.start_local_x, ctx.start_local_y, ctx.start_local_z,
+                            ctx.initial_yaw * 180.0f / M_PI, PRE_TAKEOFF_DELAY_SEC);
+            }
+
+            // 이륙 전 대기
+            double since_armed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - arm_confirmed_time_).count();
+            if (since_armed >= PRE_TAKEOFF_DELAY_SEC) {
+                RCLCPP_INFO(ctx.logger, "[ARM] 이륙 전 대기 완료 (%.1fs)", since_armed);
+                return TransitionResult::COMPLETE;
+            }
+
+            // 1초마다 카운트다운 로그
+            int remaining = static_cast<int>(PRE_TAKEOFF_DELAY_SEC - since_armed + 0.5);
+            if (remaining != last_countdown_) {
+                last_countdown_ = remaining;
+                RCLCPP_INFO(ctx.logger, "[ARM] 이륙까지 %d초...", remaining);
+            }
+            return TransitionResult::STAY;
         }
 
         // 2초마다 ARM 명령 재전송
@@ -86,8 +108,8 @@ public:
             last_cmd_time_ = now;
         }
 
-        // 타임아웃: 15초
-        if (elapsed > 15.0) {
+        // 타임아웃: 25초 (안정화 1.5s + ARM + 대기 5s + 여유)
+        if (elapsed > 25.0) {
             RCLCPP_ERROR(ctx.logger, "[ARM] 타임아웃! arming_state=%d (expected 2)",
                          ctx.arming_state.load());
             return TransitionResult::ERROR;
@@ -114,8 +136,12 @@ public:
 
 private:
     static constexpr double OFFBOARD_STABILIZE_SEC = 1.5;  // OFFBOARD 안정화 대기 시간
+    static constexpr double PRE_TAKEOFF_DELAY_SEC = 5.0;  // 시동 후 이륙 전 대기 시간
     std::chrono::steady_clock::time_point last_cmd_time_;
+    std::chrono::steady_clock::time_point arm_confirmed_time_;
     bool arm_sent_{false};
+    bool arm_confirmed_{false};
+    int last_countdown_{-1};
 };
 
 #endif // ARM_HANDLER_H

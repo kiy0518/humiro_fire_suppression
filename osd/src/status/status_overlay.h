@@ -19,9 +19,14 @@ public:
         IDLE,                    // 대기
         ARMING,                  // 시동
         TAKEOFF,                 // 이륙
+        HOVERING,                // 호버링 (이륙 후 안정화)
+        ROTATING,                // 회전중 (목표방향)
         NAVIGATING,              // 이동중
+        DISTANCE_ADJUST,         // 거리조정중 (LiDAR 벽 감지 + 10m 확보)
         DESTINATION_REACHED,     // 목적지도착
+        TRACKING,                // 조준중 (열원 추적)
         FIRE_READY,              // 격발대기 (수동 격발 대기)
+        FIRING,                  // 격발
         FIRING_AUTO_TARGETING,   // 격발중(자동조준) - 수동 격발 모드
         AUTO_FIRING,             // 자동조준격발 (자동 격발 모드)
         MISSION_COMPLETE,        // 임무완료

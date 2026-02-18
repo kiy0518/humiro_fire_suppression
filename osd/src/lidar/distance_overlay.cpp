@@ -382,12 +382,13 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
         text_y -= 5;
         
         // 진회색 배경 그리기 (텍스트 주변에 패딩 추가 - 배경 크기 증가)
-        int padding = 15;  // 10 → 15로 증가
+        int padding = 10;  // 10 → 15로 증가
         // 텍스트의 실제 위치: text_y는 베이스라인, 텍스트는 text_y - text_size.height부터 시작
+        // 숫자/대문자는 descent 없으므로 baseline 제외
         int bg_x = text_x - padding;
-        int bg_y = text_y - text_size.height - baseline - padding;  // 텍스트 상단부터 배경 시작
+        int bg_y = text_y - text_size.height - padding;
         int bg_width = text_size.width + padding * 2;
-        int bg_height = text_size.height + baseline + padding * 2;  // 텍스트 높이 + baseline + 패딩
+        int bg_height = text_size.height + padding * 2;
         
         // 배경 영역이 프레임 범위 내인지 확인 및 조정
         if (bg_x < 0) {
@@ -405,38 +406,33 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
             bg_height = frame.rows - bg_y;
         }
         
-        // 배경 그리기 (텍스트보다 먼저 그려야 함) - 둥근 모서리
+        // 배경 그리기 (텍스트보다 먼저 그려야 함) - fillPoly + LINE_AA
         if (bg_width > 0 && bg_height > 0) {
-            // 진회색 배경 (BGR: 34, 34, 34)
             cv::Scalar dark_gray(34, 34, 34);
-            int corner_radius = 3;  // 둥근 모서리 반경
-            
-            // 둥근 모서리 사각형 그리기
-            // OpenCV 4.5.0+ 버전에서는 cv::RoundedRectangle 사용 가능
-            // 호환성을 위해 직접 그리기
-            cv::Rect bg_rect(bg_x, bg_y, bg_width, bg_height);
-            
-            // 중앙 사각형 영역 채우기
-            cv::Rect inner_rect(bg_x + corner_radius, bg_y, 
-                               bg_width - corner_radius * 2, bg_height);
-            cv::rectangle(frame, inner_rect, dark_gray, -1);
-            
-            // 상단/하단 가로 영역 채우기
-            cv::Rect top_rect(bg_x, bg_y + corner_radius, 
-                             bg_width, bg_height - corner_radius * 2);
-            cv::rectangle(frame, top_rect, dark_gray, -1);
-            
-            // 네 모서리에 원 그리기 (둥근 모서리 효과)
-            cv::Point corners[4] = {
-                cv::Point(bg_x + corner_radius, bg_y + corner_radius),  // 좌상
-                cv::Point(bg_x + bg_width - corner_radius, bg_y + corner_radius),  // 우상
-                cv::Point(bg_x + corner_radius, bg_y + bg_height - corner_radius),  // 좌하
-                cv::Point(bg_x + bg_width - corner_radius, bg_y + bg_height - corner_radius)  // 우하
-            };
-            
-            for (int i = 0; i < 4; i++) {
-                cv::circle(frame, corners[i], corner_radius, dark_gray, -1);
-            }
+            const int r = 8;  // 모서리 반경
+            const int step = 15;  // 원호 분할 각도
+            const float PI = 3.14159265358979323846f;
+
+            std::vector<cv::Point> pts;
+            // 좌상단 (180°→270°)
+            for (int a = 180; a <= 270; a += step)
+                pts.emplace_back(bg_x + r + (int)(r * std::cos(a * PI / 180)),
+                                 bg_y + r + (int)(r * std::sin(a * PI / 180)));
+            // 우상단 (270°→360°)
+            for (int a = 270; a <= 360; a += step)
+                pts.emplace_back(bg_x + bg_width - r + (int)(r * std::cos(a * PI / 180)),
+                                 bg_y + r + (int)(r * std::sin(a * PI / 180)));
+            // 우하단 (0°→90°)
+            for (int a = 0; a <= 90; a += step)
+                pts.emplace_back(bg_x + bg_width - r + (int)(r * std::cos(a * PI / 180)),
+                                 bg_y + bg_height - r + (int)(r * std::sin(a * PI / 180)));
+            // 좌하단 (90°→180°)
+            for (int a = 90; a <= 180; a += step)
+                pts.emplace_back(bg_x + r + (int)(r * std::cos(a * PI / 180)),
+                                 bg_y + bg_height - r + (int)(r * std::sin(a * PI / 180)));
+
+            std::vector<std::vector<cv::Point>> poly = {pts};
+            cv::fillPoly(frame, poly, dark_gray, cv::LINE_AA);
         }
         
         // 텍스트 그리기 (배경 위에, 고딕체)

@@ -17,6 +17,7 @@
 #define OFFBOARD_MANAGER_H
 
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -38,6 +39,7 @@ enum class MissionState {
     HOVER,          // 호버링 (안정화)
     ROTATE,         // 목표 방향 회전
     NAVIGATE,       // 목표 위치 이동
+    DISTANCE_ADJUST,// LiDAR 벽 감지 + 10m 거리 확보
     HOVER_AT_TARGET,// 목표지점 호버링 (5초)
     RTL,            // 귀환
     LANDED,         // 착륙 완료
@@ -55,7 +57,7 @@ public:
     ~OffboardManager();
 
     /**
-     * @brief 미션 실행 (블로킹)
+     * @brief 단독비행 미션 (블로킹)
      * 순서: PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE → NAVIGATE → HOVER_AT_TARGET → RTL
      * @param config 미션 설정
      * @return 미션 성공 여부
@@ -63,8 +65,10 @@ public:
     bool executeMissionSolo(const MissionConfig& config);
 
     /**
-     * @brief 군집비행 미션 (executeMissionSolo + 진압 대기 30초)
-     * HOVER_AT_TARGET에서 30초간 진압 편대 유지 후 RTL
+     * @brief 편대비행 미션 (블로킹)
+     * 편대 게이트 동기화 + 팔로워 연동 + DISTANCE_ADJUST + TRACKING_HOVER
+     * @param config 미션 설정
+     * @return 미션 성공 여부
      */
     bool executeMissionFormation(const MissionConfig& config);
 
@@ -114,6 +118,9 @@ public:
     void setThermalTrackingMode(bool auto_mode);     // 자동/수동 모드
     void setThermalTrackingActive(bool active);       // 수동 모드 트리거
 
+    // ========== LiDAR 인터페이스 (ApplicationManager 연동) ==========
+    void setLidarInterface(class LidarInterface* lidar_ptr);
+
     // ========== 편대 비행 게이트 (FormationController 연동) ==========
     void setFormationReadyToRotate(bool ready);
     void setFormationReadyToNavigate(bool ready);
@@ -153,6 +160,9 @@ public:
     uint8_t getGPSSatellites() const { return gps_satellites_.load(); }
 
 private:
+    // ========== 미션 실행 공통 로직 ==========
+    bool executeMissionInternal(const MissionConfig& config);
+
     // ========== 타이머 콜백 (핵심!) ==========
     void timerCallback();
 
@@ -160,6 +170,10 @@ private:
     void publishOffboardControlMode();
     void publishSetpoint(const FCCommand& cmd);
     void publishVehicleCommand(uint16_t command, float param1 = 0.0f, float param2 = 0.0f, float param3 = 0.0f);
+
+    // ========== OSD 상태 발행 (/offboard/status) ==========
+    void publishOffboardStatus(const std::string& status);
+    std::string missionStateToStatusString(MissionState state);
 
     // ========== FC 상태 업데이트 (FCBridgeClient에서 폴링) ==========
     void updateFromFCState();
@@ -171,6 +185,10 @@ private:
 
     // ========== ROS2 노드 (Domain 1, 편대 토픽용) ==========
     rclcpp::Node::SharedPtr node_;
+
+    // ========== OSD 상태 퍼블리셔 ==========
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr offboard_status_pub_;
+    std::string last_published_status_;
 
     // ========== FC Bridge 클라이언트 (로컬 UDP IPC) ==========
     std::shared_ptr<FCBridgeClient> fc_bridge_;
@@ -279,6 +297,7 @@ private:
     std::unique_ptr<StateHandler> hover_handler_;
     std::unique_ptr<StateHandler> rotate_handler_;
     std::unique_ptr<StateHandler> navigate_handler_;
+    std::unique_ptr<StateHandler> distance_adjust_handler_;
     std::unique_ptr<StateHandler> hover_at_target_handler_;
     std::unique_ptr<StateHandler> tracking_hover_handler_;
     std::unique_ptr<StateHandler> rtl_handler_;

@@ -365,7 +365,7 @@ def api_set_config():
     for key, value in data.items():
         config_manager.set(key, str(value))
 
-    if config_manager.save_device_config():
+    if config_manager.save_all_config():
         return jsonify({"success": True, "message": "설정이 저장되었습니다."})
     else:
         return jsonify({"success": False, "message": "설정 저장 실패"}), 500
@@ -3251,7 +3251,7 @@ def api_set_formation_config():
         config_manager.set("SUPPRESS_DISTANCE", str(int(data.get("suppress_distance", 30))))
         config_manager.set("SUPPRESS_ANGLE", str(int(data.get("suppress_angle", 0))))
 
-        if not config_manager.save_device_config():
+        if not config_manager.save_all_config():
             return jsonify({"success": False, "message": "설정 저장 실패"})
 
         # Armed 상태 확인 → DISARMED일 때만 자동 재시작

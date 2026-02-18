@@ -238,12 +238,22 @@ void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::S
         status = StatusOverlay::DroneStatus::ARMING;
     } else if (status_str == "TAKEOFF") {
         status = StatusOverlay::DroneStatus::TAKEOFF;
+    } else if (status_str == "HOVERING") {
+        status = StatusOverlay::DroneStatus::HOVERING;
+    } else if (status_str == "ROTATING") {
+        status = StatusOverlay::DroneStatus::ROTATING;
     } else if (status_str == "NAVIGATING") {
         status = StatusOverlay::DroneStatus::NAVIGATING;
+    } else if (status_str == "DISTANCE_ADJUST") {
+        status = StatusOverlay::DroneStatus::DISTANCE_ADJUST;
     } else if (status_str == "DESTINATION_REACHED") {
         status = StatusOverlay::DroneStatus::DESTINATION_REACHED;
+    } else if (status_str == "TRACKING") {
+        status = StatusOverlay::DroneStatus::TRACKING;
     } else if (status_str == "FIRE_READY") {
         status = StatusOverlay::DroneStatus::FIRE_READY;
+    } else if (status_str == "FIRING") {
+        status = StatusOverlay::DroneStatus::FIRING;
     } else if (status_str == "FIRING_AUTO_TARGETING") {
         status = StatusOverlay::DroneStatus::FIRING_AUTO_TARGETING;
     } else if (status_str == "AUTO_FIRING") {

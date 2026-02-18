@@ -13,9 +13,9 @@
  *   - 자동 (thermal_tracking_auto=true): onEnter 시 즉시 추적
  *   - 수동 (thermal_tracking_auto=false): thermal_tracking_active 플래그 대기
  *
- * 전환 조건 (hover_at_target_handler와 동일):
- *   1. 소화탄 모두 소진 → 2초 대기 후 COMPLETE
- *   2. 타임아웃 (TARGET_HOVER_SEC) 경과 → COMPLETE
+ * 전환 조건:
+ *   - 소화탄 모두 소진 (6발) → 2초 대기 후 COMPLETE → RTL
+ *   - 열원 미감지 (80°C 이상 2분간 없음) → RTL (화재 없음 판정)
  */
 
 #ifndef TRACKING_HOVER_HANDLER_H
@@ -38,8 +38,6 @@ public:
                               : ctx.takeoff_altitude;
         final_z_ = ctx.start_local_z - effective_alt;
 
-        hover_duration_ = ctx.formation_mode ? SUPPRESS_HOVER_SEC : TARGET_HOVER_SEC;
-
         // XY 위치 고정점
         hold_x_ = ctx.target_ned_x;
         hold_y_ = ctx.target_ned_y;
@@ -60,6 +58,11 @@ public:
         ammo_depleted_time_ = {};
         last_log_tick_ = -1;
 
+        // 열원 미감지 타이머 초기화 (진입 시점부터 카운트)
+        last_fire_detected_time_ = std::chrono::steady_clock::now();
+        no_fire_warned_ = false;
+        prev_ammo_index_ = ctx.fire_gpio_index_ptr ? ctx.fire_gpio_index_ptr->load() : 0;
+
         // 자동 모드이면 즉시 추적 시작
         if (ctx.thermal_tracking_auto.load()) {
             tracking_started_ = true;
@@ -68,8 +71,8 @@ public:
 
         int remaining = getRemaining(ctx);
         RCLCPP_INFO(ctx.logger,
-            "[TRACKING_HOVER] 시작 (최대 %.0f초), 목표고도: %.1fm, 잔탄: %d/%d, 추적: %s",
-            hover_duration_, effective_alt, remaining, ctx.fire_gpio_count,
+            "[TRACKING_HOVER] 시작 (소화탄 소진 시 RTL), 목표고도: %.1fm, 잔탄: %d/%d, 추적: %s",
+            effective_alt, remaining, ctx.fire_gpio_count,
             tracking_started_ ? "자동" : "수동대기");
     }
 
@@ -112,10 +115,41 @@ public:
             }
         }
 
-        // 조건 2: 타임아웃
-        if (elapsed >= hover_duration_) {
-            RCLCPP_INFO(ctx.logger, "[TRACKING_HOVER] 타임아웃 (%.0f초) → RTL", hover_duration_);
-            return TransitionResult::COMPLETE;
+        // 조건 2: 열원 미감지 (80°C 이상 2분간 없음 → RTL)
+        //   리셋 조건: 80°C+ 열원 감지 OR 격발 (ammo index 변화)
+        if (tracking_started_ && ctx.thermal_data_ptr) {
+            ThermalData data = ctx.thermal_data_ptr->copy();
+            // 격발 감지 → 타이머 리셋
+            if (ctx.fire_gpio_index_ptr) {
+                int cur_idx = ctx.fire_gpio_index_ptr->load();
+                if (cur_idx != prev_ammo_index_) {
+                    RCLCPP_INFO(ctx.logger, "[TRACKING_HOVER] 격발 감지 (%d→%d) → 미감지 타이머 리셋",
+                        prev_ammo_index_, cur_idx);
+                    prev_ammo_index_ = cur_idx;
+                    last_fire_detected_time_ = std::chrono::steady_clock::now();
+                    no_fire_warned_ = false;
+                }
+            }
+            // 열원 감지 → 타이머 리셋
+            if (data.valid && data.max_temp_celsius >= FIRE_TEMP_THRESHOLD) {
+                last_fire_detected_time_ = std::chrono::steady_clock::now();
+                no_fire_warned_ = false;
+            }
+            auto no_fire_sec = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - last_fire_detected_time_).count();
+
+            if (no_fire_sec >= NO_FIRE_TIMEOUT_SEC) {
+                RCLCPP_WARN(ctx.logger,
+                    "[TRACKING_HOVER] %.0f°C 이상 열원 %.0f초간 미감지 → RTL",
+                    FIRE_TEMP_THRESHOLD, NO_FIRE_TIMEOUT_SEC);
+                return TransitionResult::COMPLETE;
+            }
+            if (!no_fire_warned_ && no_fire_sec >= NO_FIRE_TIMEOUT_SEC * 0.5) {
+                no_fire_warned_ = true;
+                RCLCPP_WARN(ctx.logger,
+                    "[TRACKING_HOVER] 열원 미감지 %.0f초 경과 (%.0f초 후 RTL)",
+                    no_fire_sec, NO_FIRE_TIMEOUT_SEC - no_fire_sec);
+            }
         }
 
         // 진행 로깅 (5초마다)
@@ -128,8 +162,8 @@ public:
             if (tracking_started_ && ctx.thermal_data_ptr) {
                 ThermalData data = ctx.thermal_data_ptr->copy();
                 RCLCPP_INFO(ctx.logger,
-                    "[TRACKING] %.0f/%.0fs rel=(%d,%d) temp=%.1f°C 잔탄=%d/%d 고도=%.1fm %s",
-                    elapsed, hover_duration_,
+                    "[TRACKING] %.0fs rel=(%d,%d) temp=%.1f°C 잔탄=%d/%d 고도=%.1fm %s",
+                    elapsed,
                     data.rel_x, data.rel_y,
                     data.max_temp_celsius,
                     remaining, ctx.fire_gpio_count,
@@ -137,8 +171,8 @@ public:
                     data.valid ? "VALID" : "INVALID");
             } else {
                 RCLCPP_INFO(ctx.logger,
-                    "[TRACKING_HOVER] %.0f/%.0fs 잔탄=%d/%d 고도=%.1fm (추적%s)",
-                    elapsed, hover_duration_,
+                    "[TRACKING_HOVER] %.0fs 잔탄=%d/%d 고도=%.1fm (추적%s)",
+                    elapsed,
                     remaining, ctx.fire_gpio_count,
                     -(current_z - ctx.start_local_z),
                     tracking_started_ ? "ON" : "OFF");
@@ -273,19 +307,19 @@ private:
     // 수직: 10m 거리 기준, tan(19.5°) * 10 / 165 = 0.02145 m/px
     static constexpr float M_PER_PIXEL_V = 0.02145f;
 
-    // ========== PD 제어 게인 ==========
-    static constexpr float KP_YAW = 0.8f;
-    static constexpr float KD_YAW = 0.15f;
-    static constexpr float KP_ALT = 0.5f;
-    static constexpr float KD_ALT = 0.1f;
+    // ========== PD 제어 게인 (10m 정밀 조준용) ==========
+    static constexpr float KP_YAW = 0.35f;   // 비례 (45kg 기체 관성 고려, 부드러운 응답)
+    static constexpr float KD_YAW = 0.25f;   // 미분 (오버슈트 방지 강화)
+    static constexpr float KP_ALT = 0.3f;    // 고도 비례
+    static constexpr float KD_ALT = 0.15f;   // 고도 미분
 
     // ========== 데드존 (픽셀) ==========
-    static constexpr int DEADZONE_H = 15;    // ~1.8° 수평
-    static constexpr int DEADZONE_V = 12;    // ~1.4° 수직
+    static constexpr int DEADZONE_H = 10;    // ~1.2° 수평 (10m: ±21cm 정밀도)
+    static constexpr int DEADZONE_V = 8;     // ~1.0° 수직
 
-    // ========== 제어 한계 ==========
-    static constexpr float MAX_TRACKING_YAW_RATE = 0.3f;  // rad/s (~17°/s)
-    static constexpr float MAX_TRACKING_VZ = 0.3f;         // m/s
+    // ========== 제어 한계 (10m 정밀 조준) ==========
+    static constexpr float MAX_TRACKING_YAW_RATE = 0.1f;   // rad/s (~5.7°/s, 10m: ~1m/s)
+    static constexpr float MAX_TRACKING_VZ = 0.2f;          // m/s
     static constexpr float MIN_ALTITUDE = 3.0f;            // 최소 고도 (m)
     static constexpr float MAX_ALTITUDE = 30.0f;           // 최대 고도 (m)
 
@@ -293,11 +327,13 @@ private:
     static constexpr float MIN_TEMP_THRESHOLD = 50.0f;     // °C (화재 판정 온도)
     static constexpr float DT = 0.1f;                       // 10Hz 제어 주기
 
-    // ========== 호버링 타이밍 ==========
-    static constexpr float TARGET_HOVER_SEC = 30.0f;        // 테스트용 (운용: 300초)
-    static constexpr float SUPPRESS_HOVER_SEC = 30.0f;
+    // ========== 타이밍 ==========
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;
     static constexpr float DESCENT_PER_TICK = 0.05f;        // 0.5m/s 하강
+
+    // ========== 열원 미감지 RTL ==========
+    static constexpr float FIRE_TEMP_THRESHOLD = 80.0f;     // °C (화재 판정 온도)
+    static constexpr float NO_FIRE_TIMEOUT_SEC = 120.0f;    // 2분간 미감지 시 RTL
 
     // ========== PD 제어 상태 ==========
     float prev_error_yaw_{0.0f};
@@ -311,13 +347,17 @@ private:
     float min_z_{0.0f}, max_z_{0.0f};
 
     // ========== 호버링 상태 ==========
-    float hover_duration_{30.0f};
     int last_log_tick_{-1};
     bool tracking_started_{false};
 
     // ========== 소화탄 ==========
     bool ammo_depleted_{false};
     std::chrono::steady_clock::time_point ammo_depleted_time_;
+
+    // ========== 열원 미감지 ==========
+    std::chrono::steady_clock::time_point last_fire_detected_time_;
+    bool no_fire_warned_{false};
+    int prev_ammo_index_{0};
 
     int getRemaining(const MissionContext& ctx) const {
         if (!ctx.fire_gpio_index_ptr || ctx.fire_gpio_count <= 0) return 0;

@@ -15,8 +15,9 @@
 #include <functional>
 #include <rclcpp/rclcpp.hpp>
 
-// Forward declaration (포인터만 사용, thermal 헤더 의존성 없음)
+// Forward declaration (포인터만 사용, 헤더 의존성 없음)
 struct ThermalData;
+class LidarInterface;
 
 // GPS 좌표 구조체
 struct GPSCoordinate {
@@ -97,6 +98,19 @@ struct MissionContext {
     std::atomic<bool> thermal_tracking_auto{true};         // 자동 모드 (true=자동, false=수동)
     std::atomic<bool> thermal_tracking_active{false};      // 추적 활성 (수동 모드: GUI 버튼으로 제어)
 
+    // === LiDAR 인터페이스 (ApplicationManager가 설정) ===
+    LidarInterface* lidar_ptr{nullptr};
+
+    // === 거리 조정 결과 (리더 전용) ===
+    struct DistanceAdjustResult {
+        bool completed{false};           // 거리 조정 완료 여부
+        double final_lat{0.0};           // 최종 GPS 위도
+        double final_lon{0.0};           // 최종 GPS 경도
+        float final_alt_amsl{0.0f};     // 최종 고도 (AMSL)
+        float final_yaw{0.0f};          // 최종 헤딩 (벽 수직, rad)
+        float wall_distance{0.0f};      // 벽까지 거리 (m)
+    } distance_adjust_result;
+
     // === 충돌 방지 ===
     std::atomic<int> collision_action{0};  // 0=NONE, 1=HOLD, 2=EVADE_RIGHT
     float hold_x{0.0f}, hold_y{0.0f}, hold_z{0.0f}, hold_yaw{0.0f};
@@ -155,6 +169,7 @@ struct MissionContext {
         evade_offset_n = evade_offset_e = 0.0f;
         home_set = false;
         target_ned_x = target_ned_y = target_ned_z = target_yaw = 0.0f;
+        distance_adjust_result = DistanceAdjustResult{};
     }
 };
 

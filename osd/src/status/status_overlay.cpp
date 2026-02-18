@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <chrono>
+#include <cmath>
 
 StatusOverlay::StatusOverlay()
     : current_status_(DroneStatus::IDLE)
@@ -201,13 +202,19 @@ cv::Scalar StatusOverlay::getStatusColor(DroneStatus status) {
         case DroneStatus::ARMING:
         case DroneStatus::TAKEOFF:
         case DroneStatus::LANDING:
+        case DroneStatus::HOVERING:
+        case DroneStatus::ROTATING:
             return cv::Scalar(0, 255, 255);  // 노란색
         case DroneStatus::NAVIGATING:
         case DroneStatus::RETURNING:
             return cv::Scalar(255, 0, 0);  // 파란색
+        case DroneStatus::DISTANCE_ADJUST:
+        case DroneStatus::TRACKING:
+            return cv::Scalar(0, 255, 0);  // 초록색
         case DroneStatus::DESTINATION_REACHED:
         case DroneStatus::FIRE_READY:
             return cv::Scalar(0, 255, 0);  // 초록색
+        case DroneStatus::FIRING:
         case DroneStatus::FIRING_AUTO_TARGETING:
         case DroneStatus::AUTO_FIRING:
             return cv::Scalar(0, 0, 255);  // 빨간색
@@ -226,18 +233,28 @@ std::string StatusOverlay::getStatusText(DroneStatus status) {
             return "ARMING";
         case DroneStatus::TAKEOFF:
             return "TAKEOFF";
+        case DroneStatus::HOVERING:
+            return "HOVERING";
+        case DroneStatus::ROTATING:
+            return "ROTATING";
         case DroneStatus::NAVIGATING:
             return "NAVIGATING";
+        case DroneStatus::DISTANCE_ADJUST:
+            return "DIST_ADJUST";
         case DroneStatus::DESTINATION_REACHED:
             return "DEST_REACHED";
+        case DroneStatus::TRACKING:
+            return "TRACKING";
         case DroneStatus::FIRE_READY:
             return "FIRE_READY";
-        case DroneStatus::FIRING_AUTO_TARGETING:
+        case DroneStatus::FIRING:
             return "FIRING";
+        case DroneStatus::FIRING_AUTO_TARGETING:
+            return "AUTO_AIMING";
         case DroneStatus::AUTO_FIRING:
             return "AUTO_FIRING";
         case DroneStatus::MISSION_COMPLETE:
-            return "MISSION_COMPLETE";
+            return "COMPLETE";
         case DroneStatus::RETURNING:
             return "RETURNING";
         case DroneStatus::LANDING:
@@ -355,8 +372,9 @@ void StatusOverlay::draw(cv::Mat& frame) {
     cv::Size mode_size = cv::getTextSize(mode_text, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
     cv::putText(frame, mode_text,
                 cv::Point(current_x, text_y),
-                FONT_FACE, FONT_SCALE, 
+                FONT_FACE, FONT_SCALE,
                 TEXT_COLOR, FONT_THICKNESS, cv::LINE_AA);
+    int mode_x_start = current_x;  // 모드 텍스트 시작 X 위치 저장
     current_x += mode_size.width + ITEM_SPACING;
     
     // 3. 소화탄 (아이콘 + 값) - 커스텀 토픽이므로 녹색
@@ -416,56 +434,58 @@ void StatusOverlay::draw(cv::Mat& frame) {
         current_x += battery_size.width + ITEM_SPACING;
     }
     
-    // 6. 상태 - 라운드 사각형 배경 추가 (기체 번호와 동일한 스타일)
-    // OFFBOARD 모드 + VIM4 커스텀 상태면 초록색, 그 외(일반 모드)면 흰색
+    // 6. 상태 표시 (비행모드 아래, 라운드 진회색 배경)
     std::string status_text = getStatusText(current_status_);
-    cv::Size status_size = cv::getTextSize(status_text, FONT_FACE, 
-                                           FONT_SCALE, FONT_THICKNESS, &baseline);
-    
-    // 라운드 사각형 배경 크기 계산 (기체 번호와 동일한 스타일)
-    const int status_padding = 6;
-    const int status_corner_radius = 4;
-    int status_bg_width = status_size.width + status_padding * 2;
-    int status_bg_height = status_size.height + status_padding * 2;
-    int status_bg_x = current_x;
-    int status_bg_y = y;
-    
-    // 라운드 사각형 배경 그리기 (기체 번호와 동일한 스타일)
-    cv::Scalar status_bg_color(50, 50, 50);  // 어두운 회색 배경 (기체 번호와 동일)
-    // 중앙 사각형
-    cv::Rect status_center_rect(status_bg_x + status_corner_radius, status_bg_y, 
-                                status_bg_width - 2 * status_corner_radius, status_bg_height);
-    cv::rectangle(frame, status_center_rect, status_bg_color, -1);
-    // 좌측/우측 세로 영역
-    cv::Rect status_left_rect(status_bg_x, status_bg_y + status_corner_radius, 
-                              status_corner_radius, status_bg_height - 2 * status_corner_radius);
-    cv::rectangle(frame, status_left_rect, status_bg_color, -1);
-    cv::Rect status_right_rect(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_corner_radius, 
-                               status_corner_radius, status_bg_height - 2 * status_corner_radius);
-    cv::rectangle(frame, status_right_rect, status_bg_color, -1);
-    // 네 모서리 원
-    cv::circle(frame, cv::Point(status_bg_x + status_corner_radius, status_bg_y + status_corner_radius), 
-               status_corner_radius, status_bg_color, -1);
-    cv::circle(frame, cv::Point(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_corner_radius), 
-               status_corner_radius, status_bg_color, -1);
-    cv::circle(frame, cv::Point(status_bg_x + status_corner_radius, status_bg_y + status_bg_height - status_corner_radius), 
-               status_corner_radius, status_bg_color, -1);
-    cv::circle(frame, cv::Point(status_bg_x + status_bg_width - status_corner_radius, status_bg_y + status_bg_height - status_corner_radius), 
-               status_corner_radius, status_bg_color, -1);
-    
-    // 상태 텍스트 색상 결정
-    cv::Scalar status_color;
-    if (is_offboard_ && is_offboard_custom_status_) {
-        status_color = cv::Scalar(0, 255, 0);  // 초록색 (OFFBOARD 모드 + VIM4 커스텀 상태)
-    } else {
-        status_color = cv::Scalar(255, 255, 255);  // 흰색 (일반 모드 또는 PX4 기본 상태)
+    // 텍스트 색상: OFFBOARD 모드 = 초록색, 표준 모드 = 연회색
+    cv::Scalar status_text_color = (is_offboard_ && is_offboard_custom_status_)
+        ? cv::Scalar(0, 255, 0) : cv::Scalar(200, 200, 200);
+
+    {
+        int status_y_top = status_bar_height + 4;
+        cv::Size status_size = cv::getTextSize(status_text, FONT_FACE,
+                                               FONT_SCALE, FONT_THICKNESS, &baseline);
+        const int pad = 5;
+        const int r = 4;  // 모서리 반경
+        cv::Scalar bg_color(50, 50, 50);
+
+        int box_x = mode_x_start - pad;
+        int box_y = status_y_top;
+        int box_w = status_size.width + pad * 2;
+        int box_h = status_size.height + pad * 2;
+
+        if (box_x >= 0 && box_y >= 0 &&
+            box_x + box_w <= frame.cols && box_y + box_h <= frame.rows) {
+            // 라운드 사각형: fillPoly (단일 폴리곤, LINE_AA)
+            std::vector<cv::Point> pts;
+            const int step = 15;  // 원호 분할 각도
+            // 좌상단 원호 (180°→270°)
+            for (int a = 180; a <= 270; a += step)
+                pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                 box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+            // 우상단 원호 (270°→360°)
+            for (int a = 270; a <= 360; a += step)
+                pts.emplace_back(box_x + box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                 box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+            // 우하단 원호 (0°→90°)
+            for (int a = 0; a <= 90; a += step)
+                pts.emplace_back(box_x + box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                 box_y + box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+            // 좌하단 원호 (90°→180°)
+            for (int a = 90; a <= 180; a += step)
+                pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                 box_y + box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+
+            std::vector<std::vector<cv::Point>> poly = {pts};
+            cv::fillPoly(frame, poly, bg_color, cv::LINE_AA);
+        }
+
+        // 텍스트 수직 중앙 배치 (baseline 보정)
+        int text_y = box_y + pad + status_size.height;
+        cv::putText(frame, status_text,
+                    cv::Point(mode_x_start, text_y),
+                    FONT_FACE, FONT_SCALE,
+                    status_text_color, FONT_THICKNESS, cv::LINE_AA);
     }
-    
-    // 상태 텍스트 그리기
-    cv::putText(frame, status_text,
-                cv::Point(status_bg_x + status_padding, status_bg_y + status_size.height + status_padding),
-                FONT_FACE, FONT_SCALE, 
-                status_color, FONT_THICKNESS, cv::LINE_AA);
     
     // 7. WiFi 정보 (오른쪽 정렬) - SSID + 안테나 바 아이콘
     if (show_wifi_) {
