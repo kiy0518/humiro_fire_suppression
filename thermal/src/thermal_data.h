@@ -20,7 +20,8 @@ struct ThermalData {
     int rel_x = 0;
     int rel_y = 0;
     double timestamp = 0.0;
-    bool valid = false;
+    bool valid = false;             // 열화상 데이터 존재 여부
+    bool fire_detected = false;     // 화재 감지 여부 (max_temp >= FIRE_DETECT_MIN_TEMP)
     cv::Mat frame;  // 열화상 프레임 (오버레이용)
     
     // 스레드 안전 접근을 위한 락
@@ -42,7 +43,8 @@ struct ThermalData {
           rel_x(other.rel_x),
           rel_y(other.rel_y),
           timestamp(other.timestamp),
-          valid(other.valid) {
+          valid(other.valid),
+          fire_detected(other.fire_detected) {
         if (!other.frame.empty()) {
             frame = other.frame.clone();
         }

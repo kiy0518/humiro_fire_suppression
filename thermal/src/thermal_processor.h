@@ -13,13 +13,21 @@ public:
     bool extract_thermal_data(const cv::Mat& thermal_frame, ThermalData& data);
     
 private:
-    cv::Point2i find_hotspot(const cv::Mat& thermal_frame);
     cv::Vec3b determine_color(double distance);
-    
-    // Lepton 3.5 온도 변환 함수
-    // pixel_value: 0~255 픽셀 값
-    // 반환: 섭씨 온도
     double pixel_to_temperature(double pixel_value) const;
+
+    // Y16/BGR 공통 후처리 (EMA, 좌표 변환, 데이터 업데이트)
+    bool process_hotspot(const ThermalConfig& tc,
+                         const cv::Point& max_loc, const cv::Point& min_loc,
+                         double max_val, double min_val,
+                         double max_temp, double min_temp,
+                         const cv::Mat& thermal_color,
+                         ThermalData& data);
+
+    // EMA 시간 필터 상태 (최고점 좌표 떨림 방지)
+    float ema_x_ = -1.0f;
+    float ema_y_ = -1.0f;
+    static constexpr float EMA_ALPHA = 0.4f;  // 0.3=부드러움, 0.7=반응빠름
 };
 
 #endif // THERMAL_PROCESSOR_H

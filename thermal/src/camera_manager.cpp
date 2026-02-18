@@ -216,17 +216,21 @@ bool CameraManager::find_thermal_camera() {
                 
                 // 열화상 카메라 설정 (예외 처리)
                 try {
+                    // Y16 (16-bit raw radiometric) 포맷 설정 — 절대 온도 측정 가능
+                    cap_thermal_.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', '1', '6', ' '));
+                    cap_thermal_.set(cv::CAP_PROP_FRAME_WIDTH, 160);
+                    cap_thermal_.set(cv::CAP_PROP_FRAME_HEIGHT, 120);
+                    // RGB 자동 변환 비활성화 → raw uint16 데이터 수신
+                    cap_thermal_.set(cv::CAP_PROP_CONVERT_RGB, 0);
                     cap_thermal_.set(cv::CAP_PROP_BUFFERSIZE, 1);
                     cap_thermal_.set(cv::CAP_PROP_FPS, 9);
+                    std::cout << "  ✓ 열화상 카메라 Y16 (16-bit radiometric) 모드 설정" << std::endl;
                 } catch (const cv::Exception& e) {
                     std::cerr << "  [예외] 열화상 카메라 설정 OpenCV 예외: " << e.what() << std::endl;
-                    // 설정 실패해도 열기는 성공했으므로 계속 진행
                 } catch (const std::exception& e) {
                     std::cerr << "  [예외] 열화상 카메라 설정 표준 예외: " << e.what() << std::endl;
-                    // 설정 실패해도 열기는 성공했으므로 계속 진행
                 } catch (...) {
                     std::cerr << "  [예외] 열화상 카메라 설정 알 수 없는 예외" << std::endl;
-                    // 설정 실패해도 열기는 성공했으므로 계속 진행
                 }
                 
                 // 워밍업: 여러 프레임 읽기 시도 (PureThermal은 초기 프레임이 불안정할 수 있음)
@@ -665,14 +669,17 @@ bool CameraManager::reconnect_thermal_camera() {
     
     // 설정 복원 (예외 처리)
     try {
+        cap_thermal_.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', '1', '6', ' '));
+        cap_thermal_.set(cv::CAP_PROP_FRAME_WIDTH, 160);
+        cap_thermal_.set(cv::CAP_PROP_FRAME_HEIGHT, 120);
+        // RGB 자동 변환 비활성화 → raw uint16 데이터 수신
+        cap_thermal_.set(cv::CAP_PROP_CONVERT_RGB, 0);
         cap_thermal_.set(cv::CAP_PROP_BUFFERSIZE, 1);
         cap_thermal_.set(cv::CAP_PROP_FPS, 9);
     } catch (const cv::Exception& e) {
         std::cerr << "    [예외] 열화상 카메라 설정 OpenCV 예외: " << e.what() << std::endl;
-        // 설정 실패해도 계속 진행
     } catch (...) {
         std::cerr << "    [예외] 열화상 카메라 설정 알 수 없는 예외" << std::endl;
-        // 설정 실패해도 계속 진행
     }
     
     // 빠른 테스트 (열화상은 느리므로 더 많은 시도) - 예외 처리

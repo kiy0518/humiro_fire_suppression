@@ -89,9 +89,17 @@ void ThermalOverlay::overlayThermal(cv::Mat& rgb_frame, const cv::Mat& thermal_f
                     if (roi_float.rows == overlay_h && roi_float.cols == overlay_w &&
                         thermal_float.rows == overlay_h && thermal_float.cols == overlay_w &&
                         roi_float.channels() == 3 && thermal_float.channels() == 3) {
-                        // 단순 알파 블렌딩: roi * (1 - alpha) + thermal * alpha
-                        float alpha = ALPHA_THERMAL_LAYER;
-                        cv::Mat blended = roi_float * (1.0f - alpha) + thermal_float * alpha;
+                        // 그라데이션 마스크 생성 (가장자리 페더링)
+                        cv::Mat grad_mask = create_gradient_mask(overlay_w, overlay_h);
+                        // 기본 알파 * 그라데이션 = 최종 알파 (3채널)
+                        cv::Mat alpha_map = grad_mask * ALPHA_THERMAL_LAYER;
+                        cv::Mat alpha_3ch;
+                        cv::merge(std::vector<cv::Mat>{alpha_map, alpha_map, alpha_map}, alpha_3ch);
+                        // 블렌딩: roi * (1 - alpha) + thermal * alpha
+                        // 주의: Scalar(1.0f)는 (1,0,0,0)이므로 Scalar::all() 사용 필수
+                        cv::Mat inv_alpha;
+                        cv::subtract(cv::Scalar::all(1.0), alpha_3ch, inv_alpha);
+                        cv::Mat blended = roi_float.mul(inv_alpha) + thermal_float.mul(alpha_3ch);
                         blended.convertTo(roi, CV_8U);
                     } else {
                         std::cerr << "  ⚠ 블렌딩 크기/채널 불일치:" << std::endl;

@@ -22,7 +22,7 @@
 // 0 = HIGH_GAIN: -10°C ~ 140°C (높은 정밀도, 낮은 온도 범위)
 // 1 = LOW_GAIN: -10°C ~ 400°C (낮은 정밀도, 높은 온도 범위, 실온 기준)
 //                -10°C ~ 450°C (일반적)
-#define LEPTON_GAIN_MODE 0  // 0 = HIGH_GAIN, 1 = LOW_GAIN
+#define LEPTON_GAIN_MODE 1  // 0 = HIGH_GAIN (-10~140°C), 1 = LOW_GAIN (-10~400°C)
 
 // 온도 보정 계수 (실제 측정값과 비교하여 조정)
 // 온도가 맞지 않으면 이 값을 조정하여 보정 가능
@@ -99,6 +99,9 @@
 // 라이다 표시 설정
 #define LIDAR_SHOW_DIRECTION_LINES false  // 방향선 표시 (false = 원형 포인트만)
 #define LIDAR_THREE_POINT_TOLERANCE 1.0f  // 3포인트 모드에서 각 방향 허용 범위 (±도)
+
+// 화재 감지 설정
+#define FIRE_DETECT_MIN_TEMP 80.0  // 화재 감지 최소 온도 (°C) — 이하는 화재 아님
 
 // ROS2 통합 설정
 // ROS2 토픽 발행 기능 활성화 (외부 모니터링/디버깅용)
