@@ -94,8 +94,13 @@ void AimIndicator::drawAimInfo(cv::Mat& frame, const ThermalData& data) {
         cv::fillPoly(frame, poly, bg_color, cv::LINE_AA);
     }
 
-    // 온도 텍스트 (최고점 색상과 동일)
-    cv::Scalar text_color(data.max_color[0], data.max_color[1], data.max_color[2]);
+    // 온도 텍스트 (기준온도 이하: 회색, 이상: 최고점 색상)
+    cv::Scalar text_color;
+    if (data.max_temp_celsius < temp_threshold_) {
+        text_color = cv::Scalar(128, 128, 128);  // 회색 (기준 이하)
+    } else {
+        text_color = cv::Scalar(data.max_color[0], data.max_color[1], data.max_color[2]);
+    }
     cv::putText(frame, oss.str(), cv::Point(text_x, text_y),
                 cv::FONT_HERSHEY_SIMPLEX, 0.5, text_color, 1, cv::LINE_AA);
 }

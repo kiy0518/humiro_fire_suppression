@@ -3171,7 +3171,7 @@ def api_get_offboard_config():
                 data = json.load(f)
             return jsonify({"success": True, "config": data})
         else:
-            return jsonify({"success": True, "config": {"target_altitude": 10.0, "updated_at": ""}})
+            return jsonify({"success": True, "config": {"target_altitude": 10.0, "temp_threshold": 50, "updated_at": ""}})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 

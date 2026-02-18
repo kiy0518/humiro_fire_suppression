@@ -53,6 +53,9 @@ public:
         tracking_started_ = false;
         consecutive_invalid_ = 0;
 
+        // 헤딩 고정점 (비추적 시 사용: 절대 yaw 제어)
+        hold_yaw_ = ctx.current_yaw.load();
+
         // 소화탄 소진 상태 초기화
         ammo_depleted_ = false;
         ammo_depleted_time_ = {};
@@ -208,6 +211,7 @@ public:
         float yaw_rate = 0.0f;
         float vz = 0.0f;
         bool use_vz = false;
+        bool tracking_active = false;  // 이번 틱에서 PD 추적이 실제로 작동 중인지
 
         // === 열원 추적 PD 제어 ===
         if (tracking_started_ && ctx.thermal_data_ptr) {
@@ -229,6 +233,7 @@ public:
             }
 
             if (thermal_valid) {
+                tracking_active = true;
                 consecutive_invalid_ = 0;
                 int rel_x = data.rel_x;  // 핫스팟 수평 오프셋 (양수=오른쪽)
                 int rel_y = data.rel_y;  // 핫스팟 수직 오프셋 (양수=아래)
@@ -284,7 +289,7 @@ public:
                 // 열화상 데이터 미유효: 제어 출력 0, 위치 고정
                 consecutive_invalid_++;
                 if (consecutive_invalid_ == 11) {
-                    RCLCPP_WARN(ctx.logger, "[TRACKING] 열화상 데이터 타임아웃 → 위치 고정");
+                    RCLCPP_WARN(ctx.logger, "[TRACKING] 열화상 데이터 타임아웃 → 위치/헤딩 고정");
                 }
                 yaw_rate = 0.0f;
                 vz = 0.0f;
@@ -312,8 +317,18 @@ public:
             sp.velocity = {NAN, NAN, NAN};
         }
 
-        sp.yaw = NAN;          // yawspeed로 제어
-        sp.yawspeed = yaw_rate;
+        // === Yaw 제어 ===
+        if (tracking_active) {
+            // 열원 추적 활성: yawspeed PD 제어
+            sp.yaw = NAN;
+            sp.yawspeed = yaw_rate;
+            // 추적 중 현재 yaw 저장 (비추적 전환 시 마지막 헤딩 유지)
+            hold_yaw_ = ctx.current_yaw.load();
+        } else {
+            // 비추적 (안정화, 무효 데이터, 추적 OFF): 절대 헤딩 고정
+            sp.yaw = hold_yaw_;
+            sp.yawspeed = 0.0f;
+        }
 
         return true;
     }
@@ -362,8 +377,9 @@ private:
     double prev_thermal_timestamp_{0.0};
     int consecutive_invalid_{0};
 
-    // ========== 위치/고도 ==========
+    // ========== 위치/고도/헤딩 ==========
     float hold_x_{0.0f}, hold_y_{0.0f};
+    float hold_yaw_{0.0f};   // 비추적 시 절대 헤딩 고정점 (rad)
     float final_z_{0.0f};
     float min_z_{0.0f}, max_z_{0.0f};
 

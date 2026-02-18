@@ -58,6 +58,9 @@ public:
      */
     void setPointMinConfidence(float threshold);
 
+    /** 기준 온도 설정 (핫스팟 마커 색상 제어) */
+    void setTempThreshold(double threshold);
+
 private:
     DistanceOverlay* distance_overlay_;
     AimIndicator* aim_indicator_;

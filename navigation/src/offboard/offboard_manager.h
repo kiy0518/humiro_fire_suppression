@@ -147,6 +147,18 @@ public:
     float getTargetNedX() const { return target_ned_x_; }
     float getTargetNedY() const { return target_ned_y_; }
 
+    // ========== DISTANCE_ADJUST 결과 접근 (FormationController용) ==========
+    bool getDistanceAdjustCompleted() const { return ctx_.distance_adjust_result.completed; }
+    const MissionContext::DistanceAdjustResult& getDistanceAdjustResult() const {
+        return ctx_.distance_adjust_result;
+    }
+
+    // ========== 소화탄 잔여 확인 ==========
+    bool hasAmmoRemaining() const {
+        return ctx_.fire_gpio_index_ptr && ctx_.fire_gpio_count > 0 &&
+               ctx_.fire_gpio_index_ptr->load() < ctx_.fire_gpio_count;
+    }
+
     // ========== 충돌 방지 ==========
     void setCollisionAvoidance(class CollisionAvoidance* ca) { collision_avoidance_ = ca; }
     bool isCollisionActive() const { return collision_action_.load() != 0; }

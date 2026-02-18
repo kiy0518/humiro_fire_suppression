@@ -106,6 +106,13 @@ private:
     void triggerSuppressPhase();
     static std::string followerPhaseToString(FollowerPhase phase);
 
+    // === 리더: LeaderAimPose 발행 (DISTANCE_ADJUST 완료 후) ===
+    void publishLeaderAimPose();
+
+    // === 팔로워: LeaderAimPose 수신/진압 위치 계산 ===
+    void onLeaderAimPose(const humiro_msgs::msg::LeaderAimPose::SharedPtr msg);
+    GPSCoordinate calculateSuppressPosition();
+
     // === ROS2 노드 ===
     rclcpp::Node::SharedPtr node_;
     OffboardManager* offboard_mgr_;
@@ -116,6 +123,7 @@ private:
 
     // === 리더 Publishers ===
     rclcpp::Publisher<humiro_msgs::msg::LeaderPose>::SharedPtr leader_pose_pub_;
+    rclcpp::Publisher<humiro_msgs::msg::LeaderAimPose>::SharedPtr leader_aim_pose_pub_;
     rclcpp::Publisher<humiro_msgs::msg::FormationHeartbeat>::SharedPtr heartbeat_pub_;
     rclcpp::Publisher<humiro_msgs::msg::FormationCommand>::SharedPtr command_pub_;
 
@@ -127,8 +135,13 @@ private:
 
     // === 팔로워 Subscribers ===
     rclcpp::Subscription<humiro_msgs::msg::LeaderPose>::SharedPtr leader_pose_sub_;
+    rclcpp::Subscription<humiro_msgs::msg::LeaderAimPose>::SharedPtr leader_aim_pose_sub_;
     rclcpp::Subscription<humiro_msgs::msg::FormationHeartbeat>::SharedPtr heartbeat_sub_;
     rclcpp::Subscription<humiro_msgs::msg::FormationCommand>::SharedPtr command_sub_;
+
+    // === 팔로워: LeaderAimPose 저장 ===
+    humiro_msgs::msg::LeaderAimPose leader_aim_pose_;
+    bool leader_aim_received_{false};
 
     // === 타이머 ===
     rclcpp::TimerBase::SharedPtr leader_pose_timer_;      // 10Hz (위치+상태)

@@ -89,6 +89,12 @@ public:
      * @param temperature 최대 온도 (섭씨)
      */
     void setMaxTemperature(double temperature);
+
+    /**
+     * 온도 기준값 설정 (이 값 이하면 회색 표시)
+     * @param threshold 기준 온도 (섭씨)
+     */
+    void setTempThreshold(double threshold);
     
     /**
      * QGC 커스텀 메시지 설정
@@ -142,6 +148,7 @@ private:
     int gps_satellites_;
     float gps_hdop_;  // GPS HDOP 값
     double max_temperature_;  // 최대 온도 (섭씨)
+    double temp_threshold_;   // 기준 온도 (이하 회색 표시)
     
     // 표시 여부 플래그
     bool show_battery_;

@@ -40,7 +40,10 @@ private:
     bool find_thermal_camera();
     bool find_rgb_camera();
     bool test_camera(int camera_id, bool is_thermal);
-    
+
+    // Lepton 3.5 RAD/TLinear/Gain 설정 (V4L2 UVC extension unit)
+    bool configure_lepton_settings(int camera_id);
+
     // 예외 처리 강화: 디바이스 존재 확인
     bool device_exists(const std::string& device_path);
     bool safe_open_camera(int camera_id, cv::VideoCapture& cap);

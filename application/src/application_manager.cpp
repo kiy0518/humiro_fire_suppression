@@ -338,6 +338,15 @@ void ApplicationManager::initializeFormation() {
                 [this](uint8_t cmd, double lat, double lon) {
                     if (cmd == humiro_msgs::msg::FormationCommand::CMD_FOLLOW
                         && !mission_running_.load()) {
+                        // 소화탄 소진 시 편대 합류 거부
+                        if (fire_gpio_index_.load() >= FIRE_GPIO_COUNT) {
+                            std::cout << "[FormationController] CMD_FOLLOW 거부 — 소화탄 소진 ("
+                                      << FIRE_GPIO_COUNT << "/" << FIRE_GPIO_COUNT << ")" << std::endl;
+                            if (status_overlay_) {
+                                status_overlay_->setCustomMessage("Formation Rejected: No Ammo!", 5.0);
+                            }
+                            return;
+                        }
                         float alt = formation_controller_->getReceivedAltitude();
                         float spd = formation_controller_->getReceivedSpeed();
                         std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작"
@@ -393,10 +402,14 @@ void ApplicationManager::initializeComponents() {
     status_overlay_->setDroneName(std::to_string(osd_drone_id));
     status_overlay_->setAmmunition(6, 6);
     status_overlay_->setBattery(100);
-    std::cout << "  ✓ OSD 기체 ID: " << osd_drone_id << std::endl;
+    double temp_threshold = readTempThresholdFromConfig();
+    status_overlay_->setTempThreshold(temp_threshold);
+    std::cout << "  ✓ OSD 기체 ID: " << osd_drone_id
+              << ", 기준온도: " << temp_threshold << "C" << std::endl;
     
     targeting_compositor_ = new TargetingFrameCompositor();
     targeting_compositor_->setLidarOrientation(LIDAR_ORIENTATION_OFFSET);
+    targeting_compositor_->setTempThreshold(temp_threshold);
     
     // FrameCompositor 생성
     frame_compositor_ = new FrameCompositor(
@@ -1191,7 +1204,11 @@ void ApplicationManager::thermalCaptureLoop() {
         if (camera_manager_->read_thermal_frame(frame)) {
             consecutive_failures = 0;
             thermal_processor_->extract_thermal_data(frame, thermal_data_);
-            
+
+            if (status_overlay_) {
+                status_overlay_->setMaxTemperature(thermal_data_.max_temp_celsius);
+            }
+
 #ifdef ENABLE_ROS2
             if (thermal_ros2_publisher_ && ros2_node_) {
                 thermal_ros2_publisher_->publishThermalData(thermal_data_);
@@ -1766,6 +1783,32 @@ float ApplicationManager::readTargetAltitudeFromConfig() const {
         }
     }
     return -1.0f;
+}
+
+double ApplicationManager::readTempThresholdFromConfig() const {
+    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
+    std::ifstream file(config_path);
+    if (!file.is_open()) {
+        return 50.0;  // 기본값
+    }
+
+    std::string line;
+    while (std::getline(file, line)) {
+        auto pos = line.find("\"temp_threshold\"");
+        if (pos != std::string::npos) {
+            auto colon_pos = line.find(':', pos);
+            if (colon_pos != std::string::npos) {
+                std::string value_str = line.substr(colon_pos + 1);
+                value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
+                try {
+                    double val = std::stod(value_str);
+                    std::cout << "[Config] temp_threshold: " << val << " C" << std::endl;
+                    return val;
+                } catch (...) {}
+            }
+        }
+    }
+    return 50.0;
 }
 
 bool ApplicationManager::readMissionModeFromConfig() const {

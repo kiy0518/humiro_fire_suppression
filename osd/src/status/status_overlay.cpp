@@ -22,6 +22,7 @@ StatusOverlay::StatusOverlay()
     , gps_satellites_(-1)
     , gps_hdop_(-1.0f)
     , max_temperature_(-1.0)
+    , temp_threshold_(50.0)
     , show_battery_(false)
     , show_gps_(false)
     , show_temperature_(false)
@@ -127,6 +128,11 @@ void StatusOverlay::setMaxTemperature(double temperature) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     max_temperature_ = temperature;
     show_temperature_ = (temperature >= 0.0);
+}
+
+void StatusOverlay::setTempThreshold(double threshold) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    temp_threshold_ = threshold;
 }
 
 void StatusOverlay::setCustomMessage(const std::string& message, double timeout_seconds) {
@@ -433,7 +439,9 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     battery_color, FONT_THICKNESS, cv::LINE_AA);
         current_x += battery_size.width + ITEM_SPACING;
     }
-    
+
+    // 5.5. 온도 → 상태바에서 제거 (핫스팟 마커 옆에 표시)
+
     // 6. 상태 표시 (비행모드 아래, 라운드 진회색 배경)
     std::string status_text = getStatusText(current_status_);
     // 텍스트 색상: OFFBOARD 모드 = 초록색, 표준 모드 = 연회색

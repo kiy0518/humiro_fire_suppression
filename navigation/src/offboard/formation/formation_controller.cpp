@@ -87,6 +87,8 @@ void FormationController::initLeader() {
 
     leader_pose_pub_ = node_->create_publisher<humiro_msgs::msg::LeaderPose>(
         ns_prefix + "/formation/leader_pose", qos_best_effort);
+    leader_aim_pose_pub_ = node_->create_publisher<humiro_msgs::msg::LeaderAimPose>(
+        ns_prefix + "/formation/leader_aim_pose", qos_best_effort);
     heartbeat_pub_ = node_->create_publisher<humiro_msgs::msg::FormationHeartbeat>(
         "/formation/heartbeat", qos_best_effort);
     command_pub_ = node_->create_publisher<humiro_msgs::msg::FormationCommand>(
@@ -107,6 +109,7 @@ void FormationController::initLeader() {
 
     std::cout << "[FormationController] 리더 초기화 완료" << std::endl;
     std::cout << "  - 발행: " << ns_prefix << "/formation/leader_pose (10Hz, mission_state 포함)" << std::endl;
+    std::cout << "  - 발행: " << ns_prefix << "/formation/leader_aim_pose (DIST_ADJ 완료 후)" << std::endl;
     std::cout << "  - 발행: /formation/heartbeat (1Hz)" << std::endl;
     std::cout << "  - 발행: /formation/command (이벤트)" << std::endl;
     std::cout << "  - 구독: /formation/follower_status" << std::endl;
@@ -141,6 +144,13 @@ void FormationController::initFollower() {
         "/formation/command", qos_reliable,
         std::bind(&FormationController::onFormationCommand, this, std::placeholders::_1));
 
+    // LeaderAimPose 구독 (리더 DISTANCE_ADJUST 완료 후 최종 위치/헤딩 수신)
+    std::string leader_aim_topic = "/" + leader_ns + "/formation/leader_aim_pose";
+    leader_aim_pose_sub_ = node_->create_subscription<humiro_msgs::msg::LeaderAimPose>(
+        leader_aim_topic, qos_best_effort,
+        std::bind(&FormationController::onLeaderAimPose, this, std::placeholders::_1));
+    leader_aim_received_ = false;
+
     // 팔로워 상태 발행 (글로벌 토픽)
     follower_status_pub_ = node_->create_publisher<humiro_msgs::msg::FollowerStatus>(
         "/formation/follower_status", qos_best_effort);
@@ -155,6 +165,7 @@ void FormationController::initFollower() {
     std::cout << "  - 구독: " << leader_pose_topic << " (10Hz, mission_state 포함)" << std::endl;
     std::cout << "  - 구독: /formation/heartbeat (1Hz)" << std::endl;
     std::cout << "  - 구독: /formation/command (이벤트)" << std::endl;
+    std::cout << "  - 구독: " << leader_aim_topic << " (LeaderAimPose)" << std::endl;
     std::cout << "  - 발행: /formation/follower_status (2Hz)" << std::endl;
     std::cout << "  - 오프셋: right=" << offset_right_cm_ << "cm, behind="
               << offset_behind_cm_ << "cm, above=" << offset_above_cm_ << "cm" << std::endl;
@@ -220,6 +231,11 @@ void FormationController::leaderPoseTimerCallback() {
     msg.mission_state = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
 
     leader_pose_pub_->publish(msg);
+
+    // DISTANCE_ADJUST 완료 시 LeaderAimPose도 발행 (10Hz)
+    if (offboard_mgr_->getDistanceAdjustCompleted()) {
+        publishLeaderAimPose();
+    }
 }
 
 // ============================================================================
@@ -541,12 +557,19 @@ void FormationController::onHeartbeat(const humiro_msgs::msg::FormationHeartbeat
         std::cout << "[FormationController] Heartbeat로 SUPPRESS phase 감지 → HOLD 전환" << std::endl;
     }
     if (msg->formation_phase == "RTL" && follower_phase_ != FollowerPhase::RTL) {
-        // RTL 명령을 놓침 → 즉시 RTL
-        follower_phase_ = FollowerPhase::RTL;
-        if (offboard_mgr_) {
-            offboard_mgr_->emergencyRTL();
+        // 소화탄 잔여 + SUPPRESS 중이면 독립 작전 계속
+        if (follower_phase_ == FollowerPhase::SUPPRESSING &&
+            offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
+            // 리더 RTL이지만 팔로워는 소화탄 잔여 → 독립 작전 유지
+            std::cout << "[FormationController] Heartbeat RTL 감지 → 소화탄 잔여, 독립 작전 유지" << std::endl;
+        } else {
+            // RTL 명령을 놓침 → 즉시 RTL
+            follower_phase_ = FollowerPhase::RTL;
+            if (offboard_mgr_) {
+                offboard_mgr_->emergencyRTL();
+            }
+            std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 즉시 RTL" << std::endl;
         }
-        std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 즉시 RTL" << std::endl;
     }
 }
 
@@ -580,6 +603,7 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             last_offset_valid_ = false;
             lateral_mirrored_ = false;
             fixed_heading_set_ = false;
+            leader_aim_received_ = false;
             received_takeoff_altitude_ = msg->takeoff_altitude;
             received_flight_speed_ = msg->flight_speed;
 
@@ -642,10 +666,16 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             break;
 
         case humiro_msgs::msg::FormationCommand::CMD_RTL:
-            follower_phase_ = FollowerPhase::RTL;
-            if (offboard_mgr_) {
-                offboard_mgr_->emergencyRTL();
-                std::cout << "  → RTL: 귀환 명령" << std::endl;
+            // 소화탄 잔여 + SUPPRESS 중이면 리더 RTL 무시 → 독립 작전 유지
+            if (follower_phase_ == FollowerPhase::SUPPRESSING &&
+                offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
+                std::cout << "  → CMD_RTL 무시: SUPPRESS 중 + 소화탄 잔여 → 독립 작전 유지" << std::endl;
+            } else {
+                follower_phase_ = FollowerPhase::RTL;
+                if (offboard_mgr_) {
+                    offboard_mgr_->emergencyRTL();
+                    std::cout << "  → RTL: 귀환 명령" << std::endl;
+                }
             }
             break;
 
@@ -654,19 +684,27 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             suppress_detour_active_ = false;
 
             // ★ 개별 진행: 팔로워 NAVIGATE 완료 허용 → TRACKING_HOVER → 독립 RTL
-            // continuous_update_mode 유지 (DISTANCE_ADJUST 스킵 판단용)
             if (offboard_mgr_) {
                 offboard_mgr_->setForceNavigateComplete(true);
             }
 
-            // 현재 오프셋 위치를 진압 위치로 사용 (급격한 위치 변경 방지)
-            // follower_phase_ = SUPPRESSING이면 onLeaderPose에서 오프셋 추적이 중단되므로
-            // OffboardManager는 마지막 설정된 오프셋 목표 위치를 계속 유지
-            if (last_offset_valid_) {
-                std::cout << "  → SUPPRESS: 진압→개별진행 (위치: "
-                          << last_target_lat_ << ", " << last_target_lon_ << ")" << std::endl;
+            if (leader_aim_received_ && offboard_mgr_) {
+                // LeaderAimPose 수신 완료 → 독립 진압 위치 계산 + 이동
+                GPSCoordinate suppress_pos = calculateSuppressPosition();
+                float suppress_heading_rad = leader_aim_pose_.yaw_deg * M_PI / 180.0f;
+                offboard_mgr_->updateMissionTarget(suppress_pos, suppress_heading_rad);
+
+                std::cout << "  → SUPPRESS: 독립 진압 위치 이동 ("
+                          << suppress_pos.latitude << ", " << suppress_pos.longitude
+                          << "), heading=" << leader_aim_pose_.yaw_deg << "°" << std::endl;
             } else {
-                std::cout << "  → SUPPRESS: 진압→개별진행 (오프셋 미설정)" << std::endl;
+                // 폴백: LeaderAimPose 미수신 → 현재 위치 유지 (기존 동작)
+                if (last_offset_valid_) {
+                    std::cout << "  → SUPPRESS (폴백): 현재 오프셋 위치 유지 ("
+                              << last_target_lat_ << ", " << last_target_lon_ << ")" << std::endl;
+                } else {
+                    std::cout << "  → SUPPRESS (폴백): 오프셋 미설정" << std::endl;
+                }
             }
             break;
         }
@@ -954,4 +992,101 @@ GPSCoordinate FormationController::calculateOffsetTarget(
     last_offset_valid_ = true;
 
     return target;
+}
+
+// ============================================================================
+// 리더: LeaderAimPose 발행 (DISTANCE_ADJUST 완료 후, 10Hz)
+// ============================================================================
+
+void FormationController::publishLeaderAimPose() {
+    if (!running_.load() || !offboard_mgr_) return;
+
+    const auto& result = offboard_mgr_->getDistanceAdjustResult();
+    if (!result.completed) return;
+
+    auto msg = humiro_msgs::msg::LeaderAimPose();
+    msg.header.stamp = node_->now();
+
+    // 리더 최종 위치 (DISTANCE_ADJUST 완료 시점)
+    msg.latitude = result.final_lat;
+    msg.longitude = result.final_lon;
+    msg.altitude = result.final_alt_amsl;
+    msg.yaw_deg = result.final_yaw * 180.0f / M_PI;  // rad → deg
+
+    // 벽까지 거리
+    msg.distance_to_target = result.wall_distance;
+
+    // 목표물(화재) GPS 계산: 리더 위치 + heading × wall_distance
+    double heading_rad = static_cast<double>(result.final_yaw);
+    double cos_lat = std::cos(result.final_lat * M_PI / 180.0);
+    msg.target_latitude = result.final_lat +
+        (result.wall_distance * std::cos(heading_rad)) / DEG_TO_M_LAT;
+    msg.target_longitude = result.final_lon +
+        (result.wall_distance * std::sin(heading_rad)) / (DEG_TO_M_LAT * cos_lat);
+
+    // NED 좌표
+    msg.x = offboard_mgr_->getCurrentLocalX();
+    msg.y = offboard_mgr_->getCurrentLocalY();
+    msg.z = offboard_mgr_->getCurrentLocalZ();
+
+    msg.aim_locked = true;
+
+    leader_aim_pose_pub_->publish(msg);
+}
+
+// ============================================================================
+// 팔로워: LeaderAimPose 수신
+// ============================================================================
+
+void FormationController::onLeaderAimPose(const humiro_msgs::msg::LeaderAimPose::SharedPtr msg) {
+    if (!running_.load()) return;
+
+    if (msg->aim_locked) {
+        leader_aim_pose_ = *msg;
+
+        if (!leader_aim_received_) {
+            leader_aim_received_ = true;
+            std::cout << "[Formation] LeaderAimPose 수신: GPS=("
+                      << msg->latitude << "," << msg->longitude
+                      << "), yaw=" << msg->yaw_deg << "°"
+                      << ", wall_dist=" << msg->distance_to_target << "m"
+                      << ", target=(" << msg->target_latitude << ","
+                      << msg->target_longitude << ")" << std::endl;
+        }
+    }
+}
+
+// ============================================================================
+// 팔로워: 진압 위치 계산 (리더 옆에 나란히 배치, 같은 헤딩으로 벽/화재 방향)
+// ============================================================================
+
+GPSCoordinate FormationController::calculateSuppressPosition() {
+    GPSCoordinate pos;
+
+    // 리더 최종 헤딩 (벽 수직, rad)
+    float leader_heading_rad = leader_aim_pose_.yaw_deg * M_PI / 180.0f;
+
+    // 벽 평행 방향 = heading + π/2
+    float perp_dir = leader_heading_rad + M_PI / 2.0f;
+
+    // 팔로워 횡방향 오프셋 (cm → m)
+    float lateral_m = static_cast<float>(offset_right_cm_) / 100.0f;
+    if (lateral_mirrored_) lateral_m = -lateral_m;
+
+    // 리더 위치 기준으로 횡방향 이동
+    double cos_lat = std::cos(leader_aim_pose_.latitude * M_PI / 180.0);
+    pos.latitude = leader_aim_pose_.latitude +
+        (lateral_m * std::cos(perp_dir)) / DEG_TO_M_LAT;
+    pos.longitude = leader_aim_pose_.longitude +
+        (lateral_m * std::sin(perp_dir)) / (DEG_TO_M_LAT * cos_lat);
+    pos.altitude = leader_aim_pose_.altitude;
+
+    std::cout << "[Formation] 진압 위치 계산: leader=("
+              << leader_aim_pose_.latitude << "," << leader_aim_pose_.longitude
+              << "), heading=" << leader_aim_pose_.yaw_deg << "°"
+              << ", lateral=" << lateral_m << "m"
+              << ", suppress=(" << pos.latitude << "," << pos.longitude << ")"
+              << std::endl;
+
+    return pos;
 }

@@ -10,6 +10,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <linux/videodev2.h>
+#include <linux/uvcvideo.h>
+#include <linux/usb/video.h>
 #include <sys/ioctl.h>
 #include <stdexcept>
 #include <exception>
@@ -203,11 +205,14 @@ bool CameraManager::find_thermal_camera() {
     // 키워드로 찾은 열화상 카메라가 있으면 사용
     if (!thermal_cameras.empty()) {
         thermal_camera_id_ = thermal_cameras[0].id;
-        
+
+        // Lepton RAD/TLinear/LOW_GAIN 설정 (OpenCV 열기 전에 적용)
+        configure_lepton_settings(thermal_camera_id_);
+
         // PureThermal 카메라는 여러 번 재시도 필요 (최대 3회)
         const int max_retries = 3;
         const int retry_delay_ms = 500;  // 재시도 간 대기 시간 (500ms)
-        
+
         for (int retry = 0; retry < max_retries; ++retry) {
             // 열화상 카메라 열기 (안전한 방식)
             if (safe_open_camera(thermal_camera_id_, cap_thermal_)) {
@@ -659,6 +664,9 @@ bool CameraManager::reconnect_thermal_camera() {
         }
     }
 
+    // Lepton RAD/TLinear/LOW_GAIN 설정 (재연결 시에도 적용)
+    configure_lepton_settings(thermal_camera_id_);
+
     // 재연결 (안전한 방식)
     if (!safe_open_camera(thermal_camera_id_, cap_thermal_)) {
         // 열기 실패 시 ID 리셋 (다음 시도 때 다시 찾기)
@@ -666,7 +674,7 @@ bool CameraManager::reconnect_thermal_camera() {
         std::cout << "    ✗ 열화상 카메라 재연결 실패" << std::endl;
         return false;
     }
-    
+
     // 설정 복원 (예외 처리)
     try {
         cap_thermal_.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('Y', '1', '6', ' '));
@@ -706,4 +714,134 @@ bool CameraManager::reconnect_thermal_camera() {
     
     std::cout << "    ⚠ 열화상 카메라 프레임 읽기 실패 (나중에 재시도)" << std::endl;
     return false;  // 실패해도 연결은 유지 (나중에 재시도)
+}
+
+bool CameraManager::configure_lepton_settings(int camera_id) {
+    // Lepton 3.5 RAD/TLinear/Gain 설정 (V4L2 UVC Extension Unit)
+    // setup_lepton.py와 동일한 기능을 C++로 구현
+    // 카메라 전원 리셋/USB 재연결 시 설정이 초기화되므로 매번 적용 필요
+
+    std::string device = "/dev/video" + std::to_string(camera_id);
+    int fd = open(device.c_str(), O_RDWR);
+    if (fd < 0) {
+        std::cerr << "  [Lepton] " << device << " 열기 실패 (설정 스킵)" << std::endl;
+        return false;
+    }
+
+    // UVC Extension Unit IDs (GetThermal/PureThermal 기준)
+    const uint8_t RAD_UNIT_ID = 5;   // Radiometry module
+    const uint8_t SYS_UNIT_ID = 6;   // System module
+
+    // Control selectors: ((CCI_reg & 0xFF) >> 2) + 1
+    const uint8_t RAD_ENABLE_CTRL             = 5;   // 0x4E10
+    const uint8_t RAD_TLINEAR_ENABLE_CTRL     = 49;  // 0x4EC0
+    const uint8_t RAD_TLINEAR_RESOLUTION_CTRL = 50;  // 0x4EC4
+    const uint8_t SYS_GAIN_MODE_CTRL          = 19;  // 0x0248
+
+    // 값
+    const uint32_t RAD_ENABLE       = 1;
+    const uint32_t TLINEAR_ENABLE   = 1;
+    const uint32_t TLINEAR_RES_001K = 1;  // 0.01K (센티켈빈)
+    const uint32_t GAIN_LOW         = 1;  // LOW_GAIN: -10~400°C
+
+    auto uvc_set = [&](uint8_t unit, uint8_t selector, uint32_t value) -> bool {
+        struct uvc_xu_control_query xu;
+        xu.unit     = unit;
+        xu.selector = selector;
+        xu.query    = UVC_SET_CUR;
+        xu.size     = 4;
+        xu.data     = reinterpret_cast<uint8_t*>(&value);
+
+        int ret = ioctl(fd, UVCIOC_CTRL_QUERY, &xu);
+        return (ret >= 0);
+    };
+
+    auto uvc_get = [&](uint8_t unit, uint8_t selector, uint32_t& value) -> bool {
+        struct uvc_xu_control_query xu;
+        value = 0;
+        xu.unit     = unit;
+        xu.selector = selector;
+        xu.query    = UVC_GET_CUR;
+        xu.size     = 4;
+        xu.data     = reinterpret_cast<uint8_t*>(&value);
+
+        int ret = ioctl(fd, UVCIOC_CTRL_QUERY, &xu);
+        return (ret >= 0);
+    };
+
+    // 현재 설정 확인
+    uint32_t cur_gain = 0, cur_rad = 0, cur_tlinear = 0, cur_res = 0;
+    bool can_read = uvc_get(SYS_UNIT_ID, SYS_GAIN_MODE_CTRL, cur_gain);
+    if (can_read) {
+        uvc_get(RAD_UNIT_ID, RAD_ENABLE_CTRL, cur_rad);
+        uvc_get(RAD_UNIT_ID, RAD_TLINEAR_ENABLE_CTRL, cur_tlinear);
+        uvc_get(RAD_UNIT_ID, RAD_TLINEAR_RESOLUTION_CTRL, cur_res);
+
+        std::cout << "  [Lepton] 현재: Gain=" << cur_gain
+                  << " RAD=" << cur_rad
+                  << " TLinear=" << cur_tlinear
+                  << " Res=" << cur_res << std::endl;
+
+        // 이미 올바른 설정이면 스킵
+        if (cur_gain == GAIN_LOW && cur_rad == RAD_ENABLE &&
+            cur_tlinear == TLINEAR_ENABLE && cur_res == TLINEAR_RES_001K) {
+            std::cout << "  [Lepton] 설정 정상 — 스킵" << std::endl;
+            close(fd);
+            return true;
+        }
+    }
+
+    std::cout << "  [Lepton] RAD/TLinear/LOW_GAIN 설정 적용 중..." << std::endl;
+
+    bool ok = true;
+
+    // 1. RAD Enable
+    if (!uvc_set(RAD_UNIT_ID, RAD_ENABLE_CTRL, RAD_ENABLE)) {
+        std::cerr << "  [Lepton] RAD Enable 실패" << std::endl;
+        ok = false;
+    }
+    usleep(100000);  // 100ms
+
+    // 2. TLinear Enable
+    if (!uvc_set(RAD_UNIT_ID, RAD_TLINEAR_ENABLE_CTRL, TLINEAR_ENABLE)) {
+        std::cerr << "  [Lepton] TLinear Enable 실패" << std::endl;
+        ok = false;
+    }
+    usleep(100000);
+
+    // 3. TLinear Resolution → 0.01K (센티켈빈)
+    if (!uvc_set(RAD_UNIT_ID, RAD_TLINEAR_RESOLUTION_CTRL, TLINEAR_RES_001K)) {
+        std::cerr << "  [Lepton] TLinear Res 설정 실패" << std::endl;
+        ok = false;
+    }
+    usleep(100000);
+
+    // 4. LOW_GAIN mode (-10~400°C)
+    if (!uvc_set(SYS_UNIT_ID, SYS_GAIN_MODE_CTRL, GAIN_LOW)) {
+        std::cerr << "  [Lepton] Gain Mode 설정 실패" << std::endl;
+        ok = false;
+    }
+    usleep(500000);  // 500ms — Gain 전환 시 FFC(셔터) 동작 대기
+
+    // 검증
+    if (ok && uvc_get(SYS_UNIT_ID, SYS_GAIN_MODE_CTRL, cur_gain)) {
+        uvc_get(RAD_UNIT_ID, RAD_ENABLE_CTRL, cur_rad);
+        uvc_get(RAD_UNIT_ID, RAD_TLINEAR_ENABLE_CTRL, cur_tlinear);
+        uvc_get(RAD_UNIT_ID, RAD_TLINEAR_RESOLUTION_CTRL, cur_res);
+
+        std::cout << "  [Lepton] 적용 후: Gain=" << cur_gain
+                  << " RAD=" << cur_rad
+                  << " TLinear=" << cur_tlinear
+                  << " Res=" << cur_res << std::endl;
+
+        if (cur_gain == GAIN_LOW && cur_tlinear == TLINEAR_ENABLE) {
+            std::cout << "  [Lepton] LOW_GAIN + TLinear(0.01K) 설정 완료" << std::endl;
+        } else {
+            std::cerr << "  [Lepton] 설정 검증 실패 — 온도 측정이 부정확할 수 있음" << std::endl;
+            ok = false;
+        }
+    }
+
+    close(fd);
+    return ok;
 }

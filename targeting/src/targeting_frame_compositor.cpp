@@ -66,3 +66,9 @@ void TargetingFrameCompositor::setPointMinConfidence(float threshold) {
         distance_overlay_->setPointMinConfidence(threshold);
     }
 }
+
+void TargetingFrameCompositor::setTempThreshold(double threshold) {
+    if (aim_indicator_) {
+        aim_indicator_->setTempThreshold(threshold);
+    }
+}
