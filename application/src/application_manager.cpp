@@ -223,6 +223,9 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
             } catch (...) {}
         }
         drone_id_ = static_cast<uint8_t>(drone_id);  // 조기 설정 (Formation, CollisionAvoidance에서 사용)
+        const char* role_env = std::getenv("ROLE");
+        std::string role_str = role_env ? role_env : "Leader";
+        is_follower_ = (role_str.find("Follower") != std::string::npos);
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
         ros2_node_ = rclcpp::Node::make_shared(node_name);
@@ -561,6 +564,12 @@ void ApplicationManager::initializeCustomMessage() {
                 if (!isTargetedToMe(start.target_system)) {
                     std::cout << "[INFO] 미션 무시 (target_system=" << (int)start.target_system
                               << ", my_id=" << (int)drone_id_ << ")" << std::endl;
+                    return;
+                }
+
+                // 팔로워는 60000 미션시작 무시 (리더가 CMD_FOLLOW로 미션 전달)
+                if (is_follower_) {
+                    std::cout << "[INFO] 팔로워 → 60000 미션시작 무시 (리더 CMD_FOLLOW 대기)" << std::endl;
                     return;
                 }
 
@@ -1682,37 +1691,29 @@ bool ApplicationManager::isTargetedToMe(uint8_t target_system) const {
 }
 
 void ApplicationManager::fireGpioPin(int gpio_num) {
-    const std::string gpio_path = "/sys/class/gpio/gpio" + std::to_string(gpio_num);
-    const std::string export_path = "/sys/class/gpio/export";
+    // sysfs GPIO는 root 권한 필요 → sudo 사용
+    std::string num_str = std::to_string(gpio_num);
+    std::string gpio_path = "/sys/class/gpio/gpio" + num_str;
 
     // 1. GPIO export (이미 export 되어있으면 무시)
-    {
-        std::ofstream f(export_path);
-        if (f.is_open()) {
-            f << gpio_num;
-            f.close();
-        }
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));  // sysfs 안정화 대기
+    std::string export_cmd = "echo " + num_str + " | sudo tee /sys/class/gpio/export > /dev/null 2>&1";
+    system(export_cmd.c_str());
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
     // 2. direction = out
-    {
-        std::ofstream f(gpio_path + "/direction");
-        if (!f.is_open()) {
-            std::cerr << "[GPIO] direction 열기 실패: " << gpio_path << std::endl;
-            return;
-        }
-        f << "out";
+    std::string dir_cmd = "echo out | sudo tee " + gpio_path + "/direction > /dev/null 2>&1";
+    int ret = system(dir_cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "[GPIO] direction 설정 실패: " << gpio_path << " (ret=" << ret << ")" << std::endl;
+        return;
     }
 
     // 3. value = 1 (ON)
-    {
-        std::ofstream f(gpio_path + "/value");
-        if (!f.is_open()) {
-            std::cerr << "[GPIO] value 열기 실패: " << gpio_path << std::endl;
-            return;
-        }
-        f << "1";
+    std::string on_cmd = "echo 1 | sudo tee " + gpio_path + "/value > /dev/null 2>&1";
+    ret = system(on_cmd.c_str());
+    if (ret != 0) {
+        std::cerr << "[GPIO] value=1 실패: " << gpio_path << std::endl;
+        return;
     }
     std::cout << "[GPIO] " << gpio_num << " ON" << std::endl;
 
@@ -1720,12 +1721,8 @@ void ApplicationManager::fireGpioPin(int gpio_num) {
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 
     // 5. value = 0 (OFF)
-    {
-        std::ofstream f(gpio_path + "/value");
-        if (f.is_open()) {
-            f << "0";
-        }
-    }
+    std::string off_cmd = "echo 0 | sudo tee " + gpio_path + "/value > /dev/null 2>&1";
+    system(off_cmd.c_str());
     std::cout << "[GPIO] " << gpio_num << " OFF" << std::endl;
 }
 
