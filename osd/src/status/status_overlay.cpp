@@ -563,29 +563,52 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 std::cout << "[StatusOverlay] [STEP 6] OSD 렌더링: \"" << custom_message_ 
                           << "\" (프레임 #" << render_count << ")" << std::endl;
             }
-            const int MARGIN_BOTTOM = 10;
-            const int MARGIN_LEFT_MSG = 10;
-            const double MSG_FONT_SCALE = 0.7;
-            const int MSG_FONT_THICKNESS = 2;
-            const cv::Scalar MSG_BG_COLOR(0, 0, 0);  // 검은색 배경
-            const cv::Scalar MSG_TEXT_COLOR(0, 255, 0);  // 초록색 텍스트 (QGC 메시지)
+            const double MSG_FONT_SCALE = 0.6;
+            const int MSG_FONT_THICKNESS = 1;
+            const cv::Scalar MSG_TEXT_COLOR(0, 255, 255);  // 노란색 텍스트 (경고 메시지)
             const int MSG_PADDING = 8;
-            const int MSG_CORNER_RADIUS = 5;
-            
+
             // 텍스트 크기 계산
             int msg_baseline = 0;
-            cv::Size msg_size = cv::getTextSize(custom_message_, FONT_FACE, 
+            cv::Size msg_size = cv::getTextSize(custom_message_, FONT_FACE,
                                                 MSG_FONT_SCALE, MSG_FONT_THICKNESS, &msg_baseline);
-            
-            // 배경 크기
+
+            // 상단 상태바 바로 아래 중앙 배치
+            int status_bar_h = ThermalConfig::get().status_bar_height;
             int msg_bg_width = msg_size.width + MSG_PADDING * 2;
             int msg_bg_height = msg_size.height + MSG_PADDING * 2;
-            int msg_bg_x = MARGIN_LEFT_MSG;
-            int msg_bg_y = frame.rows - msg_bg_height - MARGIN_BOTTOM;
-            
-            // 배경 그리기 (둥근 모서리)
-            drawBackground(frame, msg_bg_x, msg_bg_y, msg_bg_width, msg_bg_height);
-            
+            int msg_bg_x = (frame.cols - msg_bg_width) / 2;
+            int msg_bg_y = status_bar_h + 4;
+
+            // 반투명 라운드 배경 (테두리 없음)
+            {
+                const int r = 5;
+                const int step = 15;
+                std::vector<cv::Point> pts;
+                int bx = msg_bg_x, by = msg_bg_y, bw = msg_bg_width, bh = msg_bg_height;
+                for (int a = 180; a <= 270; a += step)
+                    pts.emplace_back(bx + r + (int)(r * std::cos(a * M_PI / 180)),
+                                     by + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 270; a <= 360; a += step)
+                    pts.emplace_back(bx + bw - r + (int)(r * std::cos(a * M_PI / 180)),
+                                     by + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 0; a <= 90; a += step)
+                    pts.emplace_back(bx + bw - r + (int)(r * std::cos(a * M_PI / 180)),
+                                     by + bh - r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 90; a <= 180; a += step)
+                    pts.emplace_back(bx + r + (int)(r * std::cos(a * M_PI / 180)),
+                                     by + bh - r + (int)(r * std::sin(a * M_PI / 180)));
+
+                cv::Mat mask = cv::Mat::zeros(frame.size(), CV_8UC1);
+                std::vector<std::vector<cv::Point>> poly = {pts};
+                cv::fillPoly(mask, poly, cv::Scalar(255), cv::LINE_AA);
+
+                cv::Mat darkened;
+                frame.copyTo(darkened);
+                darkened.setTo(cv::Scalar(0, 0, 0), mask);
+                cv::addWeighted(frame, 0.5, darkened, 0.5, 0, frame);
+            }
+
             // 텍스트 그리기
             cv::putText(frame, custom_message_,
                         cv::Point(msg_bg_x + MSG_PADDING, msg_bg_y + msg_size.height + MSG_PADDING),

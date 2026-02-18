@@ -573,6 +573,16 @@ void ApplicationManager::initializeCustomMessage() {
                     return;
                 }
 
+                // 소화탄 소진 시 미션 시작 거부
+                if (fire_gpio_index_.load() >= FIRE_GPIO_COUNT) {
+                    std::cout << "[INFO] 미션 시작 거부 — 소화탄 소진 ("
+                              << FIRE_GPIO_COUNT << "/" << FIRE_GPIO_COUNT << ")" << std::endl;
+                    if (status_overlay_) {
+                        status_overlay_->setCustomMessage("Mission Rejected: No Ammo!", 5.0);
+                    }
+                    return;
+                }
+
                 // OSD 표시
                 if (status_overlay_) {
                     std::ostringstream oss;
