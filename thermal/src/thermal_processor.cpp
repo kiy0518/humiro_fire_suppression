@@ -44,13 +44,13 @@ bool ThermalProcessor::extract_thermal_data(const cv::Mat& thermal_frame, Therma
             cv::Mat frame_cropped_16 = frame_small_16(
                 cv::Rect(0, 0, tc.thermal_width, tc.thermal_cropped_height));
 
-            // 공간 필터 (16-bit에서 직접 적용)
-            cv::GaussianBlur(frame_cropped_16, frame_cropped_16, cv::Size(5, 5), 0);
-
-            // 최고점 검출 (16-bit 값 그대로)
+            // 최고점 검출 (블러 전 원본에서 - 피크 온도 보존)
             double min_val_raw, max_val_raw;
             cv::Point min_loc, max_loc;
             cv::minMaxLoc(frame_cropped_16, &min_val_raw, &max_val_raw, &min_loc, &max_loc);
+
+            // 시각화용 공간 필터 (온도 측정 후 적용)
+            cv::GaussianBlur(frame_cropped_16, frame_cropped_16, cv::Size(5, 5), 0);
 
             // 센티켈빈 → 섭씨 변환
             double max_temp = pixel_to_temperature(max_val_raw);
