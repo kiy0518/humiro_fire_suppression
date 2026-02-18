@@ -112,8 +112,23 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
     }
 
     // app_config.env 자동 로드 (프로그램 파라미터)
+    // 기체별 파일 우선: app_config{DRONE_ID}.env → app_config.env 폴백
     {
-        std::string app_config_path = "/home/khadas/humiro_fire_suppression/config/app_config.env";
+        const char* drone_id_str = std::getenv("DRONE_ID");
+        std::string drone_id = drone_id_str ? drone_id_str : "1";
+        std::string drone_config_path = "/home/khadas/humiro_fire_suppression/config/app_config" + drone_id + ".env";
+        std::string default_config_path = "/home/khadas/humiro_fire_suppression/config/app_config.env";
+
+        std::string app_config_path;
+        std::ifstream drone_config_file(drone_config_path);
+        if (drone_config_file.is_open()) {
+            app_config_path = drone_config_path;
+            drone_config_file.close();
+        } else {
+            app_config_path = default_config_path;
+            std::cout << "[Config] app_config" << drone_id << ".env 없음 → app_config.env 폴백" << std::endl;
+        }
+
         std::ifstream app_config_file(app_config_path);
         if (app_config_file.is_open()) {
             std::string line;
@@ -127,7 +142,8 @@ bool ApplicationManager::initialize(int argc, char* argv[]) {
                 setenv(key.c_str(), val.c_str(), 1);
                 loaded++;
             }
-            std::cout << "[Config] app_config.env 로드: " << loaded << "개 항목" << std::endl;
+            std::cout << "[Config] " << app_config_path.substr(app_config_path.rfind('/') + 1)
+                      << " 로드: " << loaded << "개 항목 (DRONE_ID=" << drone_id << ")" << std::endl;
         } else {
             std::cerr << "[Config] app_config.env 없음: " << app_config_path << std::endl;
         }

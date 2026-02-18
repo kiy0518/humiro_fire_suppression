@@ -25,7 +25,6 @@ class ConfigManager:
         self.project_root = project_root
         self.config_dir = os.path.join(project_root, "config")
         self.device_config_path = os.path.join(self.config_dir, "device_config.env")
-        self.app_config_path = os.path.join(self.config_dir, "app_config.env")
         self.fc_params_dir = os.path.join(self.config_dir, "fc_params")
         self.backup_dir = os.path.join(self.config_dir, "backup")
         self.custom_params_file = os.path.join(self.config_dir, "custom_params.json")
@@ -34,6 +33,9 @@ class ConfigManager:
         self._device_config: Dict[str, str] = {}
         self._app_config: Dict[str, str] = {}
         self._load_device_config()
+
+        # DRONE_ID 기반 app_config 경로 결정
+        self.app_config_path = self._resolve_app_config_path()
         self._load_app_config()
 
         # FC 파라미터 디렉토리 생성
@@ -62,13 +64,23 @@ class ConfigManager:
         """device_config.env 로드"""
         self._device_config = self._load_env_file(self.device_config_path)
 
+    def _resolve_app_config_path(self) -> str:
+        """DRONE_ID 기반 app_config 경로 결정
+        app_config{DRONE_ID}.env 우선, 없으면 app_config.env 폴백"""
+        drone_id = self._device_config.get("DRONE_ID", "1")
+        drone_path = os.path.join(self.config_dir, f"app_config{drone_id}.env")
+        if os.path.exists(drone_path):
+            return drone_path
+        return os.path.join(self.config_dir, "app_config.env")
+
     def _load_app_config(self):
-        """app_config.env 로드"""
+        """app_config{DRONE_ID}.env 로드 (폴백: app_config.env)"""
         self._app_config = self._load_env_file(self.app_config_path)
 
     def reload(self):
         """설정 다시 로드"""
         self._load_device_config()
+        self.app_config_path = self._resolve_app_config_path()
         self._load_app_config()
 
     def get(self, key: str, default: str = "") -> str:
@@ -130,12 +142,14 @@ class ConfigManager:
             return False
 
     def save_app_config(self) -> bool:
-        """app_config.env 저장 (프로그램 파라미터만)"""
+        """app_config{DRONE_ID}.env 저장 (프로그램 파라미터만)"""
         try:
             self._create_backup(self.app_config_path)
 
+            drone_id = self._device_config.get("DRONE_ID", "1")
+            filename = os.path.basename(self.app_config_path)
             with open(self.app_config_path, "w") as f:
-                f.write("# Humiro Fire Suppression Application Parameters\n")
+                f.write(f"# Humiro Fire Suppression Application Parameters - Drone {drone_id}\n")
                 f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
                 for key, value in sorted(self._app_config.items()):
@@ -272,6 +286,10 @@ class ConfigManager:
         """기체 프리셋 적용 (DRONE_ID 기반 자동 계산 값 적용)"""
         preset = self.get_vehicle_preset(drone_id)
         self._device_config.update(preset["device"])
+
+        # DRONE_ID 변경에 따라 app_config 경로 업데이트
+        self.app_config_path = self._resolve_app_config_path()
+        self._load_app_config()
         self._app_config.update(preset["app"])
         return self.save_device_config() and self.save_app_config()
 
@@ -314,6 +332,10 @@ class ConfigManager:
         # DRONE_ID 기반 자동 계산 값 적용
         calculated = self.calculate_config_from_drone_id(drone_id, gcs_port_mode)
         self._device_config.update(calculated["device"])
+
+        # DRONE_ID 변경에 따라 app_config 경로 업데이트
+        self.app_config_path = self._resolve_app_config_path()
+        self._load_app_config()
         self._app_config.update(calculated["app"])
 
         # WiFi 설정 복원

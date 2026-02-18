@@ -518,7 +518,16 @@ void OffboardManager::abortMission()
 
 void OffboardManager::emergencyRTL()
 {
-    RCLCPP_ERROR(node_->get_logger(), "[EMERGENCY] RTL triggered!");
+    // 이미 RTL 중이거나 착륙 완료 시 중복 호출 무시
+    auto state = current_state_.load();
+    if (state == MissionState::RTL || state == MissionState::LANDED) {
+        RCLCPP_WARN(node_->get_logger(), "[EMERGENCY] RTL 중복 호출 무시 (state=%s)",
+                    getStateName(state).c_str());
+        return;
+    }
+
+    RCLCPP_ERROR(node_->get_logger(), "[EMERGENCY] RTL triggered! (from state=%s)",
+                 getStateName(state).c_str());
     publishVehicleCommand(20);  // VEHICLE_CMD_NAV_RETURN_TO_LAUNCH
 
     // 핸들러 정리: setpoint 발행 중단 (PX4 RTL 모드와 충돌 방지)
@@ -673,6 +682,11 @@ void OffboardManager::setFormationReadyToNavigate(bool ready) {
 void OffboardManager::setContinuousUpdateMode(bool enabled) {
     continuous_update_mode_.store(enabled);
     RCLCPP_INFO(node_->get_logger(), "[FORMATION] continuous_update_mode = %s", enabled ? "true" : "false");
+}
+
+void OffboardManager::setForceNavigateComplete(bool force) {
+    ctx_.force_navigate_complete.store(force);
+    RCLCPP_INFO(node_->get_logger(), "[FORMATION] force_navigate_complete = %s → 개별 진행 허용", force ? "true" : "false");
 }
 
 void OffboardManager::setFireAmmoState(std::atomic<int>* index_ptr, int total_count) {

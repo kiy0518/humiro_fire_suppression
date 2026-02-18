@@ -653,14 +653,20 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             follower_phase_ = FollowerPhase::SUPPRESSING;
             suppress_detour_active_ = false;
 
+            // ★ 개별 진행: 팔로워 NAVIGATE 완료 허용 → TRACKING_HOVER → 독립 RTL
+            // continuous_update_mode 유지 (DISTANCE_ADJUST 스킵 판단용)
+            if (offboard_mgr_) {
+                offboard_mgr_->setForceNavigateComplete(true);
+            }
+
             // 현재 오프셋 위치를 진압 위치로 사용 (급격한 위치 변경 방지)
             // follower_phase_ = SUPPRESSING이면 onLeaderPose에서 오프셋 추적이 중단되므로
             // OffboardManager는 마지막 설정된 오프셋 목표 위치를 계속 유지
             if (last_offset_valid_) {
-                std::cout << "  → SUPPRESS: 진압 전환 (현재 오프셋 위치 유지: "
+                std::cout << "  → SUPPRESS: 진압→개별진행 (위치: "
                           << last_target_lat_ << ", " << last_target_lon_ << ")" << std::endl;
             } else {
-                std::cout << "  → SUPPRESS: 진압 전환 (오프셋 미설정, 현재 위치 유지)" << std::endl;
+                std::cout << "  → SUPPRESS: 진압→개별진행 (오프셋 미설정)" << std::endl;
             }
             break;
         }

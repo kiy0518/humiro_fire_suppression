@@ -58,22 +58,24 @@ public:
         ammo_depleted_time_ = {};
         last_log_tick_ = -1;
 
-        // 열원 미감지 타이머 초기화 (진입 시점부터 카운트)
-        last_fire_detected_time_ = std::chrono::steady_clock::now();
+        // 도착 안정화 대기 (2초간 위치 고정 후 추적 시작)
+        stabilized_ = false;
+        stabilize_end_time_ = std::chrono::steady_clock::now() +
+            std::chrono::milliseconds(static_cast<int>(ARRIVAL_STABILIZE_SEC * 1000));
+
+        // 열원 미감지 타이머 초기화 (안정화 완료 후부터 카운트)
+        last_fire_detected_time_ = {};
         no_fire_warned_ = false;
         prev_ammo_index_ = ctx.fire_gpio_index_ptr ? ctx.fire_gpio_index_ptr->load() : 0;
 
-        // 자동 모드이면 즉시 추적 시작
-        if (ctx.thermal_tracking_auto.load()) {
-            tracking_started_ = true;
-            ctx.thermal_tracking_active.store(true);
-        }
+        // 추적은 안정화 완료 후 시작
+        tracking_started_ = false;
 
         int remaining = getRemaining(ctx);
         RCLCPP_INFO(ctx.logger,
-            "[TRACKING_HOVER] 시작 (소화탄 소진 시 RTL), 목표고도: %.1fm, 잔탄: %d/%d, 추적: %s",
-            effective_alt, remaining, ctx.fire_gpio_count,
-            tracking_started_ ? "자동" : "수동대기");
+            "[TRACKING_HOVER] 도착 안정화 %.0fs 후 시작, 목표고도: %.1fm, 잔탄: %d/%d, 추적: %s",
+            ARRIVAL_STABILIZE_SEC, effective_alt, remaining, ctx.fire_gpio_count,
+            ctx.thermal_tracking_auto.load() ? "자동" : "수동대기");
     }
 
     void onExit(MissionContext& ctx) override {
@@ -82,6 +84,24 @@ public:
 
     TransitionResult tick(MissionContext& ctx) override {
         double elapsed = ctx.elapsedSec();
+
+        // 도착 안정화 대기 (2초)
+        if (!stabilized_) {
+            if (std::chrono::steady_clock::now() >= stabilize_end_time_) {
+                stabilized_ = true;
+                // 안정화 완료 → 추적 시작
+                if (ctx.thermal_tracking_auto.load()) {
+                    tracking_started_ = true;
+                    ctx.thermal_tracking_active.store(true);
+                }
+                // 열원 미감지 타이머 시작 (안정화 완료 시점부터)
+                last_fire_detected_time_ = std::chrono::steady_clock::now();
+                RCLCPP_INFO(ctx.logger, "[TRACKING_HOVER] 안정화 완료 → 추적 %s",
+                    tracking_started_ ? "시작" : "수동대기");
+            } else {
+                return TransitionResult::STAY;
+            }
+        }
 
         // 수동 모드: GUI에서 active 플래그 확인
         if (!tracking_started_ && ctx.thermal_tracking_active.load()) {
@@ -328,6 +348,7 @@ private:
     static constexpr float DT = 0.1f;                       // 10Hz 제어 주기
 
     // ========== 타이밍 ==========
+    static constexpr float ARRIVAL_STABILIZE_SEC = 2.0f;     // 도착 후 안정화 대기
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;
     static constexpr float DESCENT_PER_TICK = 0.05f;        // 0.5m/s 하강
 
@@ -345,6 +366,10 @@ private:
     float hold_x_{0.0f}, hold_y_{0.0f};
     float final_z_{0.0f};
     float min_z_{0.0f}, max_z_{0.0f};
+
+    // ========== 도착 안정화 ==========
+    bool stabilized_{false};
+    std::chrono::steady_clock::time_point stabilize_end_time_;
 
     // ========== 호버링 상태 ==========
     int last_log_tick_{-1};

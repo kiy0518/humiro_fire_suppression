@@ -125,6 +125,7 @@ public:
     void setFormationReadyToRotate(bool ready);
     void setFormationReadyToNavigate(bool ready);
     void setContinuousUpdateMode(bool enabled);
+    void setForceNavigateComplete(bool force);
 
     // ========== 위치/속도 Getter (FormationController용) ==========
     double getCurrentLat() const { return current_lat_.load(); }

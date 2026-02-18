@@ -46,14 +46,31 @@ public:
         float dy = eff_y - cur_y;
         float dist = std::sqrt(dx * dx + dy * dy);
 
+        // 팔로워 소화탄 소진 → 개별 RTL을 위해 NAVIGATE 완료
+        // (CMD_SUPPRESS 수신 전에도 소화탄이 모두 소진되면 독립 진행)
+        if (ctx.continuous_update_mode.load() &&
+            ctx.fire_gpio_index_ptr && ctx.fire_gpio_count > 0) {
+            int idx = ctx.fire_gpio_index_ptr->load();
+            if (idx >= ctx.fire_gpio_count) {
+                RCLCPP_INFO(ctx.logger,
+                    "[NAVIGATE] 팔로워 소화탄 소진 (%d/%d) → 개별 RTL 진행",
+                    idx, ctx.fire_gpio_count);
+                return TransitionResult::COMPLETE;
+            }
+        }
+
         // 도착 판정 (EVADE 중에는 판정 안 함)
         // continuous_update_mode: 편대 팔로워는 리더가 10Hz로 목표를 갱신하므로
         // 자체 도착 판정을 하면 HOVER_AT_TARGET→RTL→LANDED 체인이 발생하여
         // 오프셋 추적이 중단됨 → 편대 팔로워는 도착 판정 안 함
-        if (!ctx.continuous_update_mode.load() &&
+        // force_navigate_complete: CMD_SUPPRESS 수신 후 팔로워가 독립 진행 가능
+        bool can_complete = !ctx.continuous_update_mode.load() ||
+                            ctx.force_navigate_complete.load();
+        if (can_complete &&
             dist < ctx.WAYPOINT_THRESHOLD && ctx.collision_action.load() == 0) {
-            RCLCPP_INFO(ctx.logger, "[NAVIGATE] 목표 도착! 거리: %.2fm (%.1fs)",
-                        dist, ctx.elapsedSec());
+            RCLCPP_INFO(ctx.logger, "[NAVIGATE] 목표 도착! 거리: %.2fm (%.1fs)%s",
+                        dist, ctx.elapsedSec(),
+                        ctx.force_navigate_complete.load() ? " [개별진행]" : "");
             return TransitionResult::COMPLETE;
         }
 

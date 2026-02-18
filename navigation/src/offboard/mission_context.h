@@ -88,6 +88,7 @@ struct MissionContext {
     std::atomic<bool> formation_ready_to_rotate{false};
     std::atomic<bool> formation_ready_to_navigate{false};
     std::atomic<bool> continuous_update_mode{false};
+    std::atomic<bool> force_navigate_complete{false};   // CMD_SUPPRESS → 팔로워 NAVIGATE 완료 허용
 
     // === 소화탄 상태 (ApplicationManager가 설정) ===
     std::atomic<int>* fire_gpio_index_ptr{nullptr};  // 현재 발사 인덱스 포인터
@@ -163,6 +164,7 @@ struct MissionContext {
         prev_vy = 0.0f;
         formation_ready_to_rotate.store(false);
         formation_ready_to_navigate.store(false);
+        force_navigate_complete.store(false);
         thermal_tracking_active.store(false);
         collision_action.store(0);
         hold_x = hold_y = hold_z = hold_yaw = 0.0f;
