@@ -106,6 +106,9 @@ public:
      */
     void resetToIdle();
 
+    // ========== 소화탄 상태 연결 (ApplicationManager 연동) ==========
+    void setFireAmmoState(std::atomic<int>* index_ptr, int total_count);
+
     // ========== 편대 비행 게이트 (FormationController 연동) ==========
     void setFormationReadyToRotate(bool ready);
     void setFormationReadyToNavigate(bool ready);

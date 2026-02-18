@@ -85,6 +85,10 @@ struct MissionContext {
     std::atomic<bool> formation_ready_to_navigate{false};
     std::atomic<bool> continuous_update_mode{false};
 
+    // === 소화탄 상태 (ApplicationManager가 설정) ===
+    std::atomic<int>* fire_gpio_index_ptr{nullptr};  // 현재 발사 인덱스 포인터
+    int fire_gpio_count{0};                           // 총 소화탄 수 (6)
+
     // === 충돌 방지 ===
     std::atomic<int> collision_action{0};  // 0=NONE, 1=HOLD, 2=EVADE_RIGHT
     float hold_x{0.0f}, hold_y{0.0f}, hold_z{0.0f}, hold_yaw{0.0f};

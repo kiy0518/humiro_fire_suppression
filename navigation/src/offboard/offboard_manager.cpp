@@ -648,6 +648,12 @@ void OffboardManager::setContinuousUpdateMode(bool enabled) {
     RCLCPP_INFO(node_->get_logger(), "[FORMATION] continuous_update_mode = %s", enabled ? "true" : "false");
 }
 
+void OffboardManager::setFireAmmoState(std::atomic<int>* index_ptr, int total_count) {
+    ctx_.fire_gpio_index_ptr = index_ptr;
+    ctx_.fire_gpio_count = total_count;
+    RCLCPP_INFO(node_->get_logger(), "[FIRE] 소화탄 상태 연결 (총 %d발)", total_count);
+}
+
 // ========== 핸들러 아키텍처 ==========
 
 void OffboardManager::transitionTo(StateHandler* handler)

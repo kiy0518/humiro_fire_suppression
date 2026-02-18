@@ -232,6 +232,7 @@ void ApplicationManager::initializeOffboard() {
     if (ros2_node_ && fc_bridge_) {
         std::cout << "\n[자율 비행 관리자 초기화]" << std::endl;
         offboard_manager_ = new OffboardManager(ros2_node_, fc_bridge_);
+        offboard_manager_->setFireAmmoState(&fire_gpio_index_, FIRE_GPIO_COUNT);
         std::cout << "  ✓ OffboardManager 초기화 완료 (FCBridgeClient IPC)" << std::endl;
     }
 #endif

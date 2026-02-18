@@ -56,6 +56,26 @@ fi
 # 실행 파일 경로
 EXECUTABLE="$PROJECT_ROOT/application/build/humiro_fire_suppression"
 
+# 바이너리 무결성 검사
+if [ ! -f "$EXECUTABLE" ]; then
+    echo "[WRAPPER ERROR] 바이너리 파일 없음: $EXECUTABLE" >&2
+    exit 1
+fi
+
+FILE_SIZE=$(stat -c%s "$EXECUTABLE" 2>/dev/null || echo "0")
+if [ "$FILE_SIZE" -lt 1024 ]; then
+    echo "[WRAPPER ERROR] 바이너리 손상 (크기: ${FILE_SIZE} bytes). 빌드 중 전원 차단으로 추정." >&2
+    echo "[WRAPPER ERROR] 복구 방법: cd $PROJECT_ROOT/application/build && cmake --build . --clean-first -j\$(nproc)" >&2
+    exit 1
+fi
+
+# ELF 매직 넘버 확인 (첫 4바이트: 7f 45 4c 46 = \x7fELF)
+MAGIC=$(xxd -l 4 -p "$EXECUTABLE" 2>/dev/null)
+if [ "$MAGIC" != "7f454c46" ]; then
+    echo "[WRAPPER ERROR] 바이너리가 유효한 ELF 파일이 아님 (magic: $MAGIC)" >&2
+    exit 1
+fi
+
 # 실행
 cd "$PROJECT_ROOT/application/build"
 exec "$EXECUTABLE" "$@"

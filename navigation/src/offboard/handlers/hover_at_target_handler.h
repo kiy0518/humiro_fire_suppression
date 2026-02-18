@@ -5,9 +5,9 @@
  * 목표 도착 후 호버링 + 점진적 고도 하강.
  * target_altitude > 0이면 해당 고도로 하강, 아니면 takeoff_altitude 유지.
  *
- * 전환 조건:
- *   단독: 5초(TARGET_HOVER_SEC) 경과 → COMPLETE
- *   편대: 30초(SUPPRESS_HOVER_SEC) 경과 → COMPLETE
+ * 전환 조건 (OR):
+ *   1. 소화탄 모두 소진 → 2초 대기 후 COMPLETE
+ *   2. 타임아웃 (TARGET_HOVER_SEC) 경과 → COMPLETE
  */
 
 #ifndef HOVER_AT_TARGET_HANDLER_H
@@ -29,8 +29,13 @@ public:
 
         hover_duration_ = ctx.formation_mode ? SUPPRESS_HOVER_SEC : TARGET_HOVER_SEC;
 
-        RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 목표지점 호버링 시작 (%.0f초), 목표고도: %.1fm",
-                    hover_duration_, effective_alt);
+        // 소화탄 소진 상태 초기화
+        ammo_depleted_ = false;
+        ammo_depleted_time_ = {};
+
+        int remaining = getRemaining(ctx);
+        RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 목표지점 호버링 시작 (최대 %.0f초), 목표고도: %.1fm, 잔탄: %d/%d",
+                    hover_duration_, effective_alt, remaining, ctx.fire_gpio_count);
     }
 
     void onExit(MissionContext& ctx) override {
@@ -40,21 +45,40 @@ public:
     TransitionResult tick(MissionContext& ctx) override {
         double elapsed = ctx.elapsedSec();
 
+        // 조건 1: 소화탄 모두 소진 → 2초 대기 후 RTL
+        if (ctx.fire_gpio_index_ptr && ctx.fire_gpio_count > 0) {
+            int idx = ctx.fire_gpio_index_ptr->load();
+            if (idx >= ctx.fire_gpio_count) {
+                if (!ammo_depleted_) {
+                    ammo_depleted_ = true;
+                    ammo_depleted_time_ = std::chrono::steady_clock::now();
+                    RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 소화탄 모두 소진! 2초 후 RTL 전환");
+                }
+                auto since = std::chrono::duration<double>(
+                    std::chrono::steady_clock::now() - ammo_depleted_time_).count();
+                if (since >= AMMO_DEPLETED_DELAY_SEC) {
+                    RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 소화탄 소진 → RTL 전환 (%.1f초 경과)", elapsed);
+                    return TransitionResult::COMPLETE;
+                }
+            }
+        }
+
+        // 조건 2: 타임아웃
         if (elapsed >= hover_duration_) {
-            RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 호버링 완료 (%.0f초)! RTL 전환",
-                        hover_duration_);
+            RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 타임아웃 (%.0f초) → RTL 전환", hover_duration_);
             return TransitionResult::COMPLETE;
         }
 
-        // 진행 로깅 (5초마다)
-        int tick_5s = static_cast<int>(elapsed / 5.0);
-        if (tick_5s != last_log_tick_) {
-            last_log_tick_ = tick_5s;
+        // 진행 로깅 (10초마다)
+        int tick_10s = static_cast<int>(elapsed / 10.0);
+        if (tick_10s != last_log_tick_) {
+            last_log_tick_ = tick_10s;
             float current_z = ctx.current_local_z.load();
-            RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] %.0f/%.0fs, 고도: %.1fm (목표: %.1fm)",
+            int remaining = getRemaining(ctx);
+            RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] %.0f/%.0fs, 잔탄: %d/%d, 고도: %.1fm",
                         elapsed, hover_duration_,
-                        -(current_z - ctx.start_local_z),
-                        -(final_z_ - ctx.start_local_z));
+                        remaining, ctx.fire_gpio_count,
+                        -(current_z - ctx.start_local_z));
         }
 
         return TransitionResult::STAY;
@@ -86,12 +110,24 @@ public:
     const char* name() const override { return "HOVER_AT_TARGET"; }
 
 private:
-    static constexpr float TARGET_HOVER_SEC = 5.0f;
-    static constexpr float SUPPRESS_HOVER_SEC = 5.0f;
+    // 테스트용: 30초 (운용: 300초로 변경)
+    static constexpr float TARGET_HOVER_SEC = 30.0f;
+    static constexpr float SUPPRESS_HOVER_SEC = 30.0f;
+    static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;  // 소화탄 소진 후 RTL까지 대기
 
     float final_z_{0.0f};
-    float hover_duration_{5.0f};
+    float hover_duration_{30.0f};
     int last_log_tick_{-1};
+
+    // 소화탄 소진 상태
+    bool ammo_depleted_{false};
+    std::chrono::steady_clock::time_point ammo_depleted_time_;
+
+    int getRemaining(const MissionContext& ctx) const {
+        if (!ctx.fire_gpio_index_ptr || ctx.fire_gpio_count <= 0) return 0;
+        int idx = ctx.fire_gpio_index_ptr->load();
+        return std::max(0, ctx.fire_gpio_count - idx);
+    }
 };
 
 #endif // HOVER_AT_TARGET_HANDLER_H
