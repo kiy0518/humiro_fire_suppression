@@ -1,8 +1,9 @@
-# Humiro Fire Suppression - 프로젝트 마스터 플랜 v4.2
+# Humiro Fire Suppression - 프로젝트 마스터 플랜 v5.0
 
 작성일: 2025-12-31
-**최종 수정일**: 2026-01-20
-**상태**: 군집 드론 자율성 로드맵 추가
+**최종 수정일**: 2026-02-18
+**소프트웨어 버전**: v0.19.3
+**상태**: 편대 비행 + GPIO 격발 구현 완료, 실비행 튜닝 단계
 
 ---
 
@@ -12,10 +13,10 @@
 graph LR
     subgraph L1[" "]
         direction TB
-        L1_title["🎯 Level 1<br/>리더-팔로워<br/>(현재 목표)"]
-        Leader["👑 리더"]
-        F1["🛸 팔로워L"]
-        F2["🛸 팔로워R"]
+        L1_title["Level 1<br/>리더-팔로워<br/>(현재 구현됨 ✅)"]
+        Leader["리더"]
+        F1["팔로워L"]
+        F2["팔로워R"]
         L1_title ~~~ Leader
         Leader -->|명령| F1
         Leader -->|명령| F2
@@ -23,20 +24,20 @@ graph LR
 
     subgraph L2[" "]
         direction TB
-        L2_title["⚡ Level 2<br/>분산 협조<br/>(다음 단계)"]
-        D1["📡 기체1"]
-        D2["📡 기체2"]
-        D3["📡 기체3"]
+        L2_title["Level 2<br/>분산 협조<br/>(다음 단계)"]
+        D1["기체1"]
+        D2["기체2"]
+        D3["기체3"]
         L2_title ~~~ D1
         D1 <--> D2 <--> D3
     end
 
     subgraph L3[" "]
         direction TB
-        L3_title["🚀 Level 3<br/>완전 자율<br/>(미래 목표)"]
-        A1["🤖 기체1"]
-        A2["🤖 기체2"]
-        A3["🤖 기체3"]
+        L3_title["Level 3<br/>완전 자율<br/>(미래 목표)"]
+        A1["기체1"]
+        A2["기체2"]
+        A3["기체3"]
         L3_title ~~~ A1
     end
 
@@ -45,37 +46,29 @@ graph LR
     style L1 fill:#e3f2fd,stroke:#1565c0,stroke-width:3px
     style L2 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
     style L3 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    style L1_title fill:#1565c0,color:#fff
-    style L2_title fill:#ef6c00,color:#fff
-    style L3_title fill:#7b1fa2,color:#fff
-    style Leader fill:#1976d2,color:#fff
-    style F1 fill:#4caf50,color:#fff
-    style F2 fill:#9c27b0,color:#fff
-    style D1 fill:#ff9800,color:#fff
-    style D2 fill:#ff9800,color:#fff
-    style D3 fill:#ff9800,color:#fff
-    style A1 fill:#ab47bc,color:#fff
-    style A2 fill:#ab47bc,color:#fff
-    style A3 fill:#ab47bc,color:#fff
 ```
 
-### Level 1: 리더-팔로워 (현재 목표) 🎯
-| 기능 | 설명 |
-|-----|------|
-| 편대 비행 | 리더 WAYPOINT 기준 오프셋 적용 |
-| 상태 동기화 | ARM → TAKEOFF → 이동 → 조준 → 발사 |
-| 동기화 발사 | 리더 명령에 의한 동시 발사 |
-| Fail-safe | 리더 통신 끊김 시 hover → RTL |
+### Level 1: 리더-팔로워 (현재 구현됨) ✅
+| 기능 | 상태 | 설명 |
+|-----|------|------|
+| 편대 비행 | ✅ 완료 | 리더 위치 기준 오프셋 적용 (right/behind/above) |
+| 상태 동기화 | ✅ 완료 | IDLE → FOLLOWING → SUPPRESSING → HOLD → RTL |
+| 횡단 방지 | ✅ 완료 | Cross-track 클램프 + SUPPRESS 미러링 |
+| DDS 도메인 분리 | ✅ 완료 | FC Bridge IPC (FC: Domain 0, 편대: Domain 1) |
+| 충돌 방지 | ✅ 기본 | CollisionAvoidance 기본 구현 |
+| GPIO 격발 | ⚠️ 70% | 소프트웨어 완료, HW 검증 대기 |
+| Gate 동기화 | ⏳ 미구현 | Gate 4 (SUPPRESS→RTL) |
+| Fail-safe | ✅ 완료 | 리더 통신 끊김 시 hover → RTL |
 
-### Level 2: 분산 협조 (다음 단계) ⚡
+### Level 2: 분산 협조 (다음 단계)
 | 기능 | 설명 |
 |-----|------|
 | 상호 위치 공유 | 리더 없이 P2P 통신 |
 | 위치 협상 | 도착 순서에 따른 자동 배치 |
-| 충돌 회피 | 기본 충돌 회피 알고리즘 |
+| 충돌 회피 | 회피 경로 생성 알고리즘 |
 | Mesh 통신 | 분산 네트워크 구성 |
 
-### Level 3: 완전 자율 (미래 목표) 🚀
+### Level 3: 완전 자율 (미래 목표)
 | 기능 | 설명 |
 |-----|------|
 | AI 타겟 인식 | 열화상/비전 기반 자동 인식 |
@@ -87,477 +80,241 @@ graph LR
 
 ## 프로젝트 개요
 
-**목적**: 드론 기반 자동 소화 시스템
+**목적**: 드론 기반 자동 소화 시스템 (3대 편대)
 
 **핵심 프로세스**:
 1. ✅ 열화상으로 화재 감지 (핫스팟)
-2. ✅ LiDAR로 거리 측정 (10m 도착 판단)
-3. ⏳ GCS 격발 신호 수신
-4. ⏳ 핫스팟 트래킹 + 드론 정조준
-5. ⏳ 소화탄 발사
+2. ✅ LiDAR로 거리 측정
+3. ✅ GCS 미션 명령 수신 (CustomMessage 60000)
+4. ✅ 자율 비행 (OFFBOARD 상태머신)
+5. ✅ 편대 비행 (Leader-Follower ROS2 DDS)
+6. ⚠️ GPIO 격발 (소프트웨어 완료, HW 검증 대기)
+7. ⏳ 핫스팟 트래킹 + 드론 정조준
 
 **기술 스택**:
-- **개발 언어**: C++17 (우선)
+- **개발 언어**: C++17 (코어) + Python (GUI)
 - **플랫폼**: Khadas VIM4 (Ubuntu 22.04 ARM64)
-- **빌드**: CMake + Make
-- **ROS2**: Humble
+- **빌드**: CMake + Make + colcon
+- **ROS2**: Humble + FastDDS
+- **PX4**: v1.16.0 + uXRCE-DDS
+- **통신**: MAVLink (GCS↔VIM4), ROS2 DDS (드론 간)
 
 ---
 
-## 시스템 재정의 (v4.1 핵심 변경)
+## 시스템 아키텍처
 
-### targeting의 의미 변경
-
-**이전 (v3.0 - 잘못된 이해)**:
-- targeting = 거리 측정 + 탄도 계산
-
-**현재 (v4.1 - 올바른 이해)**:
-- **targeting** = **핫스팟 트래킹 + 드론 위치 제어** (정조준)
-- **lidar** = **거리 측정** (10m 도착 판단)
-
-### 폴더 구조 변경
-```
-lidar/        (이전: targeting/lidar_integration)
-targeting/    (새로 정의: 핫스팟 트래킹 + 드론 제어)
-application/  (통합 애플리케이션, 최신 리팩토링)
-thermal/src/  (라이브러리로 변경, thermal_lib)
-streaming/src/ (라이브러리로 변경, streaming_lib)
-```
-
----
-
-## 화재 진압 시나리오
-
-
-
-### Phase 1: 접근 (자율 비행)
-- **RGB 카메라 화재 확인 후 목표점까지 자동 이동**
-  - 화재 감지된 위치로 자율 비행 시작
-  - GPS 좌표 또는 상대 위치 기반 경로 계획
-  - 장애물 회피 및 안전 경로 탐색
-- 열원까지 10m 지점으로 자율 비행
-- **lidar/** 로 거리 모니터링
-- 10m 도착 확인
-
-### Phase 2: 대기
-- 10m 지점 호버링
-- **GCS 격발 신호 대기**
-
-### 프로젝트 Phase 3: Targeting 활성화 ⭐ (핵심)
-- **GCS 격발 신호 수신** (ROS2 토픽)
-- **targeting/** 모듈 활성화 (드론 제어 기능 포함)
-- **10m 지점부터 열화상으로 열 트래킹 시작**
-  - 열화상 카메라로 핫스팟 감지 및 추적
-  - Kalman Filter 기반 예측 추적
-  - 열원 중심으로 자동 조준
-- **핫스팟 트래킹 시작** (thermal/src 데이터 사용, 이미 구현됨)
-- **드론 상하좌우 미세 조정** (PX4 제어, 프로젝트 Phase 3에서 추가)
-  - 열 트래킹 기반 위치 보정
-  - 화면 중심에 핫스팟 유지
-- **정조준 유지** (화면 중심에 핫스팟)
-- **LOCKED 판정** (오차 < 임계값)
-
-### Phase 4: 발사
-- 정조준 완료 (LOCKED) 확인
-- **throwing_mechanism/** 발사 실행
-
-### Phase 5: 인공지능 기반 화재 감지 (추후 구현)
-- **AI 기반 RGB 카메라 화재 감지** (딥러닝 모델 활용)
-  - **딥러닝 화재 감지 모델** (CNN/YOLO 기반)
-    - 화염 감지 (실시간 객체 탐지)
-    - 연기 감지 (시계열 분석 및 패턴 인식)
-    - 화재 확률 계산 및 신뢰도 평가
-  - **모델 학습 및 최적화**
-    - 화재 데이터셋 수집 및 라벨링
-    - 전이 학습 (Transfer Learning) 활용
-    - 엣지 디바이스 최적화 (모델 경량화, 양자화)
-  - **실시간 추론 파이프라인**
-    - RGB 영상 프레임별 화재 감지
-    - 화재 위치 추정 및 바운딩 박스
-    - GPS 좌표 변환 및 목표점 설정
-  - **LTE 통신 이중화** (통신 안정성 강화)
-    - 기존 WiFi/무선 통신과 병행
-    - 통신 장애 시 자동 전환 (failover)
-    - 실시간 영상 전송 및 제어 명령 수신
-    - 통신 상태 모니터링 및 자동 복구
----
-
-## 현재 진행 상황
-
-### ✅ Phase 1: 열화상 시스템 (완료 - 100%)
-
-**위치**: `thermal/src/`  
-**코드**: 2,665 LOC C++  
-**상태**: ✅ 완전 구현 및 테스트 완료
-
-**구현 기능**:
-- 핫스팟 자동 감지 (`thermal_processor.cpp`) ✅
-- RGB+Thermal 영상 정합 (`frame_compositor.cpp`) ✅
-- RTSP/HTTP 스트리밍 ✅
-- **개선 예정**: 비동기식 스트리밍 (준비되는 데이터부터 즉시 전송) ⏳
-  - 참조: `work-plan/STREAMING_PLAN.md`
-
-**핵심 코드**:
-```cpp
-// thermal_processor.cpp
-bool extract_thermal_data(const cv::Mat& thermal_frame, ThermalData& data) {
-    // 녹색 채널에서 최대값 찾기 (핫스팟)
-    cv::minMaxLoc(green, &min_val, &max_val, &min_loc, &max_loc);
-    
-    // 핫스팟 위치
-    data.hotspot_x = RGB_CROP_X + max_loc.x;
-    data.hotspot_y = RGB_CROP_Y + max_loc.y;
-    data.valid = true;
-}
-```
-
-### ✅ 프로젝트 Phase 2: LiDAR 거리 측정 (완료 - 100%)
-
-**위치**: `lidar/src/` (이전: targeting/lidar_integration)  
-**코드**: 1,188 LOC C++  
-**상태**: ✅ 완전 구현 (하드웨어 테스트 대기)
-
-**역할 재정의**:
-- **거리 측정** (10m 도착 판단)
-- **거리 오버레이** (항상 표시)
-- ❌ ~~targeting~~ (잘못된 이해)
-
-**구현 기능**:
-- LD19 UART 통신 (`lidar_interface.cpp`) ✅
-- 360° 거리 스캔 ✅
-- 거리 오버레이 (색상 코딩) ✅
-  - 녹색 (9-11m): 최적
-  - 빨간색 (<9m): 너무 가까움
-  - 파란색 (>11m): 너무 멀음
-
-**핵심 코드**:
-```cpp
-// distance_overlay.cpp
-cv::Scalar getColorForDistance(float distance) {
-    if (distance >= 9.0f && distance <= 11.0f) {
-        return cv::Scalar(0, 255, 0);  // 녹색 (최적)
-    } else if (distance < 9.0f) {
-        return cv::Scalar(0, 0, 255);  // 빨간색
-    } else {
-        return cv::Scalar(255, 0, 0);  // 파란색
-    }
-}
-```
-
-### ⏳ 프로젝트 Phase 3: Targeting 시스템 (미구현 - 0%)
-
-**참고**: 이것은 **프로젝트 기능 Phase 3**입니다. 아키텍처 리팩토링의 Phase 3 (ROS2 통신 강화)와는 다릅니다.
-
-**위치**: `targeting/`  
-**코드**: 0 LOC (설계 완료)  
-**상태**: ⏳ 구현 대기
-
-**역할 재정의** ⭐:
-- **핫스팟 트래킹** (Kalman Filter)
-- **드론 위치 제어** (PX4 offboard mode)
-- **정조준 유지** (화면 중심에 핫스팟)
-- **GCS 신호 처리**
-
-**구현 계획** (프로젝트 Phase 3에서 추가할 부분):
-```cpp
-// drone_position_controller.cpp - 드론 제어 (신규)
-class DronePositionController {
-    bool adjustPosition(float dx, float dy);  // 상하좌우 미세 조정
-    bool holdPosition();                      // 위치 유지
-};
-
-// targeting_manager.cpp - 통합 관리 (확장)
-class TargetingManager {
-    void onFireCommand(bool enable);  // GCS 신호
-    bool isLocked() const;            // 정조준 완료
-    void update();                    // 메인 루프
-};
-```
-
-**참고**: `hotspot_tracker`, `targeting_overlay`의 기본 구조는 이미 아키텍처 리팩토링에서 구현되었습니다.
-프로젝트 Phase 3에서는 `drone_position_controller`를 추가하고 `targeting_manager`를 확장합니다.
-
-**개발 단계**:
-1. Phase 1 (1주): 기본 구조
-   - hotspot_tracker.cpp
-   - targeting_overlay.cpp
-   - targeting_manager.cpp (기본)
-
-2. Phase 2 (1주): 드론 제어
-   - drone_position_controller.cpp
-   - PX4 연동
-   - 미세 조정 로직
-
-3. Phase 3 (1주): GCS 통합
-   - ROS2 토픽 구독
-   - 활성화/비활성화
-   - 전체 시스템 테스트
-
-### ⏳ Phase 4: 발사 메커니즘 (미구현 - 0%)
-
-**위치**: `throwing_mechanism/`  
-**코드**: 0 LOC (README만)  
-**상태**: ⏳ 설계 단계
-
-**구현 계획**:
-- 서보 각도 제어 (고정 각도) - C++
-- GPIO 발사 트리거 - C++
-- 탄도 계산 불필요 (10m 고정)
-
----
-
-## 전체 시스템 데이터 흐름
+### 통신 구조
 
 ```
-┌──────────────────────┐
-│  RGB Camera + AI      │  ⏳ AI 화재 감지 (Phase 5)
-│  ├─ 딥러닝 모델       │
-│  ├─ 화염/연기 탐지   │
-│  ├─ 화재 확률 계산   │
-│  └─ 위치 추정        │
-└──────────────────────┘
-          ↓
-    화재 위치 확인
-          ↓
-┌──────────────────────┐
-│  LTE 통신 이중화      │  ⏳ 통신 이중화 (추후)
-│  ├─ WiFi/무선 통신   │
-│  ├─ LTE 통신         │
-│  └─ 자동 전환        │
-└──────────────────────┘
-          ↓
-┌──────────────────────┐
-│  자율 비행 제어      │  ⏳ 목표점 자동 이동 (추후)
-│  ├─ 경로 계획        │
-│  ├─ 장애물 회피      │
-│  └─ GPS/상대 위치    │
-└──────────────────────┘
-          ↓
-┌──────────────────────┐
-│  thermal/src/        │  ✅ 핫스팟 감지
-└──────────────────────┘
-          ↓
-    핫스팟 위치 (x, y)
-          ↓
-┌──────────────────────┐
-│  lidar/              │  ✅ 거리 측정
-└──────────────────────┘
-          ↓
-    10m 도착 확인
-          ↓
-┌──────────────────────┐
-│  GCS 격발 신호       │
-└──────────────────────┘
-          ↓
-┌──────────────────────┐
-│  targeting/          │  ⏳ 열 트래킹 + 드론 제어
-│  ├─ 열화상 트래킹    │  (10m 지점부터)
-│  ├─ 핫스팟 추적      │
-│  ├─ 오차 계산        │
-│  ├─ 드론 미세 조정   │
-│  └─ 정조준 유지      │
-└──────────────────────┘
-          ↓
-    정조준 완료 (LOCKED)
-          ↓
-┌──────────────────────┐
-│  throwing_mechanism/ │  ⏳ 발사
-└──────────────────────┘
+┌─────────────────────────────────────────────┐
+│                   GCS (QGC)                  │
+│  CustomMessage (60000-60003) via MAVLink     │
+└──────────────┬──────────────────────────────┘
+               │ mavlink-router (UDP 14550)
+               ▼
+┌─────────────────────────────────────────────┐
+│           VIM4 (Leader - Drone 1)            │
+│                                              │
+│  ┌──────────┐  ┌─────────────┐  ┌────────┐ │
+│  │CustomMsg │  │OffboardMgr  │  │Formation│ │
+│  │(60000-03)│→ │(상태머신)   │← │Controller│ │
+│  └──────────┘  └──────┬──────┘  └────┬────┘ │
+│                       │              │       │
+│                FC Bridge IPC    ROS2 DDS     │
+│                (Domain 0)      (Domain 1)    │
+│                       │         WiFi         │
+│                       ▼              │       │
+│                ┌──────────┐          │       │
+│                │ PX4 FC   │          │       │
+│                │(uXRCE-DDS)│         │       │
+│                └──────────┘          │       │
+└──────────────────────────────────────┼───────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+              ▼                        ▼                        ▼
+┌──────────────────────┐ ┌──────────────────────┐
+│ VIM4 (Follower L)    │ │ VIM4 (Follower R)    │
+│ - LeaderPose 수신    │ │ - LeaderPose 수신    │
+│ - 오프셋 추적        │ │ - 오프셋 추적        │
+│ - FollowerStatus 발행│ │ - FollowerStatus 발행│
+└──────────────────────┘ └──────────────────────┘
+```
+
+### MAVLink Custom Messages
+```
+MSG_ID 60000: FIRE_MISSION_START   (GCS→VIM4) - 미션 시작/경로 변경
+MSG_ID 60001: FIRE_MISSION_STATUS  (VIM4→GCS) - 상태 보고
+MSG_ID 60002: GPIO_CONTROL         (GCS→VIM4) - 격발 제어
+MSG_ID 60003: FIRE_MISSION_RTL     (GCS→VIM4) - 긴급 복귀
+```
+
+### ROS2 편대 토픽
+```
+Leader 발행:
+  /droneN/formation/leader_pose     (10Hz, BestEffort) - 위치+상태
+  /formation/heartbeat              (1Hz, BestEffort)  - 연결 확인
+  /formation/command                (이벤트, Reliable) - 명령 전달
+
+Follower 구독/발행:
+  /droneN/formation/leader_pose     (구독)
+  /formation/heartbeat              (구독)
+  /formation/command                (구독)
+  /formation/follower_status        (발행, 2Hz, BestEffort)
 ```
 
 ---
 
-## 영상 오버레이 통합
+## 화재 진압 미션 시퀀스
 
-### 항상 표시
-1. **거리 오버레이** (`lidar/`)
-   - LINE SHAPE 표시
-   - 색상 코딩 (녹색 9-11m, 빨간색 <9m, 파란색 >11m)
-   - 거리 텍스트
+### 미션 상태 머신
+```
+IDLE → PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE
+  → NAVIGATE → HOVER_AT_TARGET → [SUPPRESS] → RTL → LANDED → IDLE
+```
 
-2. **핫스팟 감지** (`thermal/src/`)
-   - 핫스팟 위치 (원 또는 마커)
-   - 온도 정보
+### Phase 1: 미션 시작
+- GCS에서 FIRE_MISSION_START (60000) 수신
+- 목표 GPS 좌표, 이륙 고도, 비행 속도 설정
+- OFFBOARD 모드 전환 → ARM → TAKEOFF
 
-### GCS 신호 후에만 표시
-3. **트래킹 상태** (`targeting/`)
-   - "TRACKING ACTIVE" 텍스트
-   - 화면 중심 십자선
-   - 오차 벡터 (중심 → 핫스팟)
-   - "LOCKED" 표시 (정조준 완료 시)
+### Phase 2: 접근
+- 목표 방향으로 Yaw 회전 (ROTATE)
+- GPS 좌표로 자율 이동 (NAVIGATE)
+- 감속 프로파일 적용 (DECEL_RADIUS=60m)
+- LiDAR로 전방 거리 모니터링
+
+### Phase 3: 목표 호버
+- HOVER_AT_TARGET 상태
+- 편대: 리더 위치 기준 오프셋 유지
+- 탄약 소진 감지 (fire_gpio_index >= fire_gpio_count)
+- 탄약 소진 시 2초 대기 후 자동 RTL
+- 타임아웃 (30초 테스트 / 300초 운용) 시 자동 RTL
+
+### Phase 4: 격발 (구현 중)
+- GCS에서 GPIO_CONTROL (60002) 수신
+- 순차 격발 (6발 최대)
+- OSD 탄약 카운터 실시간 업데이트
+- 6발 소진 시 자동 RTL
+
+### Phase 5: 복귀
+- RTL 명령 (PX4 내장 또는 자체 구현 예정)
+- 착륙 후 DISARM → IDLE
+
+---
+
+## 현재 진행 상황 (v0.19.3)
+
+### ✅ 완료 모듈
+
+| 모듈 | 코드량 | 설명 |
+|------|--------|------|
+| thermal/ | 2,557 LOC | 핫스팟 감지, RGB+Thermal 정합 |
+| lidar/ | 2,081 LOC | LD19 통신, 360도 스캔, SLAM 캐싱 |
+| streaming/ | 1,112 LOC | RTSP/HTTP 스트리밍 |
+| osd/ | 2,275 LOC | 상태 OSD, 탄약 카운터, 미니맵 |
+| navigation/ | 4,772 LOC | OFFBOARD 상태머신 + 편대 + 충돌회피 |
+| ros2/ | 419 LOC | PX4 상태 구독, 듀얼 구독/발행 |
+| custom_message/ | 4,298 LOC | MAVLink 60000-60003 |
+| application/ | 2,160 LOC | 시스템 통합 |
+| gui/ | 4,975 LOC | 웹 대시보드 (Flask) |
+| **총합** | **~24,800 LOC** | |
+
+### ⏳ 미완료
+
+| 항목 | 진행률 | 남은 작업 |
+|------|--------|-----------|
+| GPIO 실기체 검증 | 70% | HW 핀 출력 테스트 |
+| FC 모드 편대 팔로워 | 80% | SITL 디버깅 필요 |
+| Gate 4 동기화 | 0% | SUPPRESS→RTL 편대 게이트 |
+| 자체 RTL 구현 | 0% | 감속 하강 RTL |
+| 열원 추적 | 30% | Kalman Filter + 드론 미세 조정 |
+| AI 화재 감지 | 0% | 장기 계획 (Phase 7) |
 
 ---
 
 ## 개발 로드맵
 
-### ✅ Phase 1: 열화상 (완료)
-- [x] 핫스팟 감지 (thermal_processor.cpp)
-- [x] RGB+Thermal 정합 (frame_compositor.cpp)
-- [x] RTSP/HTTP 스트리밍
+### ✅ 완료된 Phase
 
-### ✅ Phase 2: LiDAR (완료)
-- [x] LD19 UART 통신 (lidar_interface.cpp)
-- [x] 거리 오버레이 (distance_overlay.cpp)
-- [x] USB-UART / GPIO-UART 지원
+- [x] Phase 1: 열화상 시스템
+- [x] Phase 2: LiDAR 거리 측정
+- [x] Phase 2.5: 스트리밍 시스템
+- [x] Phase 2.7: 상태 모니터링 OSD
+- [x] Phase 3: VIM4 자율 제어 (OFFBOARD 상태머신)
+- [x] Phase 3.5: 편대 통신 (ROS2 DDS)
+- [x] Phase 4: 편대 조율 (Leader-Follower)
+- [x] Phase 4.5: 충돌 방지 (CollisionAvoidance)
+- [x] Phase 5: GPIO 격발 + 탄약 관리 (SW 완료)
+- [x] Phase 5.5: 웹 GUI 대시보드
 
-### ⏳ 프로젝트 Phase 3: Targeting (다음 작업)
-- [ ] hotspot_tracker.cpp (핫스팟 추적)
-- [ ] drone_position_controller.cpp (드론 제어)
-- [ ] targeting_manager.cpp (GCS 신호)
-- [ ] targeting_overlay.cpp (화면 표시)
-- [ ] **열화상 기반 열 트래킹** (10m 지점부터 활성화)
+### ⏳ 진행 중 Phase
 
-### ⏳ Phase 4: Throwing (추후)
-- [ ] servo_controller.cpp
-- [ ] fire_trigger.cpp
+- [ ] Phase 5 HW 검증: GPIO 실기체 핀 출력 테스트
+- [ ] Phase 4 완성: Gate 4 동기화, FC 모드 팔로워 정상화
 
-### ⏳ Phase 5: 인공지능 기반 화재 감지 (추후)
-- [ ] **AI 기반 화재 감지 모듈**
-  - [ ] 딥러닝 화재 감지 모델 개발 (CNN/YOLO)
-    - [ ] 화염 감지 모델 학습 및 최적화
-    - [ ] 연기 감지 모델 학습 및 최적화
-    - [ ] 화재 데이터셋 수집 및 라벨링
-    - [ ] 전이 학습 (Transfer Learning) 적용
-    - [ ] 엣지 디바이스 최적화 (모델 경량화, 양자화)
+### 향후 Phase
+
+- [ ] Phase 6: Targeting (열원 추적 + 드론 미세 조정)
+  - [ ] 열원 자동 추적 (Kalman Filter)
+  - [ ] 드론 위치 미세 조정 (상하좌우)
+  - [ ] 정조준 판단 (LOCKED)
+- [ ] Phase 7: AI 화재 감지 (장기 계획)
+  - [ ] CNN/YOLO 기반 화재 감지 모델
   - [ ] 실시간 추론 파이프라인
-    - [ ] RGB 영상 프레임별 화재 감지
-    - [ ] 화재 위치 추정 및 바운딩 박스
-    - [ ] 화재 확률 계산 및 신뢰도 평가
-    - [ ] GPS 좌표 변환 및 목표점 설정
-  - [ ] 모델 배포 및 관리
-    - [ ] ONNX/TensorRT 변환 및 최적화
-    - [ ] 모델 버전 관리 및 업데이트
-    - [ ] 추론 성능 모니터링
-- [ ] **LTE 통신 이중화 모듈**
-  - [ ] LTE 모뎀 초기화 및 연결 관리
-  - [ ] WiFi/무선 통신과 병행 통신
-  - [ ] 통신 상태 모니터링 및 자동 전환 (failover)
-  - [ ] 실시간 영상 전송 (LTE 경로)
-  - [ ] 제어 명령 수신 및 우선순위 처리
-  - [ ] 통신 장애 복구 메커니즘
-- [ ] **자율 비행 경로 계획** (AI 화재 감지 연동)
-  - [ ] AI 감지 결과 기반 목표점 설정
-  - [ ] GPS 좌표 또는 상대 위치 기반 경로 계획
-  - [ ] 장애물 회피 알고리즘
-  - [ ] 안전 경로 탐색 및 최적화
-
----
-
-## 진행 상황 요약
-
-```
-프로젝트 Phase 5: AI 화재 감지   [░░░░░░░░░░]   0%  ⏳ 추후 구현
-프로젝트 Phase 1: 열화상       [██████████] 100%  ✅ 완료
-프로젝트 Phase 2: LiDAR        [██████████] 100%  ✅ 완료 (HW 대기)
-프로젝트 Phase 3: Targeting    [██░░░░░░░░]  20%  ⏳ 부분 완료 (드론 제어 기능 추가 필요)
-프로젝트 Phase 4: Throwing     [░░░░░░░░░░]   0%  ⏳ 추후
-
-전체: 44% 완료 (5단계 중 2단계 완료 + 1단계 부분 완료)
-코드: 64% 완료 (3,853 / 5,953 LOC)
-
-참고: 아키텍처 리팩토링 Phase 1-3는 모두 완료되었습니다.
-```
-
----
-
-## 코드 통계
-
-### 완료
-- `thermal/src/`: 2,665 LOC C++ ✅
-- `lidar/`: 1,188 LOC C++ ✅
-- **총 완료**: 3,853 LOC
-
-### 예정
-- `targeting/`: ~1,200 LOC C++ ⏳
-- `throwing_mechanism/`: ~900 LOC C++ ⏳
-- `fire_detection/` (AI 기반 화재 감지): ~2,000 LOC C++/Python ⏳
-  - 딥러닝 모델 학습 및 추론 파이프라인 포함
-- `lte_communication/` (LTE 통신 이중화): ~800 LOC C++ ⏳
-- `autonomous_navigation/` (자율 비행 경로 계획): ~1,200 LOC C++ ⏳
-- **예상 총합**: ~10,553 LOC
-
----
-
-## v4.1 핵심 변경사항
-
-### 1. targeting 의미 재정의 (v4.0에서 정의)
-- **이전**: targeting = 거리 측정
-- **현재**: targeting = 핫스팟 트래킹 + 드론 제어
-
-### 2. 폴더 구조 변경 (v4.0에서 정의)
-- `targeting/lidar_integration` → `lidar/`
-- `targeting/` (새로 정의: 핫스팟 트래킹 + 드론 제어)
-
-### 3. 화재 진압 시나리오 반영 (v4.0에서 정의)
-- Phase 1-2: 접근 및 대기
-- **Phase 3: GCS 신호 → targeting 활성화** ⭐
-- Phase 4: 발사
-
-### 4. 영상 오버레이 통합 (v4.0에서 정의)
-- 항상 표시: 거리 + 핫스팟
-- GCS 신호 후: 트래킹 상태
-
-### 5. Phase 5 추가: 인공지능 기반 화재 감지 (v4.1 신규) ⭐
-- **AI 기반 RGB 카메라 화재 감지** 추가
-  - 딥러닝 화재 감지 모델 (CNN/YOLO 기반)
-  - 화염 및 연기 실시간 객체 탐지
-  - 화재 확률 계산 및 신뢰도 평가
-  - 화재 위치 추정 및 GPS 좌표 변환
-  - 모델 경량화 및 엣지 디바이스 최적화
-- **LTE 통신 이중화** 추가
-  - 기존 WiFi/무선 통신과 병행
-  - 통신 장애 시 자동 전환 (failover)
-  - 실시간 영상 전송 및 제어 명령 수신
-- **자율 비행 경로 계획** 추가 (AI 화재 감지 연동)
-  - AI 감지 결과 기반 목표점 자동 설정
-  - GPS 좌표 또는 상대 위치 기반 경로 계획
-  - 장애물 회피 및 안전 경로 탐색
-- **열화상 열 트래킹 강화** (Phase 3)
-  - 10m 지점부터 열화상으로 열 트래킹 시작
-  - Kalman Filter 기반 예측 추적
-  - 열원 중심으로 자동 조준
+  - [ ] LTE 통신 이중화
 
 ---
 
 ## 다음 우선순위
 
 ### 즉시 (이번 주)
-1. LD19 LiDAR 하드웨어 테스트
-2. targeting/ 구현 시작 준비
+1. FC 모드 편대 비행 팔로워 정상화
+2. GPIO 실기체 핀 출력 테스트
 
 ### 1주일 내
-1. **targeting/** 프로젝트 Phase 3.1 구현
-   - drone_position_controller.cpp (드론 제어 기능 추가)
-   - targeting_manager.cpp 확장
-   - 열화상 기반 열 트래킹 (10m 지점부터)
+3. Gate 4 (SUPPRESS→RTL) 동기화 구현
+4. RTL 자체 구현 (감속 하강)
 
 ### 2주 내
-1. **targeting/** 프로젝트 Phase 3.2 구현
-   - PX4 연동
-   - 미세 조정 로직
-   - 열 트래킹 정조준 시스템
+5. 열원 추적 기능 (targeting/ 확장)
+6. 목적지 오버슈트 실비행 튜닝
 
-### 3주 내
-1. **targeting/** 프로젝트 Phase 3.3 통합
-   - GCS 신호 연동
-   - 전체 시스템 테스트
-
-### 추후 (장기 계획)
-1. **Phase 5: 인공지능 기반 화재 감지**
-   - AI 기반 화재 감지 모듈 개발 (딥러닝 모델)
-   - 화재 데이터셋 수집 및 모델 학습
-   - 실시간 추론 파이프라인 구축
-   - 모델 경량화 및 엣지 디바이스 최적화
-   - LTE 통신 이중화 시스템 구축
-   - AI 감지 결과 기반 자율 비행 경로 계획
-
-**참고**: targeting/src/의 기본 구조는 이미 아키텍처 리팩토링에서 완료되었습니다.
-프로젝트 Phase 3에서는 드론 제어 기능을 추가하여 확장합니다.
+### 장기 계획
+7. AI 화재 감지 (CNN/YOLO)
+8. LTE 통신 이중화
+9. 분산 협조 시스템 (Level 2)
 
 ---
 
-**작성자**: Claude Code Assistant  
-**버전**: v4.1 (LTE 통신 이중화 및 RGB 화재 감지 추가)  
-**작성일**: 2025-12-31  
-**최종 수정일**: 2026-01-04  
-**다음 리뷰**: targeting/ Phase 1 완료 시
+## v5.0 변경사항 (v4.2 → v5.0)
+
+### 1. 편대 비행 시스템 완전 구현 (0% → 90%)
+- ROS2 DDS 통신 (LeaderPose, FollowerStatus, FormationCommand, FormationHeartbeat)
+- Cross-track 횡단 방지 + SUPPRESS 미러링
+- DDS 도메인 분리 (FC Bridge IPC)
+- 솔로/편대 모드 토글
+
+### 2. GPIO 격발 시스템 구현 (0% → 70%)
+- 순차 격발 (MSG_ID 60002)
+- 탄약 카운터 (0-6발)
+- 탄약 소진 시 자동 RTL
+
+### 3. OFFBOARD 시스템 완전 리팩토링
+- 핸들러 기반 상태머신 (10개 핸들러)
+- 감속 프로파일 (DECEL_RADIUS=60m)
+- HOVER_AT_TARGET 상태 추가
+
+### 4. 충돌 방지 시스템 추가 (v0.16.0)
+### 5. 웹 GUI 대시보드 구현 (4,975 LOC)
+### 6. CustomMessage MAVLink 통합 (4,298 LOC)
+### 7. SITL/FC 모드 전환 안정화
+### 8. 듀얼 구독/발행 패턴 (FC/SITL 호환)
+
+---
+
+**작성자**: Claude Code Assistant
+**버전**: v5.0
+**작성일**: 2025-12-31
+**최종 수정일**: 2026-02-18
+**다음 리뷰**: FC 모드 편대 테스트 완료 시

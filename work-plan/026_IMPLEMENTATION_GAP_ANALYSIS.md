@@ -2,411 +2,268 @@
 
 ## 문서 정보
 - **작성일**: 2026-01-16
-- **버전**: 1.0.0
+- **최종 수정일**: 2026-02-18
+- **버전**: 2.0.0
+- **소프트웨어 버전**: v0.19.3
 - **목적**: work-plan 문서와 실제 구현 코드 간의 차이 분석 및 개선사항 도출
 
 ---
 
 ## 1. 요약 (Executive Summary)
 
-| 항목 | 완료율 | 상태 |
-|------|--------|------|
-| **전체 진행률** | ~60% | 진행 중 |
-| **완전 구현** | 9개 기능 | 안정 |
-| **부분 구현** | 7개 기능 | 보완 필요 |
-| **미구현** | 6개 기능 | 작업 필요 |
+| 항목 | v1.0 (2026-01-16) | v2.0 (2026-02-18) | 변화 |
+|------|-------|-------|------|
+| **전체 진행률** | ~60% | ~85% | +25% |
+| **완전 구현** | 9개 기능 | 18개 기능 | +9 |
+| **부분 구현** | 7개 기능 | 5개 기능 | -2 (완료됨) |
+| **미구현** | 6개 기능 | 3개 기능 | -3 (완료됨) |
+
+### v1.0 이후 해결된 항목
+- ~~001 - isArmed() 함수 미구현~~ → ✅ VehicleStatus 구독으로 해결
+- ~~002 - 충돌 회피 시스템 미구현~~ → ✅ CollisionAvoidance 기본 구현 (v0.16.0)
+- ~~003 - 편대 비행 컨트롤러 미구현~~ → ✅ FormationController 완전 구현 (v0.15.x)
+- ~~007 - 발사 메커니즘 미구현~~ → ⚠️ GPIO 순차 격발 SW 구현 (v0.18.4)
 
 ---
 
-## 2. 상세 분석
+## 2. 현재 미해결 Gap 분석
 
-### 001 - `isArmed()` 함수 미구현 [CRITICAL]
+### GAP-001 - Gate 4 (SUPPRESS→RTL) 동기화 미구현 [HIGH]
 
-**위치**: `outdoor_mission_manager.cpp:950-952`
+**계획 문서**: `024_01_OFFBOARD_MODE_SEQUENCE_V2.md`
+
+**계획된 기능**:
+- 편대 전체 단계 게이트 동기화
+- SUPPRESS 단계 완료 후 편대 동시 RTL
+
+**현재 상태**: ⏳ 미구현
+- 리더만 독립적으로 RTL 전환
+- 팔로워는 리더 상태 변경을 감지하여 따라가지만 동기화 보장 없음
+
+**영향도**: 🟠 HIGH
+- 편대 복귀 시 불일치 가능
+
+**수정 방안**:
+- FormationCommand에 RTL_ALL 명령 추가
+- 리더가 SUPPRESS 완료 시 전체 RTL 명령 발행
+
+---
+
+### GAP-002 - FC 모드 편대 비행 팔로워 비정상 [HIGH]
+
+**현재 상태**: ⚠️ SITL에서는 정상, FC 모드에서 팔로워 움직임 비정상
+
+**원인 추정**:
+- FC 모드에서 DDS 도메인 분리 후 통신 경로 차이
+- micro-ros-agent와 fc_bridge 간 타이밍 이슈
+
+**영향도**: 🟠 HIGH
+- 실기체 편대 비행 불가
+
+**수정 방안**:
+- SITL 3대로 FC 모드 시뮬레이션 디버깅
+- DDS 도메인 통신 로그 분석
+
+---
+
+### GAP-003 - 편대 게이트 우회 [MEDIUM]
+
+**현재 상태**: ⚠️ FollowerStatus가 미션 시작 전에도 FOLLOWING 보고
+
+**원인**:
+- FormationController가 리더 포즈 수신 시 즉시 FOLLOWING 상태 전환
+- 미션 시작 여부 확인 로직 부재
+
+**영향도**: 🟡 MEDIUM
+
+**수정 방안**:
+- FormationController에 mission_started 플래그 추가
+- 리더의 FormationCommand(CMD_FOLLOW)를 받아야만 FOLLOWING 전환
+
+---
+
+### GAP-004 - 자체 RTL 미구현 [MEDIUM]
+
+**현재 상태**: PX4 내장 RTL 사용 중
 
 **문제**:
-```cpp
-bool OutdoorMissionManager::isArmed() {
-    // TODO: VehicleStatus에서 확인
-    return true;  // 임시
-}
-```
-
-**계획 (024_01_OFFBOARD_MODE_SEQUENCE_V2.md)**:
-- VehicleStatus 토픽 구독하여 arming_state 확인 필요
-- 시동 상태 미확인 시 미션 진행 불가해야 함
-
-**현재 상태**: 항상 `true` 반환 (위험)
-
-**영향도**: 🔴 CRITICAL
-- 시동 해제 상태에서도 미션 진행 가능 (안전 위험)
-- FC 상태와 불일치 발생 가능
-
-**수정 방안**:
-```cpp
-// VehicleStatus 구독 추가 필요
-rclcpp::Subscription<px4_msgs::msg::VehicleStatus>::SharedPtr vehicle_status_sub_;
-std::atomic<uint8_t> arming_state_{0};
-
-bool OutdoorMissionManager::isArmed() {
-    return arming_state_ == 2;  // ARMING_STATE_ARMED
-}
-```
-
----
-
-### 002 - 충돌 회피 시스템 미구현 [CRITICAL]
-
-**계획 문서**: `025_COLLISION_AVOIDANCE_DESIGN.md`
-
-**계획된 기능**:
-- 8m 경고, 5m 위험, 10m 안전 거리 임계값
-- 5m 고도 차이 안전 판정
-- 우선순위 기반 회피 결정
-- 실시간 위치 모니터링
-
-**현재 상태**: ❌ 완전 미구현
-
-**영향도**: 🔴 CRITICAL
-- 다중 드론 운용 시 충돌 위험
-- 스웜 비행 시 안전 보장 불가
-
-**필요 작업**:
-1. `CollisionAvoidanceManager` 클래스 생성
-2. 타 드론 위치 ROS2 구독
-3. 백그라운드 모니터링 스레드
-4. holdPosition() 긴급 정지 연동
-
----
-
-### 003 - 편대 비행 컨트롤러 미구현 [HIGH]
-
-**계획 문서**: `013_NEXT_STEPS_FORMATION_CONTROL.md`
-
-**계획된 기능**:
-- FormationMember 클래스
-- FormationLeader 클래스
-- 목표 할당 알고리즘
-- 리더 선출 로직
-- 진행 상황 모니터링
-
-**현재 상태**: ⏳ 기본 위치 계산만 구현 (~20%)
-
-**구현된 부분**:
-```cpp
-// outdoor_mission_manager.cpp:583-613
-GpsPosition OutdoorMissionManager::calculateFormationPosition() {
-    float angle_offset = (vehicle_id_ == 2) ? 135.0f : -135.0f;
-    // ...
-}
-```
-
-**미구현 부분**:
-- 동적 편대 재구성
-- 팔로워 상태 모니터링
-- 장애 발생 시 리더 교체
-
-**영향도**: 🟠 HIGH
-
----
-
-### 004 - 거리 제어 PID 미적용 [MEDIUM]
-
-**위치**: `outdoor_mission_manager.cpp:255-328`
-
-**계획 (024_OFFBOARD_MODE_SEQUENCE.md)**:
-- PID 컨트롤러 사용
-- 부드러운 속도 전이
-- 오버슈트 방지
-
-**현재 구현**:
-```cpp
-if (error > 0) {
-    float vx = std::min(config_.forward_speed, error * 0.5f);
-    // 단순 비례 제어 (P만 적용)
-}
-```
-
-**문제점**:
-- I, D 항 없음 → 정상상태 오차 가능
-- 속도 전이 급격함
-- 진동 발생 가능성
+- PX4 RTL의 하강 속도가 빨라 착륙 충격이 큼
+- 커스텀 감속 하강 프로파일 필요
 
 **영향도**: 🟡 MEDIUM
 
 **수정 방안**:
-```cpp
-// PID 컨트롤러 추가
-class PIDController {
-    float kp = 0.5f, ki = 0.1f, kd = 0.05f;
-    float integral = 0.0f, prev_error = 0.0f;
-
-    float calculate(float error, float dt) {
-        integral += error * dt;
-        float derivative = (error - prev_error) / dt;
-        prev_error = error;
-        return kp * error + ki * integral + kd * derivative;
-    }
-};
-```
+- rtl_handler에 자체 하강 로직 구현
+- 고도별 하강 속도 프로파일 (예: 10m→5m: 1.0m/s, 5m→0: 0.3m/s)
 
 ---
 
-### 005 - 열화상 조준 Pitch/Roll 미적용 [MEDIUM]
+### GAP-005 - 열원 추적 (Targeting) 미구현 [MEDIUM]
 
-**위치**: `outdoor_mission_manager.cpp:330-391`
-
-**계획 (024_01_OFFBOARD_MODE_SEQUENCE_V2.md)**:
-- Yaw 조정 (좌우)
-- 고도 조정 (상하)
-- Pitch/Roll 미세 조정 (옵션)
-
-**현재 구현**:
-```cpp
-// Yaw 조정 (좌우)
-float yaw_adj = -error_x * 10.0f;
-
-// 고도 조정 (상하)
-float alt_adj = -error_y * 0.5f;
-```
-
-**미구현**: Pitch/Roll 미세 조정
-
-**영향도**: 🟡 MEDIUM
-- 호버링 상태에서는 큰 영향 없음
-- 정밀 조준 시 정확도 저하 가능
-
----
-
-### 006 - 팔로워 LiDAR 거리 제어 미완성 [MEDIUM]
-
-**위치**: `outdoor_mission_manager.cpp:518-524`
-
-**현재 구현**:
-```cpp
-// 거리 조정 및 조준
-current_phase_ = MissionPhase::DISTANCE_ADJ;
-// LiDAR 거리 조정 (옵션)  <-- 미구현
-// 열화상 조준
-current_phase_ = MissionPhase::AIMING;
-```
-
-**문제점**:
-- 팔로워는 거리 조정 없이 바로 조준 단계로 이동
-- 정확한 10m 거리 유지 불가
-
-**영향도**: 🟡 MEDIUM
-
----
-
-### 007 - 발사 메커니즘 미구현 [HIGH]
-
-**계획 문서**: `001_PROJECT_MASTER_PLAN.md`
+**위치**: `targeting/src/`
 
 **계획된 기능**:
-- GPIO 핀 제어 (서보 모터)
-- 발사 트리거 신호
-- 재장전 로직
-- 안전 인터록
+- Kalman Filter 기반 핫스팟 추적
+- 드론 위치 미세 조정 (상하좌우)
+- 정조준 판단 (LOCKED)
+- GCS 신호 처리
 
-**현재 상태**: ❌ 완전 미구현
+**현재 상태**: 기본 프레임 합성만 구현 (30%)
 
-**현재 구현**:
-```cpp
-void OutdoorMissionManager::sendFireSignal(uint8_t shot_number) {
-    RCLCPP_INFO(node_->get_logger(), "[OutdoorMission] 격발 신호: %d", shot_number);
-    if (send_fire_signal_) {
-        send_fire_signal_(shot_number);  // 콜백만 호출
-    }
-}
-```
-
-**영향도**: 🟠 HIGH
-- 실제 발사 불가
-- 테스트는 시뮬레이션으로만 가능
+**영향도**: 🟡 MEDIUM
+- 정밀 진압 정확도에 영향
 
 ---
 
-### 008 - AI 화재 감지 미구현 [FUTURE]
+### GAP-006 - LiDAR 전방 거리 불안정 [MEDIUM]
 
-**계획 문서**: `001_PROJECT_MASTER_PLAN.md` (Phase 5)
+**현재 상태**: 7m 이상에서 전방 거리 측정 불안정
+
+**영향도**: 🟡 MEDIUM
+- 거리 기반 정지 판단에 영향
+
+---
+
+### GAP-007 - 목적지 변경 시 팔로워 미동기화 [LOW]
+
+**현재 상태**: 최종 목적지 도착 직후 목적지 재변경 시 팔로워 동기화 실패
+
+**영향도**: 🟢 LOW
+
+---
+
+### GAP-008 - AI 화재 감지 미구현 [FUTURE]
+
+**계획 문서**: `001_PROJECT_MASTER_PLAN.md` (Phase 7)
 
 **계획된 기능**:
 - CNN/YOLO 기반 화재 감지 모델
 - 실시간 추론 파이프라인
-- 화염/연기 분류
-- 데이터셋 구축
+- LTE 통신 이중화
 
-**현재 상태**: ❌ 미구현 (Phase 5, 향후 계획)
-
-**영향도**: 🔵 FUTURE
-
----
-
-### 009 - 워치독 타이머 미적용 [MEDIUM]
-
-**문제**: 미션 각 단계에 타임아웃 없음
-
-**현재 구현**:
-```cpp
-bool OutdoorMissionManager::waitUntil(std::function<bool()> condition, float timeout_sec) {
-    float elapsed = 0.0f;
-    while (!condition() && elapsed < timeout_sec && !stop_requested_) {
-        sleepMs(100);
-        elapsed += 0.1f;
-    }
-    return condition();
-}
-```
-
-**문제점**:
-- 개별 단계에 waitUntil 미적용 부분 존재
-- 무한 루프 가능성
-
-**영향도**: 🟡 MEDIUM
-
----
-
-### 010 - 지오펜싱 미구현 [MEDIUM]
-
-**계획 문서**: 미명시 (일반적 안전 요구사항)
-
-**현재 상태**: ❌ 미구현
-
-**필요 기능**:
-- 비행 금지 구역 설정
-- 최대 비행 거리 제한
-- 고도 제한
-
-**영향도**: 🟡 MEDIUM
-
----
-
-### 011 - 배터리 페일세이프 미구현 [MEDIUM]
-
-**계획 문서**: `001_PROJECT_MASTER_PLAN.md`
-
-**계획된 기능**:
-- 30% → RTL 경고
-- 20% → 긴급 착륙
-
-**현재 상태**: ❌ 미구현
-
-**영향도**: 🟡 MEDIUM
-
----
-
-### 012 - LTE 통신 페일오버 미구현 [FUTURE]
-
-**계획 문서**: `001_PROJECT_MASTER_PLAN.md` (Phase 5)
-
-**현재 상태**: ❌ 미구현 (향후 계획)
+**현재 상태**: ❌ 미구현 (장기 계획)
 
 **영향도**: 🔵 FUTURE
 
 ---
 
-## 3. 파라미터 불일치
+## 3. 해결된 Gap (v1.0 → v2.0)
+
+### ~~001 - isArmed() 함수 미구현~~ ✅ 해결
+
+**해결 방법**: VehicleStatus 구독으로 실제 arming_state 확인
+**해결 버전**: v0.13.x 이후 핸들러 아키텍처에서 해결
+
+---
+
+### ~~002 - 충돌 회피 시스템 미구현~~ ✅ 해결
+
+**해결 방법**: CollisionAvoidance 클래스 구현
+**해결 버전**: v0.16.0
+**위치**: `navigation/src/offboard/collision/collision_avoidance.h/cpp`
+
+---
+
+### ~~003 - 편대 비행 컨트롤러 미구현~~ ✅ 해결
+
+**해결 방법**: FormationController 완전 구현 (Leader/Follower)
+**해결 버전**: v0.15.x
+**위치**: `navigation/src/offboard/formation/formation_controller.h/cpp`
+**코드량**: 951 LOC
+
+---
+
+### ~~004 - 거리 제어 PID 미적용~~ → 대체 해결
+
+**해결 방법**: 핸들러 기반 감속 프로파일로 대체 (DECEL_RADIUS=60m)
+**설명**: PID 대신 거리 기반 감속 커브 + feed-forward 제어 적용
+
+---
+
+### ~~007 - 발사 메커니즘 미구현~~ ⚠️ 부분 해결
+
+**해결 방법**: GPIO 순차 격발 SW 구현 (MSG_ID 60002)
+**해결 버전**: v0.18.4
+**남은 작업**: 실기체 GPIO 핀 출력 검증
+
+---
+
+### ~~009 - 워치독 타이머 미적용~~ ✅ 해결
+
+**해결 방법**: 각 핸들러에 타임아웃 로직 내장
+- HOVER_AT_TARGET: TARGET_HOVER_SEC (30초/300초)
+- 탄약 소진: AMMO_DEPLETED_DELAY_SEC (2초)
+
+---
+
+## 4. 파라미터 현황
 
 | 파라미터 | 계획 값 | 실제 코드 | 상태 |
 |----------|---------|-----------|------|
-| 목표 거리 | 10.0m ± 5% | 설정 가능 (기본 10m) | ✅ 일치 |
-| 거리 체크 주기 | 10Hz | 100ms (10Hz) | ✅ 일치 |
-| 조준 안정 시간 | 1초 | 설정 가능 (기본 1초) | ✅ 일치 |
-| 거리 안정 시간 | 3초 | 설정 가능 (기본 3초) | ✅ 일치 |
-| 전진 속도 | 0.3-0.5 m/s | 0.4 m/s | ✅ 일치 |
-| 후진 속도 | 0.2-0.3 m/s | 0.25 m/s | ✅ 일치 |
-| 격발 간격 | 5초 | 설정 가능 (기본 5초) | ✅ 일치 |
-| 편대 각도 | 60° | 60° | ✅ 일치 |
-| RTL 고도 | 10m | 설정 가능 (기본 10m) | ✅ 일치 |
-| 위치 허용 오차 | 수평 1m, 수직 0.5m | 3D 거리 1.0m | ⚠️ 미소 차이 |
+| 감속 반경 | - | 60m (DECEL_RADIUS) | ✅ 구현 |
+| 이륙 고도 | 설정 가능 | config.json에서 설정 | ✅ |
+| 비행 속도 | 12 m/s | config.json에서 설정 | ✅ |
+| 편대 오프셋 | 설정 가능 | device_config.env | ✅ |
+| SUPPRESS 각도 | -30° ~ -60° | device_config.env | ✅ |
+| SUPPRESS 거리 | 10m | device_config.env | ✅ |
+| 격발 간격 | 순차 | MSG_ID 60002 | ✅ |
+| 탄약 수 | 6발 | fire_gpio_count | ✅ |
+| 호버 타임아웃 | 300초 (운용) | 30초 (테스트) | ⚠️ 전환 필요 |
+| RTL 고도 | 설정 가능 | PX4 파라미터 | ✅ |
 
 ---
 
-## 4. 우선순위별 작업 목록
-
-### 🔴 긴급 (CRITICAL) - 즉시 수정 필요
-
-| 번호 | 항목 | 파일 | 예상 소요 |
-|------|------|------|-----------|
-| 001 | isArmed() 함수 구현 | outdoor_mission_manager.cpp | 2시간 |
-| 002 | 충돌 회피 기본 구현 | 신규 파일 필요 | 2일 |
+## 5. 우선순위별 작업 목록
 
 ### 🟠 높음 (HIGH) - 단기 해결
 
-| 번호 | 항목 | 파일 | 예상 소요 |
-|------|------|------|-----------|
-| 003 | 편대 컨트롤러 구현 | 신규 파일 필요 | 3일 |
-| 007 | 발사 메커니즘 구현 | GPIO 드라이버 | 2일 |
+| 번호 | 항목 | 예상 소요 |
+|------|------|-----------|
+| GAP-001 | Gate 4 (SUPPRESS→RTL) 동기화 | 1일 |
+| GAP-002 | FC 모드 편대 팔로워 디버깅 | 2-3일 |
 
 ### 🟡 보통 (MEDIUM) - 중기 개선
 
-| 번호 | 항목 | 파일 | 예상 소요 |
-|------|------|------|-----------|
-| 004 | 거리 제어 PID 적용 | outdoor_mission_manager.cpp | 4시간 |
-| 005 | Pitch/Roll 조준 추가 | outdoor_mission_manager.cpp | 4시간 |
-| 006 | 팔로워 LiDAR 제어 | outdoor_mission_manager.cpp | 4시간 |
-| 009 | 워치독 타이머 적용 | 전체 미션 함수 | 3시간 |
-| 010 | 지오펜싱 구현 | 신규 모듈 | 1일 |
-| 011 | 배터리 페일세이프 | application_manager.cpp | 4시간 |
+| 번호 | 항목 | 예상 소요 |
+|------|------|-----------|
+| GAP-003 | 편대 게이트 우회 수정 | 4시간 |
+| GAP-004 | 자체 RTL 구현 (감속 하강) | 1일 |
+| GAP-005 | 열원 추적 기능 (targeting/) | 3-5일 |
+| GAP-006 | LiDAR 전방 거리 안정화 | 조사 필요 |
 
-### 🔵 향후 (FUTURE) - 장기 계획
+### 🟢 낮음 (LOW)
 
-| 번호 | 항목 | 설명 | 예상 소요 |
-|------|------|------|-----------|
-| 008 | AI 화재 감지 | Phase 5 | 4주 |
-| 012 | LTE 통신 페일오버 | Phase 5 | 2주 |
+| 번호 | 항목 | 예상 소요 |
+|------|------|-----------|
+| GAP-007 | 목적지 변경 팔로워 동기화 | 4시간 |
+| - | TARGET_HOVER_SEC 운용값 전환 | 10분 |
+| - | CHANGELOG.md 업데이트 | 2시간 |
 
----
+### 🔵 향후 (FUTURE)
 
-## 5. 최적화 권장사항
-
-### 5.1 성능 최적화
-
-1. **열화상 중심 계산 콜백화**
-   - 현재: 100ms 폴링
-   - 개선: 이벤트 기반 콜백으로 지연 감소
-
-2. **편대 위치 캐싱**
-   - 현재: 매 100ms 재계산
-   - 개선: 변경 시에만 업데이트
-
-3. **ROS2 메시지 배치 처리**
-   - 현재: 개별 토픽 다수 구독
-   - 개선: 단일 집계 토픽 사용 고려
-
-### 5.2 코드 품질 개선
-
-1. **에러 복구 메커니즘**
-   - 센서 실패 시 대체 로직
-   - 통신 두절 시 자율 복귀
-
-2. **상태 기계 명확화**
-   - MissionPhase 전이 조건 문서화
-   - 각 상태별 진입/탈출 조건 정의
-
-3. **로깅 개선**
-   - 디버그 레벨 세분화
-   - 파일 로깅 추가
+| 번호 | 항목 | 예상 소요 |
+|------|------|-----------|
+| GAP-008 | AI 화재 감지 (Phase 7) | 4주+ |
+| - | LTE 통신 이중화 | 2주+ |
 
 ---
 
 ## 6. 결론
 
 ### 현재 완성도
-- **핵심 비행 기능**: 90% 완료
-- **스웜 통신**: 85% 완료
-- **안전 기능**: 20% 완료
-- **발사 시스템**: 0% 완료
+- **핵심 비행 기능**: 95% 완료 (상태머신, 편대, 충돌회피)
+- **스웜 통신**: 95% 완료 (ROS2 DDS, DDS 도메인 분리)
+- **안전 기능**: 80% 완료 (충돌회피, 탄약 RTL, fail-safe)
+- **격발 시스템**: 70% 완료 (SW 완료, HW 검증 대기)
+- **GUI**: 90% 완료
 
 ### 즉시 조치 필요 사항
-1. `isArmed()` 함수 수정 (안전 최우선)
-2. 충돌 회피 시스템 기본 구현
+1. FC 모드 편대 팔로워 디버깅
+2. GPIO 실기체 테스트
 
 ### 다음 마일스톤 목표
-- 편대 비행 컨트롤러 완성
-- 발사 메커니즘 통합
-- 통합 테스트 수행
+- Gate 4 동기화 + FC 모드 편대 정상화 → v0.20.0
+- 자체 RTL + 열원 추적 → v0.21.0
 
 ---
 
@@ -415,6 +272,7 @@ bool OutdoorMissionManager::waitUntil(std::function<bool()> condition, float tim
 | 버전 | 날짜 | 작성자 | 변경 내용 |
 |------|------|--------|-----------|
 | 1.0.0 | 2026-01-16 | Claude | 최초 작성 |
+| 2.0.0 | 2026-02-18 | Claude | v0.19.3 기준 전면 갱신 - 해결된 6개 Gap 반영, 신규 Gap 추가 |
 
 ---
 
