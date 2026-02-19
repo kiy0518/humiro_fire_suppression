@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}설정{% endblock %}
+
+{% block content %}
+<style>
+    .card {
+        border: 1px solid #adb5bd;
+        overflow: hidden;
+    }
+    .card-header {
+        padding: 0.4rem 0.75rem;
+    }
+    .card-body {
+        padding: 0.5rem 0.75rem;
+    }
+    .form-control, .form-select {
+        border: 1px solid #6c757d;
+    }
+    .category-icon {
+        font-size: 1.1em;
+        margin-right: 4px;
+    }
+    .setting-description {
+        font-size: 0.8em;
+        color: #6c757d;
+        margin-top: 2px;
+    }
+</style>
+
+<!-- 열화상 설정 -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-thermometer-half category-icon"></i> 열화상 설정
+            <button type="submit" form="thermalForm" class="btn btn-primary btn-sm ms-2">
+                <i class="bi bi-save"></i> 저장
+            </button>
+        </div>
+        <small class="text-muted" id="thermalUpdated"></small>
+    </div>
+    <div class="card-body">
+        <form id="thermalForm">
+            <div class="row g-3 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label" for="temp_threshold">기준 온도 (°C)</label>
+                    <input type="number" class="form-control" id="temp_threshold"
+                           step="5" min="0" max="500" placeholder="50" style="width: 120px;">
+                    <div class="setting-description">이 온도 이상일 때 OSD에서 경고 색상으로 표시</div>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ===== 설정 로드 =====
+function loadSettings() {
+    fetch('/api/settings')
+        .then(r => r.json())
+        .then(result => {
+            if (result.success) {
+                const cfg = result.config;
+                // 열화상 설정
+                if (cfg.thermal) {
+                    if (cfg.thermal.temp_threshold !== undefined)
+                        document.getElementById('temp_threshold').value = cfg.thermal.temp_threshold;
+                }
+                if (cfg.updated_at)
+                    document.getElementById('thermalUpdated').textContent = cfg.updated_at;
+            }
+        })
+        .catch(err => showToast('설정 로드 실패: ' + err, 'danger'));
+}
+
+// ===== 열화상 설정 저장 =====
+document.getElementById('thermalForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const tempThreshold = parseFloat(document.getElementById('temp_threshold').value) || 50;
+    if (tempThreshold < 0 || tempThreshold > 500) {
+        showToast('기준 온도는 0~500°C 범위여야 합니다.', 'warning');
+        return;
+    }
+
+    const data = {
+        category: 'thermal',
+        thermal: {
+            temp_threshold: tempThreshold
+        }
+    };
+
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(result => {
+        showToast(result.message, result.success ? 'success' : 'danger');
+        if (result.success) loadSettings();
+    })
+    .catch(err => showToast('저장 실패: ' + err, 'danger'));
+});
+
+// 초기 로드
+loadSettings();
+</script>
+{% endblock %}

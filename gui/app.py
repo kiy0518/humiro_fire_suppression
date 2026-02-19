@@ -3152,6 +3152,62 @@ def api_mavlink_send_fire():
         return jsonify({"success": False, "message": str(e)})
 
 
+## ========== 범용 설정 페이지 ==========
+
+SETTINGS_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "settings.json")
+
+@app.route('/settings')
+def settings_page():
+    """범용 설정 페이지 (카테고리별)"""
+    return render_template('settings.html', active_tab='settings')
+
+
+@app.route('/api/settings', methods=['GET'])
+def api_get_settings():
+    """범용 설정 읽기"""
+    try:
+        if os.path.exists(SETTINGS_CONFIG_PATH):
+            with open(SETTINGS_CONFIG_PATH, 'r') as f:
+                data = json.load(f)
+            return jsonify({"success": True, "config": data})
+        else:
+            return jsonify({"success": True, "config": {
+                "thermal": {"temp_threshold": 50},
+                "updated_at": ""
+            }})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/settings', methods=['POST'])
+def api_set_settings():
+    """범용 설정 저장 (카테고리별 머지)"""
+    try:
+        data = request.json
+
+        # 기존 설정 읽기
+        existing = {}
+        if os.path.exists(SETTINGS_CONFIG_PATH):
+            with open(SETTINGS_CONFIG_PATH, 'r') as f:
+                existing = json.load(f)
+
+        # 카테고리별 머지 (전체 덮어쓰기 아님)
+        category = data.get('category')
+        if category and category in data:
+            existing[category] = data[category]
+
+        from datetime import datetime
+        existing["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        os.makedirs(os.path.dirname(SETTINGS_CONFIG_PATH), exist_ok=True)
+        with open(SETTINGS_CONFIG_PATH, 'w') as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+        return jsonify({"success": True, "message": "설정이 저장되었습니다."})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 ## ========== 오프보드 설정 페이지 ==========
 
 OFFBOARD_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "offboard_config.json")
@@ -3171,7 +3227,7 @@ def api_get_offboard_config():
                 data = json.load(f)
             return jsonify({"success": True, "config": data})
         else:
-            return jsonify({"success": True, "config": {"target_altitude": 10.0, "temp_threshold": 50, "updated_at": ""}})
+            return jsonify({"success": True, "config": {"target_altitude": 10.0, "updated_at": ""}})
     except Exception as e:
         return jsonify({"success": False, "message": str(e)})
 

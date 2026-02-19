@@ -1786,28 +1786,52 @@ float ApplicationManager::readTargetAltitudeFromConfig() const {
 }
 
 double ApplicationManager::readTempThresholdFromConfig() const {
-    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
-    std::ifstream file(config_path);
-    if (!file.is_open()) {
-        return 50.0;  // 기본값
-    }
+    // settings.json (범용 설정 페이지) → offboard_config.json (폴백)
+    const std::string settings_path = "/home/khadas/humiro_fire_suppression/config/settings.json";
+    const std::string offboard_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
 
-    std::string line;
-    while (std::getline(file, line)) {
-        auto pos = line.find("\"temp_threshold\"");
-        if (pos != std::string::npos) {
-            auto colon_pos = line.find(':', pos);
-            if (colon_pos != std::string::npos) {
-                std::string value_str = line.substr(colon_pos + 1);
-                value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
-                try {
-                    double val = std::stod(value_str);
-                    std::cout << "[Config] temp_threshold: " << val << " C" << std::endl;
-                    return val;
-                } catch (...) {}
+    // 1차: settings.json에서 thermal.temp_threshold 검색
+    std::ifstream file(settings_path);
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            auto pos = line.find("\"temp_threshold\"");
+            if (pos != std::string::npos) {
+                auto colon_pos = line.find(':', pos);
+                if (colon_pos != std::string::npos) {
+                    std::string value_str = line.substr(colon_pos + 1);
+                    value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
+                    try {
+                        double val = std::stod(value_str);
+                        std::cout << "[Config] temp_threshold: " << val << " C (settings.json)" << std::endl;
+                        return val;
+                    } catch (...) {}
+                }
             }
         }
     }
+
+    // 2차 폴백: offboard_config.json (이전 버전 호환)
+    std::ifstream fallback(offboard_path);
+    if (fallback.is_open()) {
+        std::string line;
+        while (std::getline(fallback, line)) {
+            auto pos = line.find("\"temp_threshold\"");
+            if (pos != std::string::npos) {
+                auto colon_pos = line.find(':', pos);
+                if (colon_pos != std::string::npos) {
+                    std::string value_str = line.substr(colon_pos + 1);
+                    value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
+                    try {
+                        double val = std::stod(value_str);
+                        std::cout << "[Config] temp_threshold: " << val << " C (offboard_config.json fallback)" << std::endl;
+                        return val;
+                    } catch (...) {}
+                }
+            }
+        }
+    }
+
     return 50.0;
 }
 
