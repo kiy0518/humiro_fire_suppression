@@ -178,13 +178,13 @@ class ConfigManager:
     # === 기체별 설정 프리셋 (DRONE_ID 기반 자동 계산) ===
 
     @staticmethod
-    def calculate_config_from_drone_id(drone_id: int, gcs_port_mode: str = "separate") -> Dict[str, str]:
+    def calculate_config_from_drone_id(drone_id: int, gcs_port_mode: str = "unified") -> Dict[str, str]:
         """DRONE_ID 기반 설정값 자동 계산
 
         Args:
             drone_id: 드론 번호 (1, 2, 3, ...)
             gcs_port_mode: GCS 포트 모드
-                - "unified": 모든 기체가 14550 사용 (브로드캐스트 공유)
+                - "unified": 모든 기체가 14550 사용 (QGC 다중 기체 호환, 권장)
                 - "separate": 기체별 포트 분리 (1번=14550, 2번=14560, 3번=14570)
 
         규칙:
@@ -250,7 +250,7 @@ class ConfigManager:
         }
 
     @staticmethod
-    def get_gcs_port_for_drone(drone_id: int, gcs_port_mode: str = "separate") -> int:
+    def get_gcs_port_for_drone(drone_id: int, gcs_port_mode: str = "unified") -> int:
         """특정 드론의 GCS 포트 계산
 
         Args:
@@ -266,7 +266,7 @@ class ConfigManager:
 
     def get_gcs_port_mode(self) -> str:
         """현재 GCS 포트 모드 가져오기"""
-        return self.get("GCS_PORT_MODE", "separate")
+        return self.get("GCS_PORT_MODE", "unified")
 
     def get_vehicle_preset(self, drone_id: int) -> Dict[str, Dict[str, str]]:
         """기체별 설정 프리셋 반환 (DRONE_ID 기반 자동 계산)

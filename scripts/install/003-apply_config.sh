@@ -73,8 +73,8 @@ from utils.config_manager import ConfigManager
 cm = ConfigManager("$PROJECT_ROOT")
 drone_id = $CURRENT_DRONE_ID
 
-# 현재 GCS_PORT_MODE 유지
-gcs_mode = cm.get("GCS_PORT_MODE", "separate")
+# 다중 기체 QGC 호환: unified 모드 강제 (모든 기체가 14550 사용)
+gcs_mode = "unified"
 
 # DRONE_ID 기반 설정 재생성 (WiFi 설정은 유지)
 if cm.regenerate_config_from_drone_id(drone_id, preserve_wifi=True, gcs_port_mode=gcs_mode):
@@ -289,15 +289,23 @@ if [ -d /etc/mavlink-router ] || command -v mavlink-routerd > /dev/null 2>&1; th
     mkdir -p /etc/mavlink-router
 
     # DRONE_ID 기반 포트 계산: BASE + (DRONE_ID-1)*10
-    # 드론 1: 14550, 16001, 15001, 5790, SITL:18001
-    # 드론 2: 14560, 16011, 15011, 5800, SITL:18011
-    # 드론 3: 14570, 16021, 15021, 5810, SITL:18021
+    # 드론 1: 16001, 15001, 5790, SITL:18001
+    # 드론 2: 16011, 15011, 5800, SITL:18011
+    # 드론 3: 16021, 15021, 5810, SITL:18021
     PORT_OFFSET=$(( ($DRONE_ID - 1) * 10 ))
-    QGC_PORT=$(( 14550 + $PORT_OFFSET ))
     EXTERNAL_PORT_CALC=$(( 16001 + $PORT_OFFSET ))
     APP_PORT=$(( 15001 + $PORT_OFFSET ))
     TCP_PORT=$(( 5790 + $PORT_OFFSET ))
     SITL_PORT=$(( 18001 + $PORT_OFFSET ))
+
+    # QGC 포트: GCS_PORT_MODE에 따라 결정
+    # unified: 모든 기체가 14550 사용 (QGC 다중 기체 호환, 권장)
+    # separate: 기체별 분리 (1번=14550, 2번=14560, 3번=14570)
+    if [ "${GCS_PORT_MODE:-unified}" = "unified" ]; then
+        QGC_PORT=14550
+    else
+        QGC_PORT=$(( 14550 + $PORT_OFFSET ))
+    fi
 
     # device_config.env의 EXTERNAL_UDP_PORT 사용 (있으면 우선, 없으면 계산값)
     EXTERNAL_PORT_FINAL=${EXTERNAL_UDP_PORT:-$EXTERNAL_PORT_CALC}
@@ -773,6 +781,97 @@ enable_and_restart_service "mavlink-router.service"
 enable_and_restart_service "micro-ros-agent.service"
 enable_and_restart_service "fc-bridge.service"
 
+# -----------------------------------------------------------------------------
+# FC 파라미터 자동 설정 (MAV_SYS_ID, UXRCE_DDS 등)
+# -----------------------------------------------------------------------------
+DECIMAL_IP=$(python3 -c "import struct,socket; print(struct.unpack('!I',socket.inet_aton('$ETH0_IP'))[0])" 2>/dev/null || echo "0")
+
+echo ""
+echo "[FC 파라미터 자동 설정]"
+echo "  mavlink-router 안정화 대기 (3초)..."
+sleep 3
+
+FC_PARAM_TCP_PORT=$(( 5790 + (${DRONE_ID:-1} - 1) * 10 ))
+FC_PARAM_RESULT=$(python3 << PYTHON_EOF
+import sys
+import struct
+import socket
+import time
+try:
+    from pymavlink import mavutil
+
+    # mavlink-router TCP 포트로 연결
+    master = mavutil.mavlink_connection(
+        'tcp:127.0.0.1:${FC_PARAM_TCP_PORT}',
+        source_system=255, source_component=0)
+
+    print("  FC 연결 대기 중...")
+    msg = master.wait_heartbeat(timeout=10)
+    if msg is None:
+        print("  ⚠ FC 연결 실패 (하트비트 없음) — FC 전원 확인 후 수동 설정 필요")
+        sys.exit(1)
+
+    print(f"  ✓ FC 연결됨 (현재 sysid={master.target_system})")
+
+    def set_param_int32(master, name, value):
+        """INT32 파라미터 설정 (MAVLink param protocol: float↔int32 union)"""
+        float_val = struct.unpack('<f', struct.pack('<i', int(value)))[0]
+        master.mav.param_set_send(
+            master.target_system,
+            master.target_component,
+            name.encode('utf-8').ljust(16, b'\x00'),
+            float_val,
+            mavutil.mavlink.MAV_PARAM_TYPE_INT32
+        )
+        # 확인 응답 대기
+        msg = master.recv_match(type='PARAM_VALUE', blocking=True, timeout=5)
+        if msg:
+            result = struct.unpack('<i', struct.pack('<f', msg.param_value))[0]
+            return result
+        return None
+
+    # 설정할 파라미터 목록
+    params = {
+        'MAV_SYS_ID': ${DRONE_ID},
+        'UXRCE_DDS_AG_IP': ${DECIMAL_IP},
+        'UXRCE_DDS_PRT': ${XRCE_DDS_PORT},
+        'UXRCE_DDS_DOM_ID': ${ROS_DOMAIN_ID},
+        'UXRCE_DDS_CFG': 1000,
+    }
+
+    success_count = 0
+    for name, value in params.items():
+        result = set_param_int32(master, name, value)
+        if result is not None:
+            # IP 주소는 보기 쉽게 변환
+            if name == 'UXRCE_DDS_AG_IP':
+                ip_str = socket.inet_ntoa(struct.pack('!I', result & 0xFFFFFFFF))
+                print(f"  ✓ {name} = {result} ({ip_str})")
+            else:
+                print(f"  ✓ {name} = {result}")
+            success_count += 1
+        else:
+            print(f"  ⚠ {name} 설정 확인 실패 (응답 없음)")
+        time.sleep(0.1)  # 파라미터 간 약간의 딜레이
+
+    if success_count == len(params):
+        print(f"  ✓ FC 파라미터 {success_count}개 모두 설정 완료")
+    else:
+        print(f"  ⚠ FC 파라미터 {success_count}/{len(params)}개 설정됨")
+
+except ImportError:
+    print("  ⚠ pymavlink 미설치, FC 파라미터 자동 설정 건너뜀")
+    print("    → QGroundControl에서 수동 설정 필요")
+    sys.exit(1)
+except Exception as e:
+    print(f"  ⚠ FC 파라미터 설정 실패: {e}")
+    print("    → FC 전원 확인 후 QGroundControl에서 수동 설정 필요")
+    sys.exit(1)
+PYTHON_EOF
+) || true  # FC 미연결 시에도 스크립트 계속 진행
+
+echo "$FC_PARAM_RESULT"
+
 echo ""
 echo "=========================================="
 echo "설정 적용 완료!"
@@ -798,17 +897,17 @@ echo "  └───────────────────────
 echo ""
 echo "자동 설정 (변경 불필요):"
 echo "  - FC IP: $FC_IP (DHCP 고정)"
-echo "  - QGC: 브로드캐스트 ($WIFI_BROADCAST:$QGC_UDP_PORT)"
+echo "  - QGC: 브로드캐스트 ($WIFI_BROADCAST:$QGC_PORT)"
+echo "  - GCS_PORT_MODE: ${GCS_PORT_MODE:-unified}"
 echo ""
 echo "자동 시작 서비스 (부팅 시 자동 실행):"
 echo "  - dnsmasq-px4.service"
 echo "  - mavlink-router.service"
 echo "  - micro-ros-agent.service"
 echo ""
-echo "PX4 파라미터 설정 (QGroundControl):"
+echo "PX4 파라미터 (자동 설정됨):"
 echo "  ┌──────────────────────────────────────────┐"
 echo "  │  MAV_SYS_ID = $DRONE_ID"
-DECIMAL_IP=$(python3 -c "import struct,socket; print(struct.unpack('!I',socket.inet_aton('$ETH0_IP'))[0])" 2>/dev/null || echo "???")
 echo "  │  UXRCE_DDS_AG_IP = $DECIMAL_IP ($ETH0_IP)"
 echo "  │  UXRCE_DDS_PRT = $XRCE_DDS_PORT"
 echo "  │  UXRCE_DDS_DOM_ID = $ROS_DOMAIN_ID"
