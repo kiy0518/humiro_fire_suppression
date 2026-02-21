@@ -3245,6 +3245,25 @@ def api_wifi_delete(uuid):
         return jsonify({"success": False, "message": str(e)})
 
 
+@app.route('/api/wifi/confirm-connection', methods=['POST'])
+def api_wifi_confirm_connection():
+    """WiFi 연결 확인 (auto-revert 취소)"""
+    try:
+        success, msg = wifi_manager.confirm_connection()
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/revert-status', methods=['GET'])
+def api_wifi_revert_status():
+    """Auto-revert 대기 상태 조회"""
+    try:
+        info = wifi_manager.get_revert_info()
+        return jsonify({"success": True, **info})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 ## ========== 범용 설정 페이지 ==========
 
 SETTINGS_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "settings.json")

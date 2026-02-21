@@ -5,14 +5,23 @@ NetworkManager를 사용하여 저장된 WiFi 네트워크 관리
 
 import subprocess
 import re
+import threading
+import logging
 from typing import List, Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class WiFiManager:
     """WiFi 네트워크 관리자 (NetworkManager 사용)"""
 
+    REVERT_TIMEOUT = 60  # 자동 복귀 대기 시간 (초)
+
     def __init__(self):
         self.nmcli_path = "/usr/bin/nmcli"
+        self._revert_timer: Optional[threading.Timer] = None
+        self._revert_uuid: Optional[str] = None
+        self._revert_name: Optional[str] = None
 
     def _run_command(self, cmd: List[str], timeout: int = 10) -> Tuple[bool, str, str]:
         """명령 실행 헬퍼"""
@@ -107,7 +116,10 @@ class WiFiManager:
             return False, f"삭제 실패: {stderr}"
 
     def connect_to_network(self, uuid_or_name: str) -> Tuple[bool, str]:
-        """네트워크에 연결
+        """네트워크에 연결 (auto-revert 포함)
+
+        연결 후 60초 내에 confirm_connection()을 호출하지 않으면
+        이전 네트워크로 자동 복귀합니다.
 
         Args:
             uuid_or_name: Connection UUID or name
@@ -115,11 +127,15 @@ class WiFiManager:
         Returns:
             (success, message)
         """
+        # 현재 연결 정보 저장 (복귀용)
+        prev_uuid = self._get_active_wifi_uuid()
+
         success, stdout, stderr = self._run_command([
             self.nmcli_path, "connection", "up", uuid_or_name
         ], timeout=30)
 
         if success:
+            self._start_revert_timer(prev_uuid)
             return True, f"네트워크 '{uuid_or_name}' 연결 완료"
         else:
             return False, f"연결 실패: {stderr}"
@@ -143,7 +159,7 @@ class WiFiManager:
             return False, f"연결 해제 실패: {stderr}"
 
     def add_network(self, ssid: str, password: str, autoconnect: bool = True) -> Tuple[bool, str]:
-        """새 WiFi 네트워크 추가
+        """새 WiFi 네트워크 추가 (추가 후 연결, auto-revert 포함)
 
         Args:
             ssid: WiFi SSID
@@ -153,6 +169,9 @@ class WiFiManager:
         Returns:
             (success, message)
         """
+        # 현재 연결 정보 저장 (복귀용)
+        prev_uuid = self._get_active_wifi_uuid()
+
         cmd = [
             self.nmcli_path, "device", "wifi", "connect", ssid,
             "password", password
@@ -164,6 +183,7 @@ class WiFiManager:
         success, stdout, stderr = self._run_command(cmd, timeout=30)
 
         if success:
+            self._start_revert_timer(prev_uuid)
             return True, f"네트워크 '{ssid}' 추가 완료"
         else:
             return False, f"추가 실패: {stderr}"
@@ -281,11 +301,12 @@ class WiFiManager:
                         "signal": 0,
                         "frequency": "",
                         "bitrate": "",
+                        "channel": "",
                     }
-                    # 신호 강도 조회
+                    # 신호 강도, 채널 조회
                     sig_ok, sig_out, _ = self._run_command([
                         self.nmcli_path, "-t", "-f",
-                        "IN-USE,SSID,SIGNAL,FREQ,RATE",
+                        "IN-USE,SSID,SIGNAL,FREQ,RATE,CHAN",
                         "device", "wifi", "list", "ifname", device
                     ])
                     if sig_ok:
@@ -300,6 +321,8 @@ class WiFiManager:
                                     info["frequency"] = wparts[3].strip()
                                 if len(wparts) >= 5:
                                     info["bitrate"] = wparts[4].strip()
+                                if len(wparts) >= 6:
+                                    info["channel"] = wparts[5].strip()
                                 break
                     # IP 주소 조회
                     ip_ok, ip_out, _ = self._run_command([
@@ -353,3 +376,89 @@ class WiFiManager:
             return True, f"우선순위 {priority}로 설정 완료"
         else:
             return False, f"설정 실패: {stderr}"
+
+    # --- Auto-revert 메커니즘 ---
+
+    def _get_active_wifi_uuid(self) -> Optional[str]:
+        """현재 활성 WiFi 연결의 UUID 조회"""
+        success, stdout, stderr = self._run_command([
+            self.nmcli_path, "-t", "-f", "NAME,UUID,TYPE,DEVICE",
+            "connection", "show", "--active"
+        ])
+        if not success:
+            return None
+
+        for line in stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) >= 4:
+                conn_type = parts[2].strip()
+                if conn_type in ["802-11-wireless", "wifi"] and parts[3].strip():
+                    return parts[1].strip()
+        return None
+
+    def _start_revert_timer(self, prev_uuid: Optional[str]):
+        """이전 네트워크로 복귀하는 타이머 시작"""
+        # 기존 타이머 취소
+        self._cancel_revert_timer()
+
+        if not prev_uuid:
+            return
+
+        # 이전 네트워크 이름 조회
+        saved = self.list_saved_networks()
+        prev_name = None
+        for net in saved:
+            if net["uuid"] == prev_uuid:
+                prev_name = net["name"]
+                break
+
+        self._revert_uuid = prev_uuid
+        self._revert_name = prev_name or prev_uuid
+        self._revert_timer = threading.Timer(self.REVERT_TIMEOUT, self._do_revert)
+        self._revert_timer.daemon = True
+        self._revert_timer.start()
+        logger.info(f"Auto-revert 타이머 시작: {self.REVERT_TIMEOUT}초 후 '{self._revert_name}'으로 복귀")
+
+    def _cancel_revert_timer(self):
+        """복귀 타이머 취소"""
+        if self._revert_timer and self._revert_timer.is_alive():
+            self._revert_timer.cancel()
+        self._revert_timer = None
+        self._revert_uuid = None
+        self._revert_name = None
+
+    def _do_revert(self):
+        """이전 네트워크로 복귀 실행"""
+        uuid = self._revert_uuid
+        name = self._revert_name
+        if uuid:
+            logger.info(f"Auto-revert 실행: '{name}'으로 복귀")
+            self._run_command([
+                self.nmcli_path, "connection", "up", uuid
+            ], timeout=30)
+        self._revert_timer = None
+        self._revert_uuid = None
+        self._revert_name = None
+
+    def confirm_connection(self) -> Tuple[bool, str]:
+        """현재 연결 확인 (auto-revert 타이머 취소)"""
+        if self._revert_timer and self._revert_timer.is_alive():
+            self._cancel_revert_timer()
+            return True, "연결 확인 완료 — 자동 복귀 취소됨"
+        return True, "확인할 대기 중인 연결 없음"
+
+    def is_revert_pending(self) -> bool:
+        """auto-revert 대기 중 여부"""
+        return self._revert_timer is not None and self._revert_timer.is_alive()
+
+    def get_revert_info(self) -> Optional[Dict[str, str]]:
+        """복귀 대기 정보 반환"""
+        if self.is_revert_pending():
+            return {
+                "pending": True,
+                "revert_to": self._revert_name or "",
+                "timeout": self.REVERT_TIMEOUT
+            }
+        return {"pending": False}
