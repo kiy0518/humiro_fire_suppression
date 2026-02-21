@@ -3152,6 +3152,99 @@ def api_mavlink_send_fire():
         return jsonify({"success": False, "message": str(e)})
 
 
+## ========== WiFi 관리 페이지 ==========
+
+from utils.wifi_manager import WiFiManager
+wifi_manager = WiFiManager()
+
+@app.route('/wifi')
+def wifi_page():
+    """WiFi 관리 페이지"""
+    return render_template('wifi.html', active_tab='wifi')
+
+@app.route('/api/wifi/current', methods=['GET'])
+def api_wifi_current():
+    """현재 WiFi 연결 상태"""
+    try:
+        info = wifi_manager.get_current_connection()
+        return jsonify({"success": True, "connection": info})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/saved', methods=['GET'])
+def api_wifi_saved():
+    """저장된 WiFi 네트워크 목록"""
+    try:
+        networks = wifi_manager.list_saved_networks()
+        return jsonify({"success": True, "networks": networks})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/scan', methods=['GET'])
+def api_wifi_scan():
+    """주변 WiFi 네트워크 스캔"""
+    try:
+        networks = wifi_manager.scan_available_networks()
+        return jsonify({"success": True, "networks": networks})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/add', methods=['POST'])
+def api_wifi_add():
+    """새 WiFi 네트워크 추가"""
+    try:
+        data = request.json
+        ssid = data.get('ssid', '')
+        password = data.get('password', '')
+        if not ssid:
+            return jsonify({"success": False, "message": "SSID가 필요합니다."})
+        success, msg = wifi_manager.add_network(ssid, password)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/modify-password', methods=['POST'])
+def api_wifi_modify_password():
+    """WiFi 비밀번호 수정"""
+    try:
+        data = request.json
+        uuid = data.get('uuid', '')
+        password = data.get('password', '')
+        if not uuid:
+            return jsonify({"success": False, "message": "UUID가 필요합니다."})
+        success, msg = wifi_manager.modify_network_password(uuid, password)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/connect/<uuid>', methods=['POST'])
+def api_wifi_connect(uuid):
+    """WiFi 네트워크 연결"""
+    try:
+        success, msg = wifi_manager.connect_to_network(uuid)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/disconnect/<uuid>', methods=['POST'])
+def api_wifi_disconnect(uuid):
+    """WiFi 네트워크 연결 해제"""
+    try:
+        success, msg = wifi_manager.disconnect_network(uuid)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+@app.route('/api/wifi/delete/<uuid>', methods=['POST'])
+def api_wifi_delete(uuid):
+    """저장된 WiFi 네트워크 삭제"""
+    try:
+        success, msg = wifi_manager.delete_network(uuid)
+        return jsonify({"success": success, "message": msg})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 ## ========== 범용 설정 페이지 ==========
 
 SETTINGS_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "settings.json")
