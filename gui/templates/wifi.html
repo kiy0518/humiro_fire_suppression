@@ -155,12 +155,14 @@ function loadCurrentConnection() {
                 const sigIcon = sig >= 75 ? 'bi-wifi' : sig >= 50 ? 'bi-wifi-2' : sig >= 25 ? 'bi-wifi-1' : 'bi-wifi-off';
                 const freq = data.connection.frequency ? ` | ${data.connection.frequency}` : '';
                 const rate = data.connection.bitrate ? ` | ${data.connection.bitrate}` : '';
+                const ip = data.connection.ip_address || '-';
                 container.innerHTML = `
                     <div class="d-flex align-items-center">
                         <i class="bi ${sigIcon}" style="font-size: 2rem;"></i>
                         <div class="ms-3 flex-grow-1">
                             <h5 class="mb-0">${data.connection.name}</h5>
                             <small class="text-muted">장치: ${data.connection.device}${freq}${rate}</small>
+                            <br><small class="text-muted">IP: <strong>${ip}</strong></small>
                         </div>
                         <div class="text-end">
                             <div class="fw-bold">${sig}%</div>

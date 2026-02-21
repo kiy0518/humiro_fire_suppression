@@ -14,14 +14,14 @@ class WiFiManager:
     def __init__(self):
         self.nmcli_path = "/usr/bin/nmcli"
 
-    def _run_command(self, cmd: List[str]) -> Tuple[bool, str, str]:
+    def _run_command(self, cmd: List[str], timeout: int = 10) -> Tuple[bool, str, str]:
         """명령 실행 헬퍼"""
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=10
+                timeout=timeout
             )
             return result.returncode == 0, result.stdout, result.stderr
         except subprocess.TimeoutExpired:
@@ -117,7 +117,7 @@ class WiFiManager:
         """
         success, stdout, stderr = self._run_command([
             self.nmcli_path, "connection", "up", uuid_or_name
-        ])
+        ], timeout=30)
 
         if success:
             return True, f"네트워크 '{uuid_or_name}' 연결 완료"
@@ -161,7 +161,7 @@ class WiFiManager:
         if not autoconnect:
             cmd.extend(["autoconnect", "no"])
 
-        success, stdout, stderr = self._run_command(cmd)
+        success, stdout, stderr = self._run_command(cmd, timeout=30)
 
         if success:
             return True, f"네트워크 '{ssid}' 추가 완료"
@@ -300,6 +300,18 @@ class WiFiManager:
                                     info["frequency"] = wparts[3].strip()
                                 if len(wparts) >= 5:
                                     info["bitrate"] = wparts[4].strip()
+                                break
+                    # IP 주소 조회
+                    ip_ok, ip_out, _ = self._run_command([
+                        self.nmcli_path, "-t", "-f", "IP4.ADDRESS",
+                        "device", "show", device
+                    ])
+                    if ip_ok:
+                        for ip_line in ip_out.strip().split("\n"):
+                            if ip_line.startswith("IP4.ADDRESS"):
+                                addr = ip_line.split(":", 1)[1].strip()
+                                # CIDR 제거 (예: 192.168.1.10/24 → 192.168.1.10)
+                                info["ip_address"] = addr.split("/")[0] if "/" in addr else addr
                                 break
                     return info
 
