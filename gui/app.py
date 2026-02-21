@@ -3208,6 +3208,34 @@ def api_set_settings():
         return jsonify({"success": False, "message": str(e)})
 
 
+AMMO_STATUS_FILE = "/tmp/humiro_ammo_status.json"
+AMMO_RELOAD_SIGNAL = "/tmp/humiro_reload_ammo"
+
+@app.route('/api/ammo-status', methods=['GET'])
+def api_ammo_status():
+    """소화탄 잔탄 상태 조회"""
+    try:
+        if os.path.exists(AMMO_STATUS_FILE):
+            with open(AMMO_STATUS_FILE, 'r') as f:
+                data = json.load(f)
+            return jsonify({"success": True, "remaining": data.get("remaining", 6), "total": data.get("total", 6)})
+        else:
+            return jsonify({"success": True, "remaining": 6, "total": 6})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
+@app.route('/api/reload-ammo', methods=['POST'])
+def api_reload_ammo():
+    """소화탄 재장전 신호 전송 (C++ 앱이 fire_gpio_index_ 초기화)"""
+    try:
+        with open(AMMO_RELOAD_SIGNAL, 'w') as f:
+            f.write("reload")
+        return jsonify({"success": True, "message": "재장전 신호 전송 완료. 잠시 후 잔탄이 초기화됩니다."})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 ## ========== 오프보드 설정 페이지 ==========
 
 OFFBOARD_CONFIG_PATH = os.path.join(PROJECT_ROOT, "config", "offboard_config.json")

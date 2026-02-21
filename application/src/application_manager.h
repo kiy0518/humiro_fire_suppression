@@ -170,6 +170,11 @@ private:
     static constexpr int FIRE_GPIO_PINS[] = {447, 446, 449, 448, 450, 492};  // T1,T0,T3,T2,T4,Y8
     static constexpr int FIRE_GPIO_COUNT = 6;
     std::atomic<int> fire_gpio_index_{0};  // 다음 발사할 GPIO 인덱스
+
+    // 소화탄 재장전 감시 스레드
+    void reloadWatcherLoop();
+    void writeAmmoStatus();
+    std::thread reload_watcher_thread_;
     // void testExeMission(const custom_message::FireMissionStart& start);
     // void testExeMission3(const custom_message::FireMissionStart& start);
 };

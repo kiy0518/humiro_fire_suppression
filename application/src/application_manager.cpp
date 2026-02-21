@@ -692,6 +692,7 @@ void ApplicationManager::initializeCustomMessage() {
                     status_overlay_->setCustomMessage(msg, 2.0);
                     status_overlay_->setAmmunition(remaining, FIRE_GPIO_COUNT);
                 }
+                writeAmmoStatus();
 
                 // GPIO 제어는 별도 스레드에서 실행 (3초 대기 포함)
                 std::thread([this, gpio]() {
@@ -993,6 +994,12 @@ void ApplicationManager::startThreads() {
     // WiFi 상태 폴링 스레드
     wifi_poll_thread_ = std::thread(&ApplicationManager::wifiPollLoop, this);
 
+    // 소화탄 재장전 감시 스레드
+    reload_watcher_thread_ = std::thread(&ApplicationManager::reloadWatcherLoop, this);
+
+    // 초기 잔탄 상태 파일 기록
+    writeAmmoStatus();
+
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
@@ -1046,6 +1053,7 @@ void ApplicationManager::stopThreads() {
     if (composite_thread_.joinable()) composite_thread_.join();
     if (ammo_sim_thread_.joinable()) ammo_sim_thread_.join();
     if (wifi_poll_thread_.joinable()) wifi_poll_thread_.join();
+    if (reload_watcher_thread_.joinable()) reload_watcher_thread_.join();
     std::cout << "  ✓ 모든 스레드 종료 완료" << std::endl;
 }
 
@@ -1717,6 +1725,35 @@ bool ApplicationManager::isTargetedToMe(uint8_t target_system) const {
     return target_system == 0 || target_system == 255 || target_system == drone_id_;
 }
 
+void ApplicationManager::writeAmmoStatus() {
+    int remaining = FIRE_GPIO_COUNT - fire_gpio_index_.load();
+    if (remaining < 0) remaining = 0;
+    const std::string path = "/tmp/humiro_ammo_status.json";
+    std::ofstream f(path);
+    if (f.is_open()) {
+        f << "{\"remaining\":" << remaining << ",\"total\":" << FIRE_GPIO_COUNT << "}";
+    }
+}
+
+void ApplicationManager::reloadWatcherLoop() {
+    const std::string signal_file = "/tmp/humiro_reload_ammo";
+    while (is_running_) {
+        if (std::ifstream(signal_file).good()) {
+            fire_gpio_index_.store(0);
+            std::remove(signal_file.c_str());
+            writeAmmoStatus();
+            if (offboard_manager_) {
+                offboard_manager_->setFireAmmoState(&fire_gpio_index_, FIRE_GPIO_COUNT);
+            }
+            if (status_overlay_) {
+                status_overlay_->setAmmunition(FIRE_GPIO_COUNT, FIRE_GPIO_COUNT);
+            }
+            std::cout << "[AMMO] 소화탄 재장전 완료 — 잔탄 " << FIRE_GPIO_COUNT << "/" << FIRE_GPIO_COUNT << std::endl;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+}
+
 void ApplicationManager::fireGpioPin(int gpio_num) {
     // sysfs GPIO는 root 권한 필요 → sudo 사용
     std::string num_str = std::to_string(gpio_num);
@@ -1744,8 +1781,26 @@ void ApplicationManager::fireGpioPin(int gpio_num) {
     }
     std::cout << "[GPIO] " << gpio_num << " ON" << std::endl;
 
-    // 4. 3초 대기
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+    // 4. settings.json의 gpio_on_time_ms 읽기 (기본 3000ms)
+    int gpio_on_time_ms = 500;
+    {
+        const std::string settings_path = "/home/khadas/humiro_fire_suppression/config/settings.json";
+        std::ifstream sf(settings_path);
+        if (sf.is_open()) {
+            std::string line;
+            while (std::getline(sf, line)) {
+                auto pos = line.find("\"gpio_on_time_ms\"");
+                if (pos != std::string::npos) {
+                    auto colon = line.find(':', pos);
+                    if (colon != std::string::npos) {
+                        try { gpio_on_time_ms = std::stoi(line.substr(colon + 1)); } catch (...) {}
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(gpio_on_time_ms));
 
     // 5. value = 0 (OFF)
     std::string off_cmd = "echo 0 | sudo tee " + gpio_path + "/value > /dev/null 2>&1";

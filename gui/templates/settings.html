@@ -3,28 +3,12 @@
 
 {% block content %}
 <style>
-    .card {
-        border: 1px solid #adb5bd;
-        overflow: hidden;
-    }
-    .card-header {
-        padding: 0.4rem 0.75rem;
-    }
-    .card-body {
-        padding: 0.5rem 0.75rem;
-    }
-    .form-control, .form-select {
-        border: 1px solid #6c757d;
-    }
-    .category-icon {
-        font-size: 1.1em;
-        margin-right: 4px;
-    }
-    .setting-description {
-        font-size: 0.8em;
-        color: #6c757d;
-        margin-top: 2px;
-    }
+    .card { border: 1px solid #adb5bd; overflow: hidden; }
+    .card-header { padding: 0.4rem 0.75rem; }
+    .card-body { padding: 0.5rem 0.75rem; }
+    .form-control, .form-select { border: 1px solid #6c757d; }
+    .category-icon { font-size: 1.1em; margin-right: 4px; }
+    .setting-description { font-size: 0.8em; color: #6c757d; margin-top: 2px; }
 </style>
 
 <!-- 열화상 설정 -->
@@ -52,59 +36,127 @@
     </div>
 </div>
 
+<!-- 발사 메커니즘 설정 -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+            <i class="bi bi-lightning-charge category-icon"></i> 발사 메커니즘 설정
+            <button type="submit" form="mechanismForm" class="btn btn-primary btn-sm ms-2">
+                <i class="bi bi-save"></i> 저장
+            </button>
+        </div>
+        <small class="text-muted" id="mechanismUpdated"></small>
+    </div>
+    <div class="card-body">
+        <form id="mechanismForm">
+            <div class="row g-3 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label" for="gpio_on_time_ms">GPIO ON 유지 시간 (ms)</label>
+                    <input type="number" class="form-control" id="gpio_on_time_ms"
+                           step="100" min="100" max="10000" placeholder="500" style="width: 140px;">
+                    <div class="setting-description">소화탄 발사 시 GPIO 핀 ON 지속 시간 (기본 500ms)</div>
+                </div>
+            </div>
+        </form>
+
+        <hr class="my-3">
+
+        <!-- 소화탄 재장전 -->
+        <div class="row g-3 align-items-center">
+            <div class="col-auto">
+                <label class="form-label mb-0">소화탄 재장전</label>
+                <div class="setting-description">잔탄 카운터를 초기화합니다 (물리적 재장전 완료 후 사용)</div>
+            </div>
+            <div class="col-auto">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="badge bg-secondary fs-6" id="ammoStatus">잔탄: 확인 중...</span>
+                    <button type="button" class="btn btn-warning btn-sm" id="reloadAmmoBtn"
+                            onclick="reloadAmmo()">
+                        <i class="bi bi-arrow-repeat"></i> 재장전
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// ===== 설정 로드 =====
 function loadSettings() {
     fetch('/api/settings')
         .then(r => r.json())
         .then(result => {
             if (result.success) {
                 const cfg = result.config;
-                // 열화상 설정
-                if (cfg.thermal) {
-                    if (cfg.thermal.temp_threshold !== undefined)
-                        document.getElementById('temp_threshold').value = cfg.thermal.temp_threshold;
-                }
-                if (cfg.updated_at)
+                if (cfg.thermal && cfg.thermal.temp_threshold !== undefined)
+                    document.getElementById('temp_threshold').value = cfg.thermal.temp_threshold;
+                if (cfg.mechanism && cfg.mechanism.gpio_on_time_ms !== undefined)
+                    document.getElementById('gpio_on_time_ms').value = cfg.mechanism.gpio_on_time_ms;
+                if (cfg.updated_at) {
                     document.getElementById('thermalUpdated').textContent = cfg.updated_at;
+                    document.getElementById('mechanismUpdated').textContent = cfg.updated_at;
+                }
             }
         })
         .catch(err => showToast('설정 로드 실패: ' + err, 'danger'));
 }
 
-// ===== 열화상 설정 저장 =====
+function loadAmmoStatus() {
+    fetch('/api/ammo-status')
+        .then(r => r.json())
+        .then(result => {
+            if (result.success) {
+                const badge = document.getElementById('ammoStatus');
+                badge.textContent = `잔탄: ${result.remaining}/${result.total}`;
+                badge.className = result.remaining > 0 ? 'badge bg-success fs-6' : 'badge bg-danger fs-6';
+            }
+        })
+        .catch(() => {});
+}
+
 document.getElementById('thermalForm').addEventListener('submit', function(e) {
     e.preventDefault();
-    const tempThreshold = parseFloat(document.getElementById('temp_threshold').value) || 50;
-    if (tempThreshold < 0 || tempThreshold > 500) {
-        showToast('기준 온도는 0~500°C 범위여야 합니다.', 'warning');
-        return;
-    }
-
-    const data = {
-        category: 'thermal',
-        thermal: {
-            temp_threshold: tempThreshold
-        }
-    };
-
+    const val = parseFloat(document.getElementById('temp_threshold').value) || 50;
+    if (val < 0 || val > 500) { showToast('기준 온도는 0~500°C 범위여야 합니다.', 'warning'); return; }
     fetch('/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(r => r.json())
-    .then(result => {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ category: 'thermal', thermal: { temp_threshold: val } })
+    }).then(r => r.json()).then(result => {
         showToast(result.message, result.success ? 'success' : 'danger');
         if (result.success) loadSettings();
-    })
-    .catch(err => showToast('저장 실패: ' + err, 'danger'));
+    }).catch(err => showToast('저장 실패: ' + err, 'danger'));
 });
 
-// 초기 로드
+document.getElementById('mechanismForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const val = parseInt(document.getElementById('gpio_on_time_ms').value) || 500;
+    if (val < 100 || val > 10000) { showToast('GPIO ON 시간은 100~10000ms 범위여야 합니다.', 'warning'); return; }
+    fetch('/api/settings', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ category: 'mechanism', mechanism: { gpio_on_time_ms: val } })
+    }).then(r => r.json()).then(result => {
+        showToast(result.message, result.success ? 'success' : 'danger');
+        if (result.success) loadSettings();
+    }).catch(err => showToast('저장 실패: ' + err, 'danger'));
+});
+
+function reloadAmmo() {
+    if (!confirm('소화탄을 재장전하시겠습니까?\n물리적으로 소화탄을 장전한 후 실행하세요.')) return;
+    document.getElementById('reloadAmmoBtn').disabled = true;
+    fetch('/api/reload-ammo', { method: 'POST' })
+        .then(r => r.json())
+        .then(result => {
+            showToast(result.message, result.success ? 'success' : 'danger');
+            loadAmmoStatus();
+        })
+        .catch(err => showToast('재장전 실패: ' + err, 'danger'))
+        .finally(() => { document.getElementById('reloadAmmoBtn').disabled = false; });
+}
+
 loadSettings();
+loadAmmoStatus();
+setInterval(loadAmmoStatus, 5000);
 </script>
 {% endblock %}
