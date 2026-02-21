@@ -34,11 +34,8 @@
     <div class="row mt-3">
         <div class="col-12">
             <div class="card">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-bookmark"></i> 저장된 네트워크</span>
-                    <button class="btn btn-sm btn-primary" onclick="showAddNetworkModal()">
-                        <i class="bi bi-plus-circle"></i> 네트워크 추가
-                    </button>
+                <div class="card-header">
+                    <i class="bi bi-bookmark"></i> 저장된 네트워크
                 </div>
                 <div class="card-body">
                     <div id="savedNetworks">
@@ -311,11 +308,6 @@ function scanNetworks() {
                                         </small>
                                     </div>
                                 </div>
-                                ${!network.in_use ? `
-                                    <button class="btn btn-sm btn-primary" onclick="showAddNetworkModalWithSsid('${network.ssid}')">
-                                        <i class="bi bi-plus"></i> 추가
-                                    </button>
-                                ` : ''}
                             </div>
                         </div>`;
                     }).join('') +
