@@ -31,12 +31,22 @@ if [ -z "$DRONE_ID" ]; then
     exit 1
 fi
 
-# 드론별 포트 계산: BASE + (DRONE_ID - 1) * 10
+# GCS 포트 모드 확인
+GCS_PORT_MODE=$(grep "^GCS_PORT_MODE=" "$CONFIG_FILE" | cut -d= -f2)
+GCS_PORT_MODE=${GCS_PORT_MODE:-unified}
+
+# 드론별 포트 계산
 PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
-QGC_PORT=$(( 14550 + PORT_OFFSET ))
 EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
 APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
 TCP_PORT=$(( 5790 + PORT_OFFSET ))
+
+if [ "$GCS_PORT_MODE" = "unified" ]; then
+    QGC_PORT=$(grep "^QGC_UDP_PORT=" "$CONFIG_FILE" | cut -d= -f2)
+    QGC_PORT=${QGC_PORT:-14550}
+else
+    QGC_PORT=$(( 14550 + PORT_OFFSET ))
+fi
 
 # WIFI_IP에서 브로드캐스트 IP 계산
 WIFI_IP=$(grep "^WIFI_IP=" "$CONFIG_FILE" | cut -d= -f2)
@@ -56,7 +66,7 @@ echo -e "  브로드캐스트:     ${GREEN}$BROADCAST_IP${NC}"
 echo ""
 
 # mavlink-router 설정 백업 및 업데이트
-echo -e "${YELLOW}[1/2] mavlink-router 설정 복원...${NC}"
+echo -e "${YELLOW}[1/3] mavlink-router 설정 복원...${NC}"
 
 # 백업
 if [ -f "$MAVLINK_CONF" ]; then
@@ -101,8 +111,18 @@ EOF
 
 echo -e "  ${GREEN}✓${NC} 설정 파일 복원 완료"
 
+# DHCP lease 초기화 (이전 MAC 주소의 infinite lease 충돌 방지)
+echo -e "${YELLOW}[2/3] DHCP lease 초기화 및 dnsmasq 재시작...${NC}"
+sudo truncate -s 0 /var/lib/misc/dnsmasq.leases 2>/dev/null || true
+if systemctl is-active --quiet dnsmasq-px4; then
+    sudo systemctl restart dnsmasq-px4
+    echo -e "  ${GREEN}✓${NC} DHCP lease 초기화 완료"
+else
+    echo -e "  ${YELLOW}!${NC} dnsmasq-px4 서비스가 없음 (건너뜀)"
+fi
+
 # mavlink-router 재시작
-echo -e "${YELLOW}[2/2] mavlink-router 재시작...${NC}"
+echo -e "${YELLOW}[3/3] mavlink-router 재시작...${NC}"
 sudo systemctl restart mavlink-router
 sleep 2
 

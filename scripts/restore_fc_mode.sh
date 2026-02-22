@@ -29,10 +29,17 @@ FC_MAVLINK_PORT=${FC_MAVLINK_PORT:-14540}
 
 # DRONE_ID 기반 포트 계산 (003-apply_config.sh와 동일 공식)
 PORT_OFFSET=$(( (DRONE_ID - 1) * 10 ))
-QGC_PORT=$(( 14550 + PORT_OFFSET ))
 EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
 APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
 TCP_PORT=$(( 5790 + PORT_OFFSET ))
+
+# GCS 포트: unified 모드이면 device_config의 QGC_UDP_PORT 사용
+GCS_PORT_MODE=${GCS_PORT_MODE:-unified}
+if [ "$GCS_PORT_MODE" = "unified" ]; then
+    QGC_PORT=${QGC_UDP_PORT:-14550}
+else
+    QGC_PORT=$(( 14550 + PORT_OFFSET ))
+fi
 
 # 브로드캐스트 IP 계산
 WIFI_IP=${WIFI_IP:-192.168.100.11}
@@ -86,6 +93,13 @@ EOF
     cp /tmp/mavlink_fc_mode.conf "$MAVLINK_CONF"
     rm -f /tmp/mavlink_fc_mode.conf
     log "main.conf FC 모드로 복원 완료"
+fi
+
+# DHCP lease 초기화 (이전 MAC 주소의 infinite lease 충돌 방지)
+truncate -s 0 /var/lib/misc/dnsmasq.leases 2>/dev/null || true
+if systemctl is-active --quiet dnsmasq-px4; then
+    systemctl restart dnsmasq-px4
+    log "DHCP lease 초기화 및 dnsmasq-px4 재시작 완료"
 fi
 
 # iptables: FC 모드 규칙 적용 (wlan0 DDS 차단, eth0 허용)
