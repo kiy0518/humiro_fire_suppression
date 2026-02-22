@@ -31,6 +31,10 @@ if [ -z "$DRONE_ID" ]; then
     exit 1
 fi
 
+# FC IP 읽기
+FC_IP=$(grep "^FC_IP=" "$CONFIG_FILE" | cut -d= -f2)
+FC_IP=${FC_IP:-10.0.0.12}
+
 # GCS 포트 모드 확인
 GCS_PORT_MODE=$(grep "^GCS_PORT_MODE=" "$CONFIG_FILE" | cut -d= -f2)
 GCS_PORT_MODE=${GCS_PORT_MODE:-unified}
@@ -58,6 +62,7 @@ echo -e "${BLUE}   VIM4 FC 연결 복원${NC}"
 echo -e "${BLUE}=====================================${NC}"
 echo ""
 echo -e "  기체 번호:        ${GREEN}$DRONE_ID${NC}"
+echo -e "  FC IP:            ${GREEN}$FC_IP${NC}"
 echo -e "  QGC 포트:         ${GREEN}$QGC_PORT${NC}"
 echo -e "  External 포트:    ${GREEN}$EXTERNAL_PORT${NC}"
 echo -e "  Application 포트: ${GREEN}$APPLICATION_PORT${NC}"
