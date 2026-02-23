@@ -52,6 +52,7 @@ public:
         last_log_tick_ = -1;
         wall_confirm_count_ = 0;
         front_dist_history_.clear();
+        prev_align_yawspeed_ = 0.0f;
 
         // 벽 버킷 초기화
         for (auto& b : wall_buckets_) {
@@ -194,7 +195,7 @@ public:
                 break;
 
             case AdjustPhase::WALL_ALIGN: {
-                // 위치 고정 + yaw 회전
+                // 위치 고정 + yaw 회전 (가속도 제한)
                 sp.position = {detect_x_, detect_y_, hold_z_};
                 sp.velocity = {NAN, NAN, NAN};
 
@@ -204,18 +205,30 @@ public:
                 while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
                 float abs_diff = std::fabs(yaw_diff);
+                float target_yawspeed = 0.0f;
                 if (abs_diff < 0.02f) {
                     sp.yaw = target_perp_yaw_;
                     sp.yawspeed = 0.0f;
+                    prev_align_yawspeed_ = 0.0f;
+                    break;
                 } else if (abs_diff < YAW_DECEL_ANGLE) {
                     float s = MAX_ALIGN_YAW_RATE * (abs_diff / YAW_DECEL_ANGLE);
-                    s = std::max(0.1f, s);
-                    sp.yaw = NAN;
-                    sp.yawspeed = (yaw_diff > 0) ? s : -s;
+                    s = std::max(0.05f, s);
+                    target_yawspeed = (yaw_diff > 0) ? s : -s;
                 } else {
-                    sp.yaw = NAN;
-                    sp.yawspeed = (yaw_diff > 0) ? MAX_ALIGN_YAW_RATE : -MAX_ALIGN_YAW_RATE;
+                    target_yawspeed = (yaw_diff > 0) ? MAX_ALIGN_YAW_RATE : -MAX_ALIGN_YAW_RATE;
                 }
+
+                // 가속도 제한
+                float max_delta = ALIGN_YAW_ACCEL * 0.1f;
+                float delta = target_yawspeed - prev_align_yawspeed_;
+                if (delta > max_delta) delta = max_delta;
+                if (delta < -max_delta) delta = -max_delta;
+                float yawspeed = prev_align_yawspeed_ + delta;
+                prev_align_yawspeed_ = yawspeed;
+
+                sp.yaw = NAN;
+                sp.yawspeed = yawspeed;
                 break;
             }
 
@@ -271,6 +284,7 @@ private:
     static constexpr float RETREAT_DISTANCE = 4.0f;         // m (감지점에서 후진 거리)
     static constexpr float EMERGENCY_STOP_DIST = 2.0f;     // m (비상 정지)
     static constexpr float MAX_ALIGN_YAW_RATE = 0.3f;      // rad/s
+    static constexpr float ALIGN_YAW_ACCEL = 0.2f;         // rad/s² (yaw 가속도 제한)
     static constexpr float YAW_DECEL_ANGLE = 0.5f;         // rad (감속 시작 각도)
     static constexpr float YAW_CONVERGE_THRESH = 0.05f;    // rad (~3°)
 
@@ -321,6 +335,7 @@ private:
     float final_x_{0.0f}, final_y_{0.0f};
     float approach_heading_{0.0f};
     float target_perp_yaw_{0.0f};
+    float prev_align_yawspeed_{0.0f};
 
     bool wall_detected_{false};
     bool approach_timeout_{false};

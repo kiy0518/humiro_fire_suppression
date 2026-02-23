@@ -88,8 +88,8 @@ public:
                       px4_msgs::msg::TrajectorySetpoint& sp) override {
         float current_z = ctx.current_local_z.load();
 
-        // 점진적 하강: 0.5m/s
-        constexpr float DESCENT_PER_TICK = 0.05f;  // 0.5m/s * 0.1s
+        // 점진적 하강: 0.3m/s (중량 기체 안전값)
+        constexpr float DESCENT_PER_TICK = 0.03f;  // 0.3m/s * 0.1s
 
         float sp_z;
         if (current_z - final_z_ > 0.3f) {

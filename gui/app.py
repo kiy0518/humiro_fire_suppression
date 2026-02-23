@@ -2521,10 +2521,11 @@ def get_vehicle_params_checklist(drone_id: int):
     """기체별 FC 파라미터 체크리스트 (uXRCE-DDS, MAVLink 설정)"""
     # device_config.env 기반 동적 생성
     cfg = ConfigManager.calculate_config_from_drone_id(drone_id)
-    eth0_ip = cfg['ETH0_IP']
+    dev = cfg['device']
+    eth0_ip = dev['ETH0_IP']
     uxrce_ip_decimal = ConfigManager.ip_to_decimal(eth0_ip)
-    mav_sys_id = int(cfg['MAV_SYS_ID'])
-    role = cfg['ROLE']
+    mav_sys_id = int(dev['MAV_SYS_ID'])
+    role = dev['ROLE']
 
     return [
         {"id": "vp0", "text": f"[기체 {drone_id}번 - {role}]", "auto": False},

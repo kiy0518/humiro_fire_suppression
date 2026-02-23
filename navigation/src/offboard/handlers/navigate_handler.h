@@ -2,33 +2,49 @@
  * @file navigate_handler.h
  * @brief NAVIGATE (목표 위치 이동) 핸들러
  *
- * 목표 위치까지 position + velocity 피드포워드로 이동.
- * 감속 프로파일, yawspeed 추적, EVADE 오프셋 적용.
+ * MotionProfile3D로 부드러운 가감속 이동.
+ * 모든 거리에서 position + velocity setpoint을 동시에 제공.
+ * yawspeed 추적, EVADE 오프셋, 충돌 HOLD 지원.
  *
  * 전환 조건: 수평 거리 < WAYPOINT_THRESHOLD (2.0m) → COMPLETE
  *
- * 편대 비행 고려:
- * - continuous_update_mode: position only (FF 간섭 방지)
- * - 단독/리더: position + velocity 피드포워드
+ * 편대 비행:
+ * - continuous_update_mode에서 목표가 10Hz로 갱신되어도
+ *   MotionProfile이 자연스럽게 추적 (별도 분기 불필요)
  */
 
 #ifndef NAVIGATE_HANDLER_H
 #define NAVIGATE_HANDLER_H
 
 #include "state_handler.h"
+#include "motion_profile.h"
 #include "../mission_context.h"
 
 class NavigateHandler : public StateHandler {
 public:
     void onEnter(MissionContext& ctx) override {
         ctx.state_enter_time = std::chrono::steady_clock::now();
-        ctx.prev_vx = 0.0f;
-        ctx.prev_vy = 0.0f;
 
         navigate_z_ = ctx.start_local_z - ctx.takeoff_altitude;
 
-        RCLCPP_INFO(ctx.logger, "[NAVIGATE] 이동 시작: 목표 NED (%.1f, %.1f, %.1f)",
-                    ctx.target_ned_x, ctx.target_ned_y, navigate_z_);
+        // 현재 드론 위치에서 모션 프로파일 초기화 (목적지가 아닌 현재 위치!)
+        float cur_x = ctx.current_local_x.load();
+        float cur_y = ctx.current_local_y.load();
+        float cur_z = ctx.current_local_z.load();
+
+        profile_.reset(
+            cur_x, cur_y, cur_z,
+            ctx.flight_speed, NAV_MAX_AXY,   // XY: 미션 속도, 안전 가속도
+            NAV_MAX_VZ, NAV_MAX_AZ,           // Z: 보수적 수직 이동
+            0.1f                               // dt = 100ms (10Hz)
+        );
+        was_holding_ = false;
+        prev_yawspeed_ = 0.0f;
+
+        RCLCPP_INFO(ctx.logger, "[NAVIGATE] 이동 시작: 현재 (%.1f,%.1f,%.1f) → 목표 (%.1f,%.1f,%.1f) speed=%.1f accel=%.1f",
+                    cur_x, cur_y, cur_z,
+                    ctx.target_ned_x, ctx.target_ned_y, navigate_z_,
+                    ctx.flight_speed, NAV_MAX_AXY);
     }
 
     void onExit(MissionContext& ctx) override {
@@ -47,7 +63,6 @@ public:
         float dist = std::sqrt(dx * dx + dy * dy);
 
         // 팔로워 소화탄 소진 → 개별 RTL을 위해 NAVIGATE 완료
-        // (CMD_SUPPRESS 수신 전에도 소화탄이 모두 소진되면 독립 진행)
         if (ctx.continuous_update_mode.load() &&
             ctx.fire_gpio_index_ptr && ctx.fire_gpio_count > 0) {
             int idx = ctx.fire_gpio_index_ptr->load();
@@ -59,11 +74,7 @@ public:
             }
         }
 
-        // 도착 판정 (EVADE 중에는 판정 안 함)
-        // continuous_update_mode: 편대 팔로워는 리더가 10Hz로 목표를 갱신하므로
-        // 자체 도착 판정을 하면 HOVER_AT_TARGET→RTL→LANDED 체인이 발생하여
-        // 오프셋 추적이 중단됨 → 편대 팔로워는 도착 판정 안 함
-        // force_navigate_complete: CMD_SUPPRESS 수신 후 팔로워가 독립 진행 가능
+        // 도착 판정
         bool can_complete = !ctx.continuous_update_mode.load() ||
                             ctx.force_navigate_complete.load();
         if (can_complete &&
@@ -78,10 +89,11 @@ public:
         int tick_2s = static_cast<int>(ctx.elapsedSec() / 2.0);
         if (tick_2s != last_log_tick_) {
             last_log_tick_ = tick_2s;
+            auto vel = profile_.getVelocity();
+            float sp_speed = std::sqrt(vel[0]*vel[0] + vel[1]*vel[1]);
             RCLCPP_INFO(ctx.logger,
-                "[NAVIGATE] dist=%.1fm NED=(%.1f,%.1f) GPS=(%.7f,%.7f) yaw=%.1f°→%.1f°",
-                dist, cur_x, cur_y,
-                ctx.current_lat.load(), ctx.current_lon.load(),
+                "[NAVIGATE] dist=%.1fm NED=(%.1f,%.1f) sp_vel=%.1fm/s yaw=%.1f°→%.1f°",
+                dist, cur_x, cur_y, sp_speed,
                 ctx.current_yaw.load() * 180.0f / M_PI,
                 ctx.target_yaw * 180.0f / M_PI);
         }
@@ -98,77 +110,66 @@ public:
             sp.velocity = {NAN, NAN, NAN};
             sp.yaw = ctx.hold_yaw;
             sp.yawspeed = 0.0f;
-            ctx.prev_vx = 0.0f;
-            ctx.prev_vy = 0.0f;
+            was_holding_ = true;
             return true;
         }
 
-        float cur_x = ctx.current_local_x.load();
-        float cur_y = ctx.current_local_y.load();
+        // HOLD 해제 후 프로파일 재초기화 (현재 위치에서 다시 시작)
+        if (was_holding_) {
+            float cur_x = ctx.current_local_x.load();
+            float cur_y = ctx.current_local_y.load();
+            float cur_z = ctx.current_local_z.load();
+            profile_.reset(cur_x, cur_y, cur_z,
+                           ctx.flight_speed, NAV_MAX_AXY,
+                           NAV_MAX_VZ, NAV_MAX_AZ, 0.1f);
+            was_holding_ = false;
+            prev_yawspeed_ = 0.0f;
+            RCLCPP_INFO(ctx.logger, "[NAVIGATE] HOLD 해제 → 프로파일 재초기화 (%.1f,%.1f,%.1f)",
+                        cur_x, cur_y, cur_z);
+        }
 
         // 유효 타겟 (EVADE 오프셋 적용)
         float eff_x = ctx.target_ned_x + ctx.evade_offset_n;
         float eff_y = ctx.target_ned_y + ctx.evade_offset_e;
-        float dx = eff_x - cur_x;
-        float dy = eff_y - cur_y;
-        float dist = std::sqrt(dx * dx + dy * dy);
 
-        // === Velocity 피드포워드 계산 ===
-        float ff_vx = 0.0f, ff_vy = 0.0f;
+        // 모션 프로파일 업데이트: 목표를 향해 가속도 제한 내에서 이동
+        profile_.update(eff_x, eff_y, navigate_z_);
 
-        if (!ctx.continuous_update_mode.load()) {
-            // 하이브리드: 원거리에서 velocity 피드포워드, 근거리에서 position-only
-            constexpr float FF_CUTOFF = 10.0f;  // 이 거리 이내에서 피드포워드 OFF
+        auto pos = profile_.getPosition();
+        auto vel = profile_.getVelocity();
 
-            if (dist > FF_CUTOFF) {
-                float speed = ctx.flight_speed;
-
-                constexpr float DECEL_RADIUS = 30.0f;
-                if (dist < DECEL_RADIUS) {
-                    float decel_speed = speed * (dist / DECEL_RADIUS);
-                    float current_ff_speed = std::sqrt(ctx.prev_vx * ctx.prev_vx + ctx.prev_vy * ctx.prev_vy);
-                    speed = std::max(0.5f, std::min(decel_speed, current_ff_speed));
-                }
-
-                float target_vx = (dx / dist) * speed;
-                float target_vy = (dy / dist) * speed;
-
-                constexpr float VELOCITY_ALPHA = 0.25f;
-                ff_vx = ctx.prev_vx * (1.0f - VELOCITY_ALPHA) + target_vx * VELOCITY_ALPHA;
-                ff_vy = ctx.prev_vy * (1.0f - VELOCITY_ALPHA) + target_vy * VELOCITY_ALPHA;
-            }
-            // dist <= FF_CUTOFF: ff_vx/vy = 0 → velocity=NAN으로 전환 (아래에서 처리)
-            ctx.prev_vx = ff_vx;
-            ctx.prev_vy = ff_vy;
-        }
-
-        // === Yaw 제어 (감속 프로파일) ===
+        // === Yaw 제어 (사다리꼴 프로파일: 가속→순항→감속→정지) ===
         float current_yaw = ctx.current_yaw.load();
         float yaw_diff = ctx.target_yaw - current_yaw;
         while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
         while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
-        float yawspeed = 0.0f;
         float abs_diff = std::fabs(yaw_diff);
-        constexpr float YAW_DECEL_ANGLE = 0.5f;
 
+        float target_yawspeed = 0.0f;
         if (abs_diff < 0.02f) {
-            yawspeed = 0.0f;
+            // ~1° 이내: 정지
+            target_yawspeed = 0.0f;
+            prev_yawspeed_ = 0.0f;
         } else if (abs_diff < YAW_DECEL_ANGLE) {
             float s = ctx.MAX_YAW_RATE * (abs_diff / YAW_DECEL_ANGLE);
-            s = std::max(0.1f, s);
-            yawspeed = (yaw_diff > 0) ? s : -s;
+            s = std::max(0.05f, s);
+            target_yawspeed = (yaw_diff > 0) ? s : -s;
         } else {
-            yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
+            target_yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
         }
 
-        // === Setpoint 발행 ===
-        sp.position = {eff_x, eff_y, navigate_z_};
-        if (ctx.continuous_update_mode.load() || (ff_vx == 0.0f && ff_vy == 0.0f)) {
-            sp.velocity = {NAN, NAN, NAN};  // position only (편대 팔로워 또는 근거리)
-        } else {
-            sp.velocity = {ff_vx, ff_vy, NAN};  // 원거리: 피드포워드
-        }
+        // 가속도 제한 적용
+        float max_delta = MAX_YAW_ACCEL * 0.1f;
+        float delta = target_yawspeed - prev_yawspeed_;
+        if (delta > max_delta) delta = max_delta;
+        if (delta < -max_delta) delta = -max_delta;
+        float yawspeed = prev_yawspeed_ + delta;
+        prev_yawspeed_ = yawspeed;
+
+        // === Setpoint: 항상 position + velocity 동시 제공 ===
+        sp.position = {pos[0], pos[1], pos[2]};
+        sp.velocity = {vel[0], vel[1], vel[2]};
         sp.yaw = NAN;
         sp.yawspeed = yawspeed;
 
@@ -180,6 +181,23 @@ public:
 private:
     float navigate_z_{0.0f};
     int last_log_tick_{-1};
+
+    // 3D 모션 프로파일
+    MotionProfile3D profile_;
+    bool was_holding_{false};
+
+    // yaw 가속도 제한
+    float prev_yawspeed_{0.0f};
+
+    // 수평 이동 제한값 (헥사콥터 안전 기본값)
+    // NAV_MAX_VXY는 ctx.flight_speed 사용 (미션별 설정 가능)
+    static constexpr float NAV_MAX_AXY = 1.5f;    // m/s² (최대 틸트 ~8.7°)
+    static constexpr float NAV_MAX_VZ  = 1.0f;    // m/s (순항 중 수직 이동)
+    static constexpr float NAV_MAX_AZ  = 1.0f;    // m/s² (수직 가속도)
+
+    // yaw 제어 상수
+    static constexpr float MAX_YAW_ACCEL = 0.2f;    // rad/s² (rotate_handler와 동일)
+    static constexpr float YAW_DECEL_ANGLE = 0.5f;  // rad (~28.6°) 감속 시작 각도
 };
 
 #endif // NAVIGATE_HANDLER_H

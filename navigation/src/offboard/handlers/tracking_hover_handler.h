@@ -365,7 +365,7 @@ private:
     // ========== 타이밍 ==========
     static constexpr float ARRIVAL_STABILIZE_SEC = 2.0f;     // 도착 후 안정화 대기
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;
-    static constexpr float DESCENT_PER_TICK = 0.05f;        // 0.5m/s 하강
+    static constexpr float DESCENT_PER_TICK = 0.03f;        // 0.3m/s 하강 (중량 기체 안전값)
 
     // ========== 열원 미감지 RTL ==========
     static constexpr float FIRE_TEMP_THRESHOLD = 80.0f;     // °C (화재 판정 온도)

@@ -50,18 +50,7 @@
                     <div class="text-center text-muted py-4">로딩 중...</div>
                 </div>
 
-                <!-- 사용자 추가 파라미터 (체크리스트 섹션으로 표시) -->
-                <div class="checklist-section" id="customParamsSection">
-                    <h6 class="d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-folder"></i> 사용자 추가 파라미터</span>
-                        <button class="btn btn-sm btn-outline-primary" onclick="showAddParamModal()">
-                            추가
-                        </button>
-                    </h6>
-                    <div id="customParamsContent">
-                        <!-- JS로 동적 생성 -->
-                    </div>
-                </div>
+                <!-- 사용자 추가 파라미터는 체크리스트 API 응답에 포함되어 renderChecklist()에서 렌더링됨 -->
             </div>
         </div>
     </div>
@@ -228,20 +217,31 @@
                 checklistData = data;
                 renderChecklist();
             });
-
-        // 사용자 추가 파라미터도 함께 로드
-        loadCustomParams();
     }
 
     function renderChecklist() {
         const container = document.getElementById('checklistContent');
         let html = '';
+        const isCustomSection = (name) => name === '사용자 추가 파라미터';
 
         checklistData.forEach(section => {
+            const custom = isCustomSection(section.section);
             html += `<div class="checklist-section">
-                <h6><i class="bi bi-folder"></i> ${section.section}</h6>`;
+                <h6 class="d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-folder"></i> ${section.section}</span>
+                    ${custom ? `<button class="btn btn-sm btn-outline-primary" onclick="showAddParamModal()">추가</button>` : ''}
+                </h6>`;
 
             section.items.forEach(item => {
+                // 사용자 추가 파라미터 항목에서 파라미터 이름 추출 (custom_ 접두사)
+                const isCustomItem = custom && item.id.startsWith('custom_');
+                let paramName = '';
+                if (isCustomItem) {
+                    // "MPC_XY_VEL_MAX = 2 (설명)" 형태에서 이름 추출
+                    const match = item.text.match(/^([A-Z0-9_]+)/);
+                    if (match) paramName = match[1];
+                }
+
                 html += `
                     <div class="checklist-item">
                         <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
@@ -254,6 +254,11 @@
                                 <i class="bi bi-lightning"></i> 확인
                             </button>
                             <span class="check-result ms-2" id="${item.id}_result"></span>
+                        ` : ''}
+                        ${isCustomItem && paramName ? `
+                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="showDeleteParamModal('${paramName}')">
+                                삭제
+                            </button>
                         ` : ''}
                     </div>
                 `;
@@ -360,55 +365,9 @@
     }
 
     // ===== 사용자 파라미터 관리 =====
-    let customParams = [];
     let paramDeleteTarget = null;
     const paramModal = new bootstrap.Modal(document.getElementById('paramModal'));
     const deleteParamModal = new bootstrap.Modal(document.getElementById('deleteParamModal'));
-
-    function loadCustomParams() {
-        // 현재 체크리스트 모드에 맞는 카테고리 사용
-        const mode = document.getElementById('checklistMode').value;
-        fetch(`/api/custom-params/${mode}`)
-            .then(r => r.json())
-            .then(params => {
-                customParams = params;
-                renderCustomParams();
-            });
-    }
-
-    function renderCustomParams() {
-        const container = document.getElementById('customParamsContent');
-        if (customParams.length === 0) {
-            container.innerHTML = '<div class="text-muted small py-2">등록된 파라미터 없음</div>';
-            return;
-        }
-
-        let html = '';
-        customParams.forEach(param => {
-            const expectedText = param.expected !== null && param.expected !== ''
-                ? ` = ${param.expected}` : '';
-            const descText = param.description ? ` (${param.description})` : '';
-            const itemId = `custom_param_${param.name}`;
-
-            html += `
-                <div class="checklist-item">
-                    <input class="form-check-input" type="checkbox" id="${itemId}" onchange="updateProgress()">
-                    <label for="${itemId}" style="flex: 1;">${param.name}${expectedText}${descText}</label>
-                    <button class="btn btn-sm btn-outline-warning auto-check ms-2"
-                            data-item-id="${itemId}"
-                            data-check-type="fc-param/${param.name}/${param.expected || ''}"
-                            onclick="runAutoCheck('${itemId}', 'fc-param/${param.name}/${param.expected || ''}')">
-                        <i class="bi bi-lightning"></i> 확인
-                    </button>
-                    <span class="check-result ms-1" id="${itemId}_result"></span>
-                    <button class="btn btn-sm btn-outline-danger ms-1" onclick="showDeleteParamModal('${param.name}')">
-                        삭제
-                    </button>
-                </div>
-            `;
-        });
-        container.innerHTML = html;
-    }
 
     function showAddParamModal() {
         document.getElementById('paramModalTitle').textContent = '파라미터 추가';
@@ -464,8 +423,7 @@
             .then(data => {
                 if (data.success) {
                     paramModal.hide();
-                    loadCustomParams();
-                    loadChecklist();  // 체크리스트도 갱신
+                    loadChecklist();  // 체크리스트 갱신 (사용자 파라미터 포함)
                     showToast(data.message, 'success');
                 } else {
                     alert(data.message);
@@ -488,8 +446,7 @@
             .then(data => {
                 deleteParamModal.hide();
                 if (data.success) {
-                    loadCustomParams();
-                    loadChecklist();  // 체크리스트도 갱신
+                    loadChecklist();  // 체크리스트 갱신 (사용자 파라미터 포함)
                     showToast(data.message, 'success');
                 } else {
                     alert(data.message);
@@ -515,7 +472,6 @@
 
     document.addEventListener('DOMContentLoaded', () => {
         loadChecklist();
-        loadCustomParams();
     });
 </script>
 {% endblock %}

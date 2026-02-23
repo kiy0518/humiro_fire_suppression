@@ -30,7 +30,7 @@ struct GPSCoordinate {
 struct MissionConfig {
     float takeoff_altitude = 5.0f;           // 이륙 고도 (미터)
     float target_altitude = -1.0f;           // 목표지점 고도 (미터), -1이면 takeoff_altitude 사용
-    float flight_speed = 5.0f;               // 비행 속도 (m/s)
+    float flight_speed = 3.0f;               // 비행 속도 (m/s)
     GPSCoordinate target_waypoint;           // 목표 위치
     float hover_duration_sec = 3.0f;         // 호버링 시간 (초)
 };
@@ -56,7 +56,7 @@ struct MissionContext {
     // === 미션 파라미터 ===
     float takeoff_altitude{5.0f};
     float target_altitude{-1.0f};
-    float flight_speed{5.0f};
+    float flight_speed{3.0f};
     float hover_duration_sec{3.0f};
     double target_lat{0.0};
     double target_lon{0.0};
@@ -79,7 +79,8 @@ struct MissionContext {
     float home_alt_amsl{0.0f};
     bool home_set{false};
 
-    // === Velocity 피드포워드 (NAVIGATE) ===
+    // === Velocity 피드포워드 (NAVIGATE) — DEPRECATED by MotionProfile ===
+    // navigate_handler가 MotionProfile3D로 전환됨. 하위 호환성을 위해 유지.
     float prev_vx{0.0f};
     float prev_vy{0.0f};
 
@@ -124,7 +125,7 @@ struct MissionContext {
     uint8_t target_system{1};
 
     // === 제어 상수 ===
-    static constexpr float MAX_YAW_RATE = 0.5f;       // rad/s (~28.6 deg/s)
+    static constexpr float MAX_YAW_RATE = 0.3f;       // rad/s (~17.2 deg/s) — 중량 기체 안전값
     static constexpr float WAYPOINT_THRESHOLD = 2.0f;  // m
 
     // === 명령 발행 콜백 (OffboardManager가 설정) ===

@@ -22,6 +22,7 @@ public:
         ctx.state_enter_time = std::chrono::steady_clock::now();
         yaw_converged_ = false;
         gate_logged_ = false;
+        prev_yawspeed_ = 0.0f;
 
         hold_x_ = ctx.start_local_x;
         hold_y_ = ctx.start_local_y;
@@ -100,30 +101,43 @@ public:
         sp.position = {hold_x_, hold_y_, hold_z_};
         sp.velocity = {NAN, NAN, NAN};
 
-        // yawspeed 감속 프로파일
+        // yawspeed 사다리꼴 프로파일 (가속→순항→감속→정지)
         float current_yaw = ctx.current_yaw.load();
         float yaw_diff = ctx.target_yaw - current_yaw;
         while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
         while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
         float abs_diff = std::fabs(yaw_diff);
-        constexpr float YAW_DECEL_ANGLE = 0.5f;  // 감속 시작 각도 (rad, ~28.6°)
 
+        // 목표 yawspeed 결정 (감속 프로파일)
+        float target_yawspeed = 0.0f;
         if (abs_diff < 0.02f) {
             // ~1° 이내: 정지
             sp.yaw = ctx.target_yaw;
             sp.yawspeed = 0.0f;
+            prev_yawspeed_ = 0.0f;
+            return true;
         } else if (abs_diff < YAW_DECEL_ANGLE) {
-            // 감속 구간: 각도 비례 (최소 0.1 rad/s)
+            // 감속 구간: 각도 비례 (최소 0.05 rad/s)
             float speed = ctx.MAX_YAW_RATE * (abs_diff / YAW_DECEL_ANGLE);
-            speed = std::max(0.1f, speed);
-            sp.yaw = NAN;
-            sp.yawspeed = (yaw_diff > 0) ? speed : -speed;
+            speed = std::max(0.05f, speed);
+            target_yawspeed = (yaw_diff > 0) ? speed : -speed;
         } else {
             // 최대 속도 구간
-            sp.yaw = NAN;
-            sp.yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
+            target_yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
         }
+
+        // 가속도 제한 적용: 매 tick(0.1s)마다 최대 MAX_YAW_ACCEL * dt 변화
+        float max_delta = MAX_YAW_ACCEL * 0.1f;  // rad/s per tick
+        float delta = target_yawspeed - prev_yawspeed_;
+        if (delta > max_delta) delta = max_delta;
+        if (delta < -max_delta) delta = -max_delta;
+
+        float yawspeed = prev_yawspeed_ + delta;
+        prev_yawspeed_ = yawspeed;
+
+        sp.yaw = NAN;
+        sp.yawspeed = yawspeed;
 
         return true;
     }
@@ -135,6 +149,11 @@ private:
     bool yaw_converged_{false};
     bool gate_logged_{false};
     int last_log_tick_{-1};
+
+    // yaw 가속도 제한
+    float prev_yawspeed_{0.0f};
+    static constexpr float MAX_YAW_ACCEL = 0.2f;    // rad/s² (최대 yaw rate까지 1.5초)
+    static constexpr float YAW_DECEL_ANGLE = 0.5f;  // rad (~28.6°) 감속 시작 각도
 };
 
 #endif // ROTATE_HANDLER_H

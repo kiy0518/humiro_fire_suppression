@@ -18,6 +18,7 @@
 #define RTL_HANDLER_H
 
 #include "state_handler.h"
+#include "motion_profile.h"
 #include "../mission_context.h"
 
 class RtlHandler : public StateHandler {
@@ -33,19 +34,23 @@ public:
         // 현재 비행 고도 유지하면서 홈으로 이동
         flight_z_ = ctx.current_local_z.load();
 
-        // 수평 이동 속도 보간 초기화
-        prev_vx_ = 0.0f;
-        prev_vy_ = 0.0f;
-
         // 착지 감지 초기화
         ground_detected_ = false;
         disarm_sent_ = false;
         disarm_attempts_ = 0;
         last_disarm_time_ = std::chrono::steady_clock::time_point{};
 
+        // 현재 드론 위치에서 모션 프로파일 초기화
+        float cur_x = ctx.current_local_x.load();
+        float cur_y = ctx.current_local_y.load();
+        float cur_z = ctx.current_local_z.load();
+        nav_profile_.reset(cur_x, cur_y, cur_z,
+                           ctx.flight_speed, RTL_MAX_AXY,
+                           RTL_MAX_VZ, RTL_MAX_AZ, 0.1f);
+
         // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
-        float dx = home_x_ - ctx.current_local_x.load();
-        float dy = home_y_ - ctx.current_local_y.load();
+        float dx = home_x_ - cur_x;
+        float dy = home_y_ - cur_y;
         float home_dist = std::sqrt(dx * dx + dy * dy);
 
         if (home_dist < HOME_ARRIVAL_DIST) {
@@ -58,8 +63,8 @@ public:
             phase_ = RtlPhase::NAVIGATE_HOME;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, 비행고도 z=%.1f",
-                home_dist, getAGL(ctx), flight_z_);
+                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, 비행고도 z=%.1f speed=%.1f accel=%.1f",
+                home_dist, getAGL(ctx), flight_z_, ctx.flight_speed, RTL_MAX_AXY);
         }
     }
 
@@ -204,46 +209,22 @@ public:
 
         switch (phase_) {
         case RtlPhase::NAVIGATE_HOME: {
-            // === 수평 이동 (navigate_handler 패턴) ===
+            // === 수평 이동 (MotionProfile3D 적용) ===
+            nav_profile_.update(home_x_, home_y_, flight_z_);
+
+            auto pos = nav_profile_.getPosition();
+            auto vel = nav_profile_.getVelocity();
+
+            sp.position = {pos[0], pos[1], pos[2]};
+            sp.velocity = {vel[0], vel[1], vel[2]};
+
+            // Yaw: 홈 방향
             float cur_x = ctx.current_local_x.load();
             float cur_y = ctx.current_local_y.load();
             float dx = home_x_ - cur_x;
             float dy = home_y_ - cur_y;
             float dist = std::sqrt(dx * dx + dy * dy);
 
-            // 속도 피드포워드
-            float ff_vx = 0.0f, ff_vy = 0.0f;
-            constexpr float FF_CUTOFF = 5.0f;
-
-            if (dist > FF_CUTOFF) {
-                float speed = ctx.flight_speed;
-
-                // 감속 프로파일
-                constexpr float DECEL_RADIUS = 20.0f;
-                if (dist < DECEL_RADIUS) {
-                    float decel_speed = speed * (dist / DECEL_RADIUS);
-                    float current_speed = std::sqrt(prev_vx_ * prev_vx_ + prev_vy_ * prev_vy_);
-                    speed = std::max(0.5f, std::min(decel_speed, current_speed));
-                }
-
-                float target_vx = (dx / dist) * speed;
-                float target_vy = (dy / dist) * speed;
-
-                constexpr float ALPHA = 0.25f;
-                ff_vx = prev_vx_ * (1.0f - ALPHA) + target_vx * ALPHA;
-                ff_vy = prev_vy_ * (1.0f - ALPHA) + target_vy * ALPHA;
-            }
-            prev_vx_ = ff_vx;
-            prev_vy_ = ff_vy;
-
-            sp.position = {home_x_, home_y_, flight_z_};
-            if (ff_vx == 0.0f && ff_vy == 0.0f) {
-                sp.velocity = {NAN, NAN, NAN};
-            } else {
-                sp.velocity = {ff_vx, ff_vy, NAN};
-            }
-
-            // Yaw: 홈 방향
             if (dist > 1.0f) {
                 float target_yaw = std::atan2(dy, dx);
                 float current_yaw = ctx.current_yaw.load();
@@ -251,18 +232,33 @@ public:
                 while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
                 while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
-                float yawspeed = 0.0f;
                 float abs_diff = std::fabs(yaw_diff);
-                if (abs_diff > 0.02f) {
-                    float s = ctx.MAX_YAW_RATE * std::min(1.0f, abs_diff / 0.5f);
-                    s = std::max(0.1f, s);
-                    yawspeed = (yaw_diff > 0) ? s : -s;
+                float target_yawspeed = 0.0f;
+                if (abs_diff < 0.02f) {
+                    target_yawspeed = 0.0f;
+                    prev_yawspeed_ = 0.0f;
+                } else if (abs_diff < RTL_YAW_DECEL_ANGLE) {
+                    float s = ctx.MAX_YAW_RATE * (abs_diff / RTL_YAW_DECEL_ANGLE);
+                    s = std::max(0.05f, s);
+                    target_yawspeed = (yaw_diff > 0) ? s : -s;
+                } else {
+                    target_yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
                 }
+
+                // 가속도 제한 적용
+                float max_delta = RTL_MAX_YAW_ACCEL * 0.1f;
+                float delta = target_yawspeed - prev_yawspeed_;
+                if (delta > max_delta) delta = max_delta;
+                if (delta < -max_delta) delta = -max_delta;
+                float yawspeed = prev_yawspeed_ + delta;
+                prev_yawspeed_ = yawspeed;
+
                 sp.yaw = NAN;
                 sp.yawspeed = yawspeed;
             } else {
                 sp.yaw = ctx.current_yaw.load();
                 sp.yawspeed = 0.0f;
+                prev_yawspeed_ = 0.0f;
             }
             return true;
         }
@@ -312,12 +308,21 @@ private:
         GROUND_DISARM    // 착지 감지 + disarm
     };
 
-    // === 상수 ===
-    static constexpr float DESCENT_SPEED = 0.7f;       // 기본 하강 속도 (m/s)
-    static constexpr float LANDING_SPEED_MIN = 0.1f;    // 최종 착륙 속도 (m/s)
-    static constexpr float SOFT_LAND_ALT = 1.5f;        // 감속 시작 고도 (m AGL)
+    // === 상수 (중량 기체용 보수적 하강) ===
+    static constexpr float DESCENT_SPEED = 0.4f;       // 기본 하강 속도 (m/s) — 중량 기체 안전값
+    static constexpr float LANDING_SPEED_MIN = 0.05f;   // 최종 착륙 속도 (m/s) — 터치다운 충격 최소화
+    static constexpr float SOFT_LAND_ALT = 2.0f;        // 감속 시작 고도 (m AGL) — 여유 확보
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
+
+    // 수평 이동 제한값 (navigate_handler와 동일)
+    static constexpr float RTL_MAX_AXY = 1.5f;   // m/s² (최대 틸트 ~8.7°)
+    static constexpr float RTL_MAX_VZ  = 1.0f;   // m/s (수평이동 중 수직)
+    static constexpr float RTL_MAX_AZ  = 1.0f;   // m/s²
+
+    // yaw 제어 상수
+    static constexpr float RTL_MAX_YAW_ACCEL = 0.2f;    // rad/s²
+    static constexpr float RTL_YAW_DECEL_ANGLE = 0.5f;  // rad (~28.6°)
 
     // === 상태 ===
     RtlPhase phase_{RtlPhase::NAVIGATE_HOME};
@@ -325,7 +330,10 @@ private:
 
     float home_x_{0.0f}, home_y_{0.0f}, home_z_{0.0f};
     float flight_z_{0.0f};
-    float prev_vx_{0.0f}, prev_vy_{0.0f};
+
+    // 3D 모션 프로파일 (NAVIGATE_HOME 페이즈)
+    MotionProfile3D nav_profile_;
+    float prev_yawspeed_{0.0f};
 
     bool ground_detected_{false};
     std::chrono::steady_clock::time_point ground_detect_time_;
