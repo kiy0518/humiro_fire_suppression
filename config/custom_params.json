@@ -24,18 +24,6 @@
           "auto_check": true
         },
         {
-          "name": "MPC_Z_VEL_MAX_UP",
-          "expected": 1.5,
-          "description": "최대 상승 속도 (m/s) — 3.0에서 이륙 시 급상승 발생",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_ACC_HOR_MAX",
-          "expected": 1.5,
-          "description": "최대 수평 가속도 (m/s²) — 5.0에서 급가속으로 자세 불안정",
-          "auto_check": true
-        },
-        {
           "name": "CBRK_FLIGHTTERM",
           "expected": 0,
           "description": "비행 종료 회로 차단기 — 반드시 0 (활성화). 121212면 추락 시 모터 꺼지지 않음!",
@@ -58,6 +46,18 @@
           "expected": 0.6,
           "description": "최대 하강 속도 (m/s) — PX4 AUTO_RTL 시 사용. 기본 1.5는 중량 기체에 과속 위험",
           "auto_check": true
+        },
+        {
+          "name": "MPC_Z_VEL_MAX_UP",
+          "expected": 1,
+          "description": "최대 상승 속도 (m/s) — 3.0에서 이륙 시 급상승 발생",
+          "auto_check": true
+        },
+        {
+          "name": "MPC_ACC_HOR_MAX",
+          "expected": 2,
+          "description": "최대 수평 가속도 (m/s²) — 5.0에서 급가속으로 자세 불안정",
+          "auto_check": true
         }
       ]
     },
@@ -66,5 +66,5 @@
       "params": []
     }
   },
-  "updated_at": "2026-02-22 23:00:00"
+  "updated_at": "2026-02-23 18:04:22"
 }
