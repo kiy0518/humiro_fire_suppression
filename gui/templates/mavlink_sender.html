@@ -162,6 +162,43 @@
                         <option value="FIRE_RETURN">복귀 (60003)</option>
                     </select>
                 </div>
+
+                <!-- 빠른 타겟 선택 (FIRE_MISSION_START 전용) -->
+                <div id="targetPresetPanel" class="mb-3 d-none">
+                    <div class="border rounded p-2" style="background:#f8f9fa;">
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <small class="fw-bold text-secondary"><i class="bi bi-geo-alt"></i> 빠른 타겟 선택 — 1번 기체 기준 40m 정사각형</small>
+                        </div>
+                        <div class="row g-1 mb-2">
+                            <div class="col-6">
+                                <input type="number" class="form-control form-control-sm" id="centerLat"
+                                       value="35.898308" step="0.000001">
+                            </div>
+                            <div class="col-6">
+                                <input type="number" class="form-control form-control-sm" id="centerLon"
+                                       value="128.797265" step="0.000001">
+                            </div>
+                        </div>
+                        <div class="text-center mb-1"><small class="text-muted fw-bold">N (북)</small></div>
+                        <div class="row g-1 mb-1">
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('NW')">↖ NW</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('N')">↑ N</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('NE')">↗ NE</button></div>
+                        </div>
+                        <div class="row g-1 mb-1">
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('W')">← W</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-secondary w-100" disabled style="font-size:0.75rem;">● 중심</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('E')">E →</button></div>
+                        </div>
+                        <div class="row g-1">
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('SW')">↙ SW</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('S')">↓ S</button></div>
+                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('SE')">↘ SE</button></div>
+                        </div>
+                        <small class="text-muted d-block mt-2">꼭지점: NW·NE·SE·SW (대각 28.3m) | 변 중점: N·E·S·W (20m)</small>
+                    </div>
+                </div>
+
                 <div id="fireParamsContainer">
                     <!-- 동적으로 생성됨 -->
                 </div>
@@ -256,9 +293,9 @@
             {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'},
             {name: 'target_lat', label: 'Target Latitude (deg * 1e7)', value: 0, type: 'number'},
             {name: 'target_lon', label: 'Target Longitude (deg * 1e7)', value: 0, type: 'number'},
-            {name: 'target_alt', label: 'Target Altitude (m)', value: 1.5, type: 'number', step: '0.1'},
+            {name: 'target_alt', label: 'Target Altitude (m)', value: 3.0, type: 'number', step: '0.1'},
             {name: 'takeoff_speed', label: 'Takeoff Speed (m/s)', value: 0.5, type: 'number', step: '0.1'},
-            {name: 'flight_speed', label: 'Flight Speed (m/s)', value: 1.0, type: 'number', step: '0.1'},
+            {name: 'flight_speed', label: 'Flight Speed (m/s)', value: 3.0, type: 'number', step: '0.1'},
             {name: 'auto_fire', label: 'Auto Fire (0=manual, 1=auto)', value: 0, type: 'number'},
             {name: 'max_projectiles', label: 'Max Projectiles', value: 1, type: 'number'}
         ],
@@ -498,6 +535,14 @@
         const container = document.getElementById('fireParamsContainer');
         const params = fireMessageParams[msgType] || [];
 
+        // 프리셋 패널 표시/숨김 (FIRE_MISSION_START 전용)
+        const presetPanel = document.getElementById('targetPresetPanel');
+        if (msgType === 'FIRE_MISSION_START') {
+            presetPanel.classList.remove('d-none');
+        } else {
+            presetPanel.classList.add('d-none');
+        }
+
         let html = '';
         params.forEach(param => {
             html += `
@@ -510,6 +555,39 @@
             `;
         });
         container.innerHTML = html;
+    }
+
+    // 타겟 프리셋 — 40m 정사각형의 8개 지점 (꼭지점 4 + 변 중점 4)
+    // 기준: 1번 기체 위치 (중심), 반경 20m
+    const PRESET_HALF = 20.0;  // 40m 정사각형 → 중심에서 각 변까지 20m
+    const presetOffsets = {
+        'N':  [+PRESET_HALF,        0],               // 북쪽 변 중점
+        'NE': [+PRESET_HALF, +PRESET_HALF],           // 북동 꼭지점
+        'E':  [       0,     +PRESET_HALF],           // 동쪽 변 중점
+        'SE': [-PRESET_HALF, +PRESET_HALF],           // 남동 꼭지점
+        'S':  [-PRESET_HALF,        0],               // 남쪽 변 중점
+        'SW': [-PRESET_HALF, -PRESET_HALF],           // 남서 꼭지점
+        'W':  [       0,     -PRESET_HALF],           // 서쪽 변 중점
+        'NW': [+PRESET_HALF, -PRESET_HALF]            // 북서 꼭지점
+    };
+
+    function applyPreset(dir) {
+        const clat = parseFloat(document.getElementById('centerLat').value);
+        const clon = parseFloat(document.getElementById('centerLon').value);
+        if (isNaN(clat) || isNaN(clon)) {
+            showToast('중심 좌표(1번 기체 위치)를 먼저 입력하세요', 'warning');
+            return;
+        }
+        const [dn, de] = presetOffsets[dir];
+        const lat_rad = clat * Math.PI / 180.0;
+        const dlat = dn / 111320.0;
+        const dlon = de / (111320.0 * Math.cos(lat_rad));
+        const tlat = Math.round((clat + dlat) * 1e7);
+        const tlon = Math.round((clon + dlon) * 1e7);
+
+        document.getElementById('fire_param_target_lat').value = tlat;
+        document.getElementById('fire_param_target_lon').value = tlon;
+        addLog(`[프리셋 ${dir}] Δ=(${dn}m N, ${de}m E) → lat=${tlat}, lon=${tlon}`, 'info');
     }
 
     // 화재 진압 메시지 전송

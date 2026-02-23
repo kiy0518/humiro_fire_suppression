@@ -28,6 +28,17 @@ app.config['SECRET_KEY'] = 'humiro-fire-suppression-2024'
 config_manager = ConfigManager(PROJECT_ROOT)
 system_checker = SystemChecker()
 
+# MAVLink seq 카운터 (0~255 순환, 중복 드롭 방지)
+_mavlink_seq = 0
+_mavlink_seq_lock = __import__("threading").Lock()
+
+def get_next_mavlink_seq():
+    global _mavlink_seq
+    with _mavlink_seq_lock:
+        seq = _mavlink_seq
+        _mavlink_seq = (_mavlink_seq + 1) % 256
+        return seq
+
 @app.context_processor
 def inject_drone_info():
     """모든 템플릿에 기체 정보 주입"""
@@ -3011,7 +3022,7 @@ def api_mavlink_send_custom():
         payload_len = len(payload_bytes)
         incompat_flags = 0
         compat_flags = 0
-        seq = 0
+        seq = get_next_mavlink_seq()
 
         # 메시지 ID (24bit, little endian)
         msgid_bytes = message_id.to_bytes(3, 'little')
@@ -3113,7 +3124,7 @@ def api_mavlink_send_fire():
         payload_len = len(payload)
         incompat_flags = 0
         compat_flags = 0
-        seq = 0
+        seq = get_next_mavlink_seq()
 
         # 메시지 ID (24bit, little endian)
         msgid_bytes = message_id.to_bytes(3, 'little')

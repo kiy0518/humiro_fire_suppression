@@ -264,9 +264,10 @@ public:
         }
 
         case RtlPhase::DESCEND: {
-            // 수직 하강 0.7m/s, 수평 위치 홈 고정
-            sp.position = {home_x_, home_y_, home_z_};
-            sp.velocity = {NAN, NAN, DESCENT_SPEED};  // NED +z = 하강
+            // 수직 하강, 수평 위치 홈 고정
+            // Z: velocity-only 제어 → PX4 100Hz 속도 제어 (계단식 방지)
+            sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
+            sp.velocity = {NAN, NAN, DESCENT_SPEED};  // velocity-only Z (NED +z = 하강)
             sp.yaw = ctx.current_yaw.load();
             sp.yawspeed = 0.0f;
             return true;
@@ -274,11 +275,12 @@ public:
 
         case RtlPhase::SOFT_LAND: {
             // 감속 착륙: AGL 기반 속도 보간
+            // Z: velocity-only 제어 → 부드러운 착륙 (계단식 방지)
             float agl = getAGL(ctx);
             float speed = calcLandingSpeed(agl);
 
-            sp.position = {home_x_, home_y_, home_z_};
-            sp.velocity = {NAN, NAN, speed};  // NED +z = 하강
+            sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
+            sp.velocity = {NAN, NAN, speed};           // velocity-only Z (NED +z = 하강)
             sp.yaw = ctx.current_yaw.load();
             sp.yawspeed = 0.0f;
             return true;

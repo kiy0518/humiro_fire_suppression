@@ -93,15 +93,17 @@ public:
         // Z축 프로파일 업데이트: 목표 고도를 향해 점진적 이동
         z_profile_.update(takeoff_z_);
 
+        // X,Y: 이륙 위치 고정 (position control)
+        // Z: velocity-only 제어 → PX4가 100Hz로 직접 속도 적용 (10Hz 계단식 방지)
         sp.position = {
             ctx.start_local_x,
             ctx.start_local_y,
-            z_profile_.getPosition()    // 점진적 상승 (was: takeoff_z_ step)
+            NAN                         // Z position 비활성화 → velocity control로 전환
         };
         sp.velocity = {
             NAN,
             NAN,
-            z_profile_.getVelocity()    // PX4에 속도 힌트 제공 (was: NAN)
+            z_profile_.getVelocity()    // 프로파일 속도만 제공 (계단식 제거)
         };
         sp.yaw = ctx.initial_yaw;
         sp.yawspeed = 0.0f;
