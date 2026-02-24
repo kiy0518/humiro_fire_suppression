@@ -2414,10 +2414,12 @@ def api_check_fc_param(param_name):
             "message": error
         })
 
+    # float32→float64 변환 시 부동소수점 잡음 제거 (0.15 → 0.15000000596046448 방지)
+    display_value = round(value, 4) if isinstance(value, float) else value
     result = {
         "success": True,
         "param_name": param_name,
-        "value": value
+        "value": display_value
     }
 
     # 예상값과 비교
@@ -2491,6 +2493,51 @@ def api_set_fc_param():
         "message": f"{param_name} = {read_value} 설정 완료",
         "value": read_value
     })
+
+
+@app.route('/api/checklist/param-expected', methods=['PUT'])
+def api_update_param_expected():
+    """체크리스트 파라미터 권장값 수정 API — custom_params.json에 저장/오버라이드"""
+    data = request.json
+    if not data or 'param_name' not in data or 'category' not in data:
+        return jsonify({"success": False, "message": "param_name과 category 필수"})
+
+    param_name = data['param_name'].strip().upper()
+    category = data['category']
+    expected = data.get('expected')
+
+    if expected is not None:
+        try:
+            expected = float(expected)
+            if expected == int(expected):
+                expected = int(expected)
+        except (ValueError, TypeError):
+            return jsonify({"success": False, "message": "expected 값이 올바르지 않습니다"})
+
+    description = data.get('description')
+
+    # 기존 파라미터가 있으면 부분 업데이트 (보내지 않은 필드는 유지)
+    existing = config_manager.get_custom_params_by_category(category)
+    existing_param = next((p for p in existing if p['name'] == param_name), None)
+
+    param = {
+        "name": param_name,
+        "expected": expected if expected is not None else (existing_param.get('expected') if existing_param else None),
+        "description": description if description is not None else (existing_param.get('description', '') if existing_param else ''),
+        "auto_check": True
+    }
+
+    # add_custom_param: 기존이면 업데이트, 없으면 추가
+    success = config_manager.add_custom_param(category, param)
+    if not success:
+        return jsonify({"success": False, "message": "저장 실패"})
+
+    msg_parts = []
+    if expected is not None:
+        msg_parts.append(f"권장값 → {expected}")
+    if description is not None:
+        msg_parts.append("설명 저장")
+    return jsonify({"success": True, "message": f"{param_name} {', '.join(msg_parts) or '저장 완료'}"})
 
 
 # ==================== 서비스 로그 스트리밍 API ====================
@@ -2695,13 +2742,70 @@ def get_crash_prevention_params_checklist():
     ]
 
 
-def get_custom_params_checklist(category: str):
-    """커스텀 파라미터를 체크리스트 형식으로 변환"""
+def _apply_param_overrides(items, category):
+    """하드코딩된 체크리스트 항목에 custom_params.json 오버라이드 적용
+    custom_params.json에 같은 이름의 파라미터가 있으면 expected 값을 교체"""
+    overrides = {}
+    for p in config_manager.get_custom_params_by_category(category):
+        if p.get('expected') is not None:
+            overrides[p['name']] = p['expected']
+
+    if not overrides:
+        return items
+
+    updated = []
+    for item in items:
+        check = item.get('check', '')
+        if 'fc-param/' not in check:
+            updated.append(item)
+            continue
+
+        part = check.split('fc-param/')[1]
+        param_name = part.split('?')[0]
+
+        if param_name in overrides:
+            new_expected = overrides[param_name]
+            # check URL 교체
+            new_check = f"fc-param/{param_name}?expected={new_expected}"
+            # text에서 기존 expected 값 교체 (형태: "PARAM = old_val (설명)")
+            old_text = item['text']
+            import re
+            new_text = re.sub(
+                rf'^({re.escape(param_name)}\s*=\s*)[\d.]+',
+                rf'\g<1>{new_expected}',
+                old_text
+            )
+            item = dict(item, check=new_check, text=new_text)
+
+        updated.append(item)
+    return updated
+
+
+def _collect_param_names(checklist):
+    """체크리스트 섹션들에서 fc-param 파라미터 이름 집합 추출"""
+    names = set()
+    for section in checklist:
+        for item in section.get('items', []):
+            check = item.get('check', '')
+            if 'fc-param/' in check:
+                # "fc-param/PARAM_NAME" 또는 "fc-param/PARAM_NAME?expected=..." 파싱
+                part = check.split('fc-param/')[1]
+                param_name = part.split('?')[0]
+                if param_name:
+                    names.add(param_name)
+    return names
+
+
+def get_custom_params_checklist(category: str, exclude_params: set = None):
+    """커스텀 파라미터를 체크리스트 형식으로 변환 (exclude_params: 이미 하드코딩된 파라미터 이름 집합)"""
     # 해당 카테고리 + common 파라미터 가져오기
     params = config_manager.get_custom_params_by_category(category)
     common_params = config_manager.get_custom_params_by_category('common') if category != 'common' else []
 
     all_params = params + common_params
+    # 하드코딩된 섹션과 중복되는 파라미터 제외
+    if exclude_params:
+        all_params = [p for p in all_params if p['name'] not in exclude_params]
     if not all_params:
         return []
 
@@ -2772,7 +2876,7 @@ def get_indoor_checklist(no_rc=False):
             {"id": "param9", "text": "MAV_1_MODE = 0 (Normal)", "auto": True, "check": "fc-param/MAV_1_MODE?expected=0"},
             {"id": "param10", "text": "SER_TEL3_BAUD = 115200", "auto": True, "check": "fc-param/SER_TEL3_BAUD?expected=115200"},
         ]},
-        {"section": "페일세이프 파라미터 확인 (실내)", "items": get_failsafe_params_checklist(indoor=True)},
+        {"section": "페일세이프 파라미터 확인 (실내)", "items": _apply_param_overrides(get_failsafe_params_checklist(indoor=True), 'indoor')},
         {"section": "비행 환경 확인", "items": [
             {"id": "env1", "text": "비행 공간 확보 (3m x 3m 이상)", "auto": False},
             {"id": "env2", "text": "바닥 텍스처 충분 (Optical Flow용)", "auto": False},
@@ -2782,8 +2886,9 @@ def get_indoor_checklist(no_rc=False):
         ]},
     ]
 
-    # 커스텀 파라미터 섹션 추가
-    custom_items = get_custom_params_checklist('indoor')
+    # 커스텀 파라미터 섹션 추가 (하드코딩된 파라미터와 중복 제거)
+    existing_params = _collect_param_names(checklist)
+    custom_items = get_custom_params_checklist('indoor', exclude_params=existing_params)
     if custom_items:
         checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
 
@@ -2823,8 +2928,8 @@ def get_outdoor_gps_checklist(no_rc=False):
             {"id": "param5", "text": "EKF2_RNG_CTRL (0=Disable, 1=Conditional 권장, 2=Enabled)", "auto": False},  # 야외: 선택 가능
             {"id": "param6", "text": "GPS_1_CONFIG = 201 (GPS1)", "auto": True, "check": "fc-param/GPS_1_CONFIG?expected=201"},
         ]},
-        {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
-        {"section": "추락 방지 파라미터 (필수 검토)", "items": get_crash_prevention_params_checklist()},
+        {"section": "페일세이프 파라미터 확인 (야외)", "items": _apply_param_overrides(get_failsafe_params_checklist(indoor=False), 'outdoor_gps')},
+        {"section": "추락 방지 파라미터 (필수 검토)", "items": _apply_param_overrides(get_crash_prevention_params_checklist(), 'outdoor_gps')},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
@@ -2833,8 +2938,9 @@ def get_outdoor_gps_checklist(no_rc=False):
         ]},
     ]
 
-    # 커스텀 파라미터 섹션 추가
-    custom_items = get_custom_params_checklist('outdoor_gps')
+    # 커스텀 파라미터 섹션 추가 (하드코딩된 파라미터와 중복 제거)
+    existing_params = _collect_param_names(checklist)
+    custom_items = get_custom_params_checklist('outdoor_gps', exclude_params=existing_params)
     if custom_items:
         checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
 
@@ -2878,8 +2984,8 @@ def get_outdoor_rtk_checklist(no_rc=False):
             {"id": "param7", "text": "GPS_1_PROTOCOL = 1 (u-blox)", "auto": True, "check": "fc-param/GPS_1_PROTOCOL?expected=1"},
             {"id": "param8", "text": "GPS_UBX_MODE = 0 (Default, RTK 포함)", "auto": True, "check": "fc-param/GPS_UBX_MODE?expected=0"},
         ]},
-        {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
-        {"section": "추락 방지 파라미터 (필수 검토)", "items": get_crash_prevention_params_checklist()},
+        {"section": "페일세이프 파라미터 확인 (야외)", "items": _apply_param_overrides(get_failsafe_params_checklist(indoor=False), 'outdoor_rtk')},
+        {"section": "추락 방지 파라미터 (필수 검토)", "items": _apply_param_overrides(get_crash_prevention_params_checklist(), 'outdoor_rtk')},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
@@ -2888,8 +2994,9 @@ def get_outdoor_rtk_checklist(no_rc=False):
         ]},
     ]
 
-    # 커스텀 파라미터 섹션 추가
-    custom_items = get_custom_params_checklist('outdoor_rtk')
+    # 커스텀 파라미터 섹션 추가 (하드코딩된 파라미터와 중복 제거)
+    existing_params = _collect_param_names(checklist)
+    custom_items = get_custom_params_checklist('outdoor_rtk', exclude_params=existing_params)
     if custom_items:
         checklist.append({"section": "사용자 추가 파라미터", "items": custom_items})
 

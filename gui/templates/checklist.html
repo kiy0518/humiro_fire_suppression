@@ -28,6 +28,9 @@
                     <button class="btn btn-sm btn-outline-danger" onclick="writeAllFromInputs()">
                         <i class="bi bi-pencil-square"></i> 일괄 적용
                     </button>
+                    <button class="btn btn-sm btn-outline-info" id="editModeBtn" onclick="toggleEditMode()">
+                        <i class="bi bi-gear"></i> 편집
+                    </button>
                     <button class="btn btn-sm btn-outline-success" onclick="checkAll(true)">
                         <i class="bi bi-check-all"></i> 모두 체크
                     </button>
@@ -175,12 +178,16 @@
         padding: 8px 0;
         border-bottom: 1px solid #f0f0f0;
     }
+    .checklist-item.fc-param-item {
+        align-items: flex-start;
+    }
     .checklist-item:last-child {
         border-bottom: none;
     }
     .checklist-item .form-check-input {
         width: 1.2em;
         height: 1.2em;
+        margin-top: 4px;
     }
     .checklist-item label {
         flex: 1;
@@ -190,18 +197,57 @@
     .checklist-item .auto-check {
         margin-left: auto;
     }
+    .fc-param-content {
+        flex: 1;
+        margin-left: 10px;
+        min-width: 0;
+    }
+    .fc-param-row1 {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .fc-param-name {
+        font-weight: 600;
+        font-family: monospace;
+        cursor: pointer;
+    }
+    .fc-param-desc {
+        margin-top: 2px;
+        font-size: 0.8rem;
+        color: #888 !important;
+        line-height: 1.3;
+    }
+    .fc-param-controls {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+    }
     .check-result {
         font-size: 0.85rem;
         padding: 2px 8px;
         border-radius: 10px;
     }
     .check-result.success {
-        background-color: #d4edda; 
+        background-color: #d4edda;
         color: #155724;
     }
     .check-result.fail {
         background-color: #f8d7da;
         color: #721c24;
+    }
+    .edit-expected {
+        display: none;
+    }
+    .edit-mode .edit-expected {
+        display: inline-flex !important;
+    }
+    .edit-mode #editModeBtn {
+        background-color: #0dcaf0;
+        color: #000;
     }
 </style>
 {% endblock %}
@@ -209,6 +255,7 @@
 {% block extra_js %}
 <script>
     let checklistData = [];
+    let editMode = false;
 
     function loadChecklist() {
         const mode = document.getElementById('checklistMode').value;
@@ -240,39 +287,84 @@
                 const isCustomItem = custom && item.id.startsWith('custom_');
                 let paramName = '';
                 if (isCustomItem) {
-                    // "MPC_XY_VEL_MAX = 2 (설명)" 형태에서 이름 추출
                     const match = item.text.match(/^([A-Z0-9_]+)/);
                     if (match) paramName = match[1];
                 }
 
-                html += `
+                const isFcParam = item.auto && item.check && item.check.includes('fc-param/');
+
+                if (isFcParam) {
+                    // FC 파라미터: 2줄 레이아웃
+                    const m = item.check.match(/fc-param\/([A-Z0-9_]+)(?:\?expected=([\d.]+))?/);
+                    const pName = m ? m[1] : '';
+                    const pExpected = m && m[2] ? m[2] : '';
+
+                    // 텍스트에서 설명 추출: "PARAM = VAL (설명)" → "설명"
+                    let desc = item.text.replace(/^[A-Z0-9_]+\s*(?:=\s*[\d.]+\s*)?/, '').trim();
+                    if (desc.startsWith('(') && desc.endsWith(')')) {
+                        desc = desc.slice(1, -1);
+                    } else if (desc.startsWith('(')) {
+                        desc = desc.slice(1);
+                    }
+
+                    html += `
+                    <div class="checklist-item fc-param-item">
+                        <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
+                        <div class="fc-param-content">
+                            <div class="fc-param-row1">
+                                <label for="${item.id}" class="fc-param-name mb-0">${pName}</label>
+                                ${pExpected ? `<small class="text-muted" id="${item.id}_expected">(권장: ${pExpected})</small>` : ''}
+                                <span class="edit-expected align-items-center gap-1">
+                                    <input type="number" step="any" class="form-control form-control-sm"
+                                           id="${item.id}_edit_expected" style="width:80px"
+                                           value="${pExpected}" placeholder="권장값">
+                                    <button class="btn btn-sm btn-outline-info"
+                                            onclick="saveExpectedValue('${pName}', '${item.id}')">
+                                        <i class="bi bi-check-lg"></i>
+                                    </button>
+                                </span>
+                                <span class="fc-param-controls">
+                                    <button class="btn btn-sm btn-outline-warning auto-check"
+                                            data-item-id="${item.id}"
+                                            data-check-type="${item.check}"
+                                            onclick="runAutoCheck('${item.id}', '${item.check}')">
+                                        <i class="bi bi-lightning"></i> 확인
+                                    </button>
+                                    <span class="check-result" id="${item.id}_result"></span>
+                                    <input type="number" step="any" class="form-control form-control-sm"
+                                           id="${item.id}_input" style="width:90px"
+                                           placeholder="${pExpected || '값'}" value="${pExpected}">
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            onclick="writeParamFromInput('${item.id}', '${pName}', '${item.check}')">
+                                        <i class="bi bi-pencil-square"></i> 쓰기
+                                    </button>
+                                    ${isCustomItem && paramName ? `
+                                        <button class="btn btn-sm btn-outline-danger" onclick="showDeleteParamModal('${paramName}')">삭제</button>
+                                    ` : ''}
+                                </span>
+                            </div>
+                            ${desc ? `<div class="fc-param-desc" id="${item.id}_desc">${desc}</div>` : ''}
+                            <div class="edit-expected mt-1" style="width:100%">
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text" style="font-size:0.75rem">설명</span>
+                                    <input type="text" class="form-control form-control-sm"
+                                           id="${item.id}_edit_desc" style="font-size:0.8rem"
+                                           value="${desc.replace(/"/g, '&quot;')}" placeholder="파라미터 설명">
+                                    <button class="btn btn-sm btn-outline-info"
+                                            onclick="saveParamDesc('${pName}', '${item.id}')">
+                                        <i class="bi bi-check-lg"></i> 저장
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+                } else {
+                    // 일반 항목: 1줄 레이아웃
+                    html += `
                     <div class="checklist-item">
                         <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
                         <label for="${item.id}">${item.text}</label>
-                        ${item.auto && item.check && item.check.includes('fc-param/') ? (() => {
-                            const m = item.check.match(/fc-param\/([A-Z0-9_]+)(?:\?expected=([\d.]+))?/);
-                            const pName = m ? m[1] : '';
-                            const pExpected = m && m[2] ? m[2] : '';
-                            return `
-                            <span class="d-inline-flex align-items-center ms-2 gap-1">
-                                <button class="btn btn-sm btn-outline-warning auto-check"
-                                        data-item-id="${item.id}"
-                                        data-check-type="${item.check}"
-                                        onclick="runAutoCheck('${item.id}', '${item.check}')">
-                                    <i class="bi bi-lightning"></i> 확인
-                                </button>
-                                <span class="check-result" id="${item.id}_result"></span>
-                                ${pExpected ? `<small class="text-muted">권장:${pExpected}</small>` : ''}
-                                <input type="number" step="any" class="form-control form-control-sm"
-                                       id="${item.id}_input" style="width:90px"
-                                       placeholder="${pExpected || '값'}" value="${pExpected}">
-                                <button class="btn btn-sm btn-outline-danger"
-                                        onclick="writeParamFromInput('${item.id}', '${pName}', '${item.check}')">
-                                    <i class="bi bi-pencil-square"></i> 쓰기
-                                </button>
-                            </span>`;
-                        })()
-                        : item.auto ? `
+                        ${item.auto ? `
                             <button class="btn btn-sm btn-outline-warning auto-check"
                                     data-item-id="${item.id}"
                                     data-check-type="${item.check}"
@@ -282,12 +374,10 @@
                             <span class="check-result ms-2" id="${item.id}_result"></span>
                         ` : ''}
                         ${isCustomItem && paramName ? `
-                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="showDeleteParamModal('${paramName}')">
-                                삭제
-                            </button>
+                            <button class="btn btn-sm btn-outline-danger ms-1" onclick="showDeleteParamModal('${paramName}')">삭제</button>
                         ` : ''}
-                    </div>
-                `;
+                    </div>`;
+                }
             });
 
             html += '</div>';
@@ -450,11 +540,39 @@
 
         const statusEl = document.getElementById('readyText');
         const originalText = statusEl.textContent;
+        let skipped = 0, written = 0, failed = 0;
 
         for (let i = 0; i < targets.length; i++) {
             const t = targets[i];
-            statusEl.textContent = `일괄 적용 중... (${i+1}/${targets.length}) ${t.paramName}`;
+            statusEl.textContent = `일괄 확인 중... (${i+1}/${targets.length}) ${t.paramName}`;
             const resultEl = document.getElementById(`${t.itemId}_result`);
+
+            // 먼저 FC에서 현재 값 읽어서 입력값과 비교
+            let alreadyMatch = false;
+            try {
+                const checkResp = await fetch(`/api/check/fc-param/${t.paramName}?expected=${t.value}`);
+                const checkData = await checkResp.json();
+
+                if (checkData.match === true) {
+                    // 이미 일치 — 쓰기 생략
+                    const dispVal = typeof checkData.value === 'number' ? parseFloat(checkData.value.toPrecision(6)) : checkData.value;
+                    if (resultEl) {
+                        resultEl.innerHTML = `<i class="bi bi-check-circle"></i> ${dispVal} (일치)`;
+                        resultEl.className = 'check-result success';
+                    }
+                    const checkbox = document.getElementById(t.itemId);
+                    if (checkbox) checkbox.checked = true;
+                    skipped++;
+                    alreadyMatch = true;
+                }
+                await new Promise(r => setTimeout(r, 100));
+            } catch(e) {
+                // 읽기 실패 시 쓰기 시도
+            }
+            if (alreadyMatch) continue;
+
+            // 불일치 — 쓰기 진행
+            statusEl.textContent = `일괄 적용 중... (${i+1}/${targets.length}) ${t.paramName}`;
             if (resultEl) {
                 resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중...';
                 resultEl.className = 'check-result';
@@ -470,9 +588,13 @@
                 .then(async (data) => {
                     if (data.success) {
                         await runAutoCheck(t.itemId, t.checkType);
-                    } else if (resultEl) {
-                        resultEl.textContent = data.message;
-                        resultEl.className = 'check-result fail';
+                        written++;
+                    } else {
+                        if (resultEl) {
+                            resultEl.textContent = data.message;
+                            resultEl.className = 'check-result fail';
+                        }
+                        failed++;
                     }
                     await new Promise(r => setTimeout(r, 150));
                     resolve();
@@ -482,6 +604,7 @@
                         resultEl.textContent = '쓰기 오류';
                         resultEl.className = 'check-result fail';
                     }
+                    failed++;
                     resolve();
                 });
             });
@@ -489,7 +612,79 @@
 
         statusEl.textContent = originalText;
         updateProgress();
-        showToast(`${targets.length}개 파라미터 적용 완료`, 'success');
+        showToast(`일괄 적용 완료: ${written}개 변경, ${skipped}개 일치(생략)${failed ? `, ${failed}개 실패` : ''}`,
+                  failed > 0 ? 'warning' : 'success');
+    }
+
+    // ===== 편집 모드 =====
+
+    function toggleEditMode() {
+        editMode = !editMode;
+        const container = document.getElementById('checklistContent');
+        const btn = document.getElementById('editModeBtn');
+        if (editMode) {
+            container.classList.add('edit-mode');
+            btn.classList.remove('btn-outline-info');
+            btn.classList.add('btn-info');
+            btn.innerHTML = '<i class="bi bi-gear-fill"></i> 편집 중';
+        } else {
+            container.classList.remove('edit-mode');
+            btn.classList.remove('btn-info');
+            btn.classList.add('btn-outline-info');
+            btn.innerHTML = '<i class="bi bi-gear"></i> 편집';
+        }
+    }
+
+    function saveExpectedValue(paramName, itemId) {
+        const editInput = document.getElementById(`${itemId}_edit_expected`);
+        if (!editInput) return;
+        const newExpected = parseFloat(editInput.value);
+        if (isNaN(newExpected)) { alert('숫자를 입력하세요.'); editInput.focus(); return; }
+
+        const category = document.getElementById('checklistMode').value;
+        fetch('/api/checklist/param-expected', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({param_name: paramName, category: category, expected: newExpected})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                // 권장값 텍스트 + 입력필드 즉시 갱신
+                const expectedEl = document.getElementById(`${itemId}_expected`);
+                if (expectedEl) expectedEl.textContent = `권장:${newExpected}`;
+                const inputEl = document.getElementById(`${itemId}_input`);
+                if (inputEl) { inputEl.value = newExpected; inputEl.placeholder = newExpected; }
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(() => showToast('저장 오류', 'danger'));
+    }
+
+    function saveParamDesc(paramName, itemId) {
+        const descInput = document.getElementById(`${itemId}_edit_desc`);
+        if (!descInput) return;
+        const newDesc = descInput.value.trim();
+
+        const category = document.getElementById('checklistMode').value;
+        fetch('/api/checklist/param-expected', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({param_name: paramName, category: category, description: newDesc})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast(`${paramName} 설명 저장`, 'success');
+                const descEl = document.getElementById(`${itemId}_desc`);
+                if (descEl) descEl.textContent = newDesc;
+            } else {
+                showToast(data.message, 'danger');
+            }
+        })
+        .catch(() => showToast('저장 오류', 'danger'));
     }
 
     // ===== 사용자 파라미터 관리 =====

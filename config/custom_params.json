@@ -14,7 +14,7 @@
         {
           "name": "MPC_XY_VEL_MAX",
           "expected": 2,
-          "description": "최대 수평 속도 제한 (m/s) — 테스트 시 12m/s로 추락 위험 발생",
+          "description": "최대 수평 속도 (m/s) — 12m/s 설정 시 폭주 추락",
           "auto_check": true
         },
         {
@@ -67,14 +67,14 @@
         },
         {
           "name": "GF_MAX_HOR_DIST",
-          "expected": 100,
-          "description": "최대 수평 거리 제한 (m) — 932m 폭주 사고 방지 (기체 1번 사고 원인)",
+          "expected": 200,
+          "description": "",
           "auto_check": true
         },
         {
           "name": "MPC_VEL_MANUAL",
-          "expected": 3,
-          "description": "수동 비행 최대 속도 (m/s) — 기본 10.0은 테스트에 과도",
+          "expected": 2,
+          "description": "",
           "auto_check": true
         },
         {
@@ -124,6 +124,24 @@
           "expected": 120,
           "description": "최대 롤 각속도 (deg/s) — 0.3초 만에 roll -70° 급변 방지",
           "auto_check": true
+        },
+        {
+          "name": "GPS_1_CONFIG",
+          "expected": 201,
+          "description": "",
+          "auto_check": true
+        },
+        {
+          "name": "GPS_1_PROTOCOL",
+          "expected": 1,
+          "description": "",
+          "auto_check": true
+        },
+        {
+          "name": "EKF2_OF_CTRL",
+          "expected": 1,
+          "description": "",
+          "auto_check": true
         }
       ]
     },
@@ -132,5 +150,5 @@
       "params": []
     }
   },
-  "updated_at": "2026-02-24 15:12:00"
+  "updated_at": "2026-02-24 18:01:44"
 }
