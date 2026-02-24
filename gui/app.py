@@ -224,17 +224,15 @@ class MavlinkManager:
                 )
 
                 # 확인 응답 대기 (최대 3초)
+                # PX4 정수형 파라미터는 응답 시 비트 재해석된 float를 보내므로
+                # param_id 일치만 확인하고, 실제 값 검증은 API에서 read_param으로 수행
                 start = time.time()
                 while time.time() - start < 3:
                     msg = self._mav.recv_match(type='PARAM_VALUE', blocking=True, timeout=0.5)
                     if msg:
-                        # PX4는 param_id에 null 바이트 패딩 → strip 필요
                         received_name = msg.param_id.rstrip('\x00') if isinstance(msg.param_id, str) else msg.param_id.decode('utf-8').rstrip('\x00')
                         if received_name == param_name:
-                            if abs(msg.param_value - float(value)) < 0.001:
-                                return True, f"{param_name} = {value} 설정 완료"
-                            else:
-                                return False, f"설정 불일치: {msg.param_value} (예상: {value})"
+                            return True, f"{param_name} = {value} 설정 완료"
 
                 return False, "응답 시간 초과"
             except Exception as e:
