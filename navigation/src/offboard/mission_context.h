@@ -33,6 +33,19 @@ struct MissionConfig {
     float flight_speed = 3.0f;               // 비행 속도 (m/s)
     GPSCoordinate target_waypoint;           // 목표 위치
     float hover_duration_sec = 3.0f;         // 호버링 시간 (초)
+    float takeoff_max_speed = 0.2f;          // 이륙 최대 속도 (m/s)
+    float takeoff_accel_tau = 1.0f;          // 이륙 가속 시정수 (초, 0→max_speed까지 걸리는 시간)
+    // 이동 (Navigate)
+    float nav_max_accel_xy = 1.5f;           // 수평 가속도 (m/s²)
+    float nav_max_speed_z = 1.0f;            // 수직 속도 (m/s)
+    // 거리조정 (Distance Adjust)
+    float adjust_approach_speed = 0.3f;      // 접근 속도 (m/s)
+    float adjust_target_wall_dist = 10.0f;   // 목표 벽 거리 (m)
+    float adjust_retreat_dist = 4.0f;        // 후퇴 거리 (m)
+    // 복귀/착륙 (RTL)
+    float rtl_descent_speed = 0.4f;          // 하강 속도 (m/s)
+    float rtl_soft_land_alt = 2.0f;          // 소프트랜딩 시작 고도 (m AGL)
+    float rtl_landing_speed_min = 0.05f;     // 최종 착지 속도 (m/s)
 };
 
 struct MissionContext {
@@ -58,6 +71,16 @@ struct MissionContext {
     float target_altitude{-1.0f};
     float flight_speed{3.0f};
     float hover_duration_sec{3.0f};
+    float takeoff_max_speed{0.2f};           // 이륙 최대 속도 (m/s)
+    float takeoff_accel_tau{1.0f};           // 이륙 가속 시정수 (초)
+    float nav_max_accel_xy{1.5f};            // 수평 가속도 (m/s²)
+    float nav_max_speed_z{1.0f};             // 수직 속도 (m/s)
+    float adjust_approach_speed{0.3f};       // 거리조정 접근 속도 (m/s)
+    float adjust_target_wall_dist{10.0f};    // 목표 벽 거리 (m)
+    float adjust_retreat_dist{4.0f};         // 후퇴 거리 (m)
+    float rtl_descent_speed{0.4f};           // 하강 속도 (m/s)
+    float rtl_soft_land_alt{2.0f};           // 소프트랜딩 시작 고도 (m AGL)
+    float rtl_landing_speed_min{0.05f};      // 최종 착지 속도 (m/s)
     double target_lat{0.0};
     double target_lon{0.0};
 
@@ -157,6 +180,16 @@ struct MissionContext {
         hover_duration_sec = config.hover_duration_sec;
         target_lat = config.target_waypoint.latitude;
         target_lon = config.target_waypoint.longitude;
+        takeoff_max_speed = config.takeoff_max_speed;
+        takeoff_accel_tau = config.takeoff_accel_tau;
+        nav_max_accel_xy = config.nav_max_accel_xy;
+        nav_max_speed_z = config.nav_max_speed_z;
+        adjust_approach_speed = config.adjust_approach_speed;
+        adjust_target_wall_dist = config.adjust_target_wall_dist;
+        adjust_retreat_dist = config.adjust_retreat_dist;
+        rtl_descent_speed = config.rtl_descent_speed;
+        rtl_soft_land_alt = config.rtl_soft_land_alt;
+        rtl_landing_speed_min = config.rtl_landing_speed_min;
     }
 
     /** 컨텍스트 초기화 (새 미션 시작 시) */

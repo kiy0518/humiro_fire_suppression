@@ -112,9 +112,11 @@ private:
 
 
 /**
- * 3D 모션 프로파일 (XYZ 독립 축).
- * MotionProfile1D 3개의 래퍼.
- * XY와 Z축 제한값을 별도 설정 가능.
+ * 3D 모션 프로파일 (XY 결합 + Z 독립).
+ *
+ * XY: 현재→목표 직선 방향으로 단일 사다리꼴 속도 프로파일 적용.
+ *     속도 벡터가 항상 목표를 가리키므로 직선 경로 유지.
+ * Z:  독립 MotionProfile1D (고도 제어).
  */
 class MotionProfile3D {
 public:
@@ -131,39 +133,118 @@ public:
                float max_vel_xy, float max_accel_xy,
                float max_vel_z, float max_accel_z,
                float dt) {
-        x_.reset(x, max_vel_xy, max_accel_xy, dt);
-        y_.reset(y, max_vel_xy, max_accel_xy, dt);
+        px_ = x; py_ = y;
+        vx_ = 0.0f; vy_ = 0.0f;
+        max_vel_xy_ = max_vel_xy;
+        max_accel_xy_ = max_accel_xy;
+        dt_ = dt;
+        initialized_ = true;
         z_.reset(z, max_vel_z, max_accel_z, dt);
     }
 
-    /** 모든 축 목표를 향해 업데이트 */
+    /**
+     * 목표를 향해 한 tick 진행 (10Hz).
+     * XY: 목표 방향으로 사다리꼴 가감속, 직선 경로 유지.
+     * Z: 독립 1D 프로파일.
+     */
     void update(float tx, float ty, float tz) {
-        x_.update(tx);
-        y_.update(ty);
+        if (!initialized_) return;
         z_.update(tz);
+
+        float dx = tx - px_;
+        float dy = ty - py_;
+        float dist = std::sqrt(dx * dx + dy * dy);
+
+        if (dist < 0.001f) {
+            // 목표 도달: 정지
+            px_ = tx; py_ = ty;
+            vx_ = 0.0f; vy_ = 0.0f;
+            return;
+        }
+
+        // 방향 단위 벡터 (현재 프로파일 위치 → 목표)
+        float nx = dx / dist;
+        float ny = dy / dist;
+
+        // 현재 속도의 목표 방향 성분 (양수=목표 접근, 음수=이탈)
+        float speed_along = vx_ * nx + vy_ * ny;
+
+        // 사다리꼴 속도 프로파일: 감속 거리 계산
+        float abs_speed = std::fabs(speed_along);
+        float decel_dist = (abs_speed * abs_speed) / (2.0f * max_accel_xy_);
+
+        float desired_speed;
+        if (speed_along < 0.0f) {
+            // 목표에서 멀어지는 중: 빨리 감속 → 정지
+            desired_speed = 0.0f;
+        } else if (dist <= decel_dist + abs_speed * dt_) {
+            // 감속 구간: 목표에서 정지하도록 속도 감소
+            desired_speed = std::sqrt(2.0f * max_accel_xy_ * dist);
+        } else {
+            // 가속/순항 구간
+            desired_speed = max_vel_xy_;
+        }
+
+        // 가속도 제한 적용 (along-track 방향)
+        float speed_error = desired_speed - speed_along;
+        float max_dv = max_accel_xy_ * dt_;
+        float new_speed;
+        if (std::fabs(speed_error) > max_dv) {
+            new_speed = speed_along + (speed_error > 0.0f ? max_dv : -max_dv);
+        } else {
+            new_speed = desired_speed;
+        }
+
+        // 속도 = 스칼라 속도 × 방향 벡터 (항상 목표를 가리킴)
+        vx_ = new_speed * nx;
+        vy_ = new_speed * ny;
+
+        // 위치 적분
+        px_ += vx_ * dt_;
+        py_ += vy_ * dt_;
+
+        // 오버슈트 방지: 목표를 지나쳤으면 클램프
+        float new_dx = tx - px_;
+        float new_dy = ty - py_;
+        if (dx * new_dx + dy * new_dy < 0.0f) {
+            px_ = tx; py_ = ty;
+            vx_ = 0.0f; vy_ = 0.0f;
+        }
     }
 
     std::array<float, 3> getPosition() const {
-        return {x_.getPosition(), y_.getPosition(), z_.getPosition()};
+        return {px_, py_, z_.getPosition()};
     }
 
     std::array<float, 3> getVelocity() const {
-        return {x_.getVelocity(), y_.getVelocity(), z_.getVelocity()};
+        return {vx_, vy_, z_.getVelocity()};
     }
 
     bool isInitialized() const {
-        return x_.isInitialized();
+        return initialized_;
     }
 
     bool isSettled(float tx, float ty, float tz,
                    float pos_tol = 0.1f, float vel_tol = 0.05f) const {
-        return x_.isSettled(tx, pos_tol, vel_tol) &&
-               y_.isSettled(ty, pos_tol, vel_tol) &&
+        float dx = tx - px_;
+        float dy = ty - py_;
+        float dist = std::sqrt(dx * dx + dy * dy);
+        float speed = std::sqrt(vx_ * vx_ + vy_ * vy_);
+        return dist < pos_tol && speed < vel_tol &&
                z_.isSettled(tz, pos_tol, vel_tol);
     }
 
 private:
-    MotionProfile1D x_, y_, z_;
+    // XY 결합 (직선 경로)
+    float px_{0.0f}, py_{0.0f};       // 프로파일 위치
+    float vx_{0.0f}, vy_{0.0f};       // 프로파일 속도
+    float max_vel_xy_{1.0f};
+    float max_accel_xy_{1.0f};
+    float dt_{0.1f};
+    bool initialized_{false};
+
+    // Z 독립
+    MotionProfile1D z_;
 };
 
 #endif // MOTION_PROFILE_H

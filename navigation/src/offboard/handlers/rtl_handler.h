@@ -7,8 +7,8 @@
  *
  * 페이즈:
  *   NAVIGATE_HOME → 홈 위치로 수평 이동 (비행고도 유지)
- *   DESCEND       → 1.5m AGL까지 0.7m/s 하강
- *   SOFT_LAND     → 1.5m→0m, 속도 0.7→0.1m/s 선형 감속
+ *   DESCEND       → soft_land_alt AGL까지 descent_speed 하강
+ *   SOFT_LAND     → soft_land_alt→0m, descent_speed→landing_speed_min 선형 감속
  *   GROUND_DISARM → 착지 감지 후 disarm 명령
  *
  * 전환 조건: arming_state == 1 (DISARMED) → COMPLETE
@@ -34,6 +34,18 @@ public:
         // 현재 비행 고도 유지하면서 홈으로 이동
         flight_z_ = ctx.current_local_z.load();
 
+        // ctx에서 착륙 파라미터 로드
+        descent_speed_ = ctx.rtl_descent_speed;
+        landing_speed_min_ = ctx.rtl_landing_speed_min;
+        soft_land_alt_ = ctx.rtl_soft_land_alt;
+
+        // 동적 타임아웃 계산 (고도/속도 기반)
+        float agl_now = -(ctx.current_local_z.load() - ctx.start_local_z);
+        float descend_alt = std::max(0.0f, agl_now - soft_land_alt_);
+        descend_timeout_ = std::max(60.0f, std::min(descend_alt / descent_speed_ * 2.0f + 30.0f, 300.0f));
+        float avg_land_speed = (descent_speed_ + landing_speed_min_) * 0.5f;
+        soft_land_timeout_ = std::max(30.0f, std::min(soft_land_alt_ / avg_land_speed * 2.0f + 15.0f, 120.0f));
+
         // 착지 감지 초기화
         ground_detected_ = false;
         disarm_sent_ = false;
@@ -44,9 +56,11 @@ public:
         float cur_x = ctx.current_local_x.load();
         float cur_y = ctx.current_local_y.load();
         float cur_z = ctx.current_local_z.load();
+        float rtl_max_axy = ctx.nav_max_accel_xy;
+        float rtl_max_vz  = ctx.nav_max_speed_z;
         nav_profile_.reset(cur_x, cur_y, cur_z,
-                           ctx.flight_speed, RTL_MAX_AXY,
-                           RTL_MAX_VZ, RTL_MAX_AZ, 0.1f);
+                           ctx.flight_speed, rtl_max_axy,
+                           rtl_max_vz, RTL_MAX_AZ, 0.1f);
 
         // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
         float dx = home_x_ - cur_x;
@@ -57,14 +71,14 @@ public:
             phase_ = RtlPhase::DESCEND;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작 (홈 근처 %.1fm → 즉시 하강) AGL=%.1fm",
-                home_dist, getAGL(ctx));
+                "[RTL] 귀환 시작 (홈 근처 %.1fm → 즉시 하강) AGL=%.1fm, descent=%.2fm/s, timeout: descend=%.0fs soft_land=%.0fs",
+                home_dist, getAGL(ctx), descent_speed_, descend_timeout_, soft_land_timeout_);
         } else {
             phase_ = RtlPhase::NAVIGATE_HOME;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, 비행고도 z=%.1f speed=%.1f accel=%.1f",
-                home_dist, getAGL(ctx), flight_z_, ctx.flight_speed, RTL_MAX_AXY);
+                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, speed=%.1f, descent=%.2fm/s, timeout: descend=%.0fs soft_land=%.0fs",
+                home_dist, getAGL(ctx), ctx.flight_speed, descent_speed_, descend_timeout_, soft_land_timeout_);
         }
     }
 
@@ -117,18 +131,18 @@ public:
 
         case RtlPhase::DESCEND: {
             // 1.5m AGL 이하 도달 → SOFT_LAND
-            if (agl <= SOFT_LAND_ALT) {
+            if (agl <= soft_land_alt_) {
                 RCLCPP_INFO(ctx.logger,
                     "[RTL] AGL %.2fm ≤ %.1fm → 감속 착륙 시작",
-                    agl, SOFT_LAND_ALT);
+                    agl, soft_land_alt_);
                 setPhase(RtlPhase::SOFT_LAND);
                 break;
             }
 
-            // 타임아웃: 60초
-            if (phase_elapsed > 60.0) {
+            // 동적 타임아웃
+            if (phase_elapsed > descend_timeout_) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] DESCEND 타임아웃 (60초, AGL=%.1fm) → SOFT_LAND 강제 전환", agl);
+                    "[RTL] DESCEND 타임아웃 (%.0f초, AGL=%.1fm) → SOFT_LAND 강제 전환", descend_timeout_, agl);
                 setPhase(RtlPhase::SOFT_LAND);
                 break;
             }
@@ -161,10 +175,10 @@ public:
                 }
             }
 
-            // 타임아웃: 30초
-            if (phase_elapsed > 30.0) {
+            // 동적 타임아웃
+            if (phase_elapsed > soft_land_timeout_) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] SOFT_LAND 타임아웃 (30초, AGL=%.1fm) → DISARM 강제 시도", agl);
+                    "[RTL] SOFT_LAND 타임아웃 (%.0f초, AGL=%.1fm) → DISARM 강제 시도", soft_land_timeout_, agl);
                 setPhase(RtlPhase::GROUND_DISARM);
                 break;
             }
@@ -267,7 +281,7 @@ public:
             // 수직 하강, 수평 위치 홈 고정
             // Z: velocity-only 제어 → PX4 100Hz 속도 제어 (계단식 방지)
             sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
-            sp.velocity = {NAN, NAN, DESCENT_SPEED};  // velocity-only Z (NED +z = 하강)
+            sp.velocity = {NAN, NAN, descent_speed_};  // velocity-only Z (NED +z = 하강)
             sp.yaw = ctx.current_yaw.load();
             sp.yawspeed = 0.0f;
             return true;
@@ -310,16 +324,16 @@ private:
         GROUND_DISARM    // 착지 감지 + disarm
     };
 
-    // === 상수 (중량 기체용 보수적 하강) ===
-    static constexpr float DESCENT_SPEED = 0.4f;       // 기본 하강 속도 (m/s) — 중량 기체 안전값
-    static constexpr float LANDING_SPEED_MIN = 0.05f;   // 최종 착륙 속도 (m/s) — 터치다운 충격 최소화
-    static constexpr float SOFT_LAND_ALT = 2.0f;        // 감속 시작 고도 (m AGL) — 여유 확보
+    // === 설정 가능 파라미터 (onEnter에서 ctx로부터 로드) ===
+    float descent_speed_{0.4f};       // 기본 하강 속도 (m/s)
+    float landing_speed_min_{0.05f};   // 최종 착륙 속도 (m/s)
+    float soft_land_alt_{2.0f};        // 감속 시작 고도 (m AGL)
+    float descend_timeout_{60.0f};     // DESCEND 페이즈 타임아웃 (동적)
+    float soft_land_timeout_{30.0f};   // SOFT_LAND 페이즈 타임아웃 (동적)
+
+    // === 상수 ===
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
-
-    // 수평 이동 제한값 (navigate_handler와 동일)
-    static constexpr float RTL_MAX_AXY = 1.5f;   // m/s² (최대 틸트 ~8.7°)
-    static constexpr float RTL_MAX_VZ  = 1.0f;   // m/s (수평이동 중 수직)
     static constexpr float RTL_MAX_AZ  = 1.0f;   // m/s²
 
     // yaw 제어 상수
@@ -354,10 +368,10 @@ private:
 
     /** 감속 착륙 속도 계산 */
     float calcLandingSpeed(float agl) const {
-        if (agl > SOFT_LAND_ALT) return DESCENT_SPEED;
-        if (agl <= 0.0f) return LANDING_SPEED_MIN;
+        if (agl > soft_land_alt_) return descent_speed_;
+        if (agl <= 0.0f) return landing_speed_min_;
         // 선형 보간: 1.5m=0.7, 0m=0.1
-        return LANDING_SPEED_MIN + (DESCENT_SPEED - LANDING_SPEED_MIN) * (agl / SOFT_LAND_ALT);
+        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * (agl / soft_land_alt_);
     }
 
     /** 페이즈 전환 */

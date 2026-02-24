@@ -7,7 +7,7 @@
  * MotionProfile1D로 부드러운 상승 (사다리꼴 속도 프로파일).
  *
  * 전환 조건: 고도 오차 < 0.5m + 1초 안정화 + 최소 3초 경과 → COMPLETE
- * 타임아웃: 30초 → ABORT_RTL
+ * 타임아웃: 동적 (고도/속도 기반, 30~180초) → ABORT_RTL
  */
 
 #ifndef TAKEOFF_HANDLER_H
@@ -28,10 +28,18 @@ public:
         takeoff_z_ = ctx.start_local_z - ctx.takeoff_altitude;
 
         // Z축 모션 프로파일: 현재 지면 높이에서 시작, 부드럽게 상승
-        z_profile_.reset(ctx.start_local_z, TAKEOFF_MAX_VZ, TAKEOFF_MAX_AZ, 0.1f);
+        // max_accel = max_speed / tau (사다리꼴 프로파일: tau초 만에 최대 속도 도달)
+        float max_vz = std::max(0.05f, ctx.takeoff_max_speed);
+        float tau   = std::max(0.1f, ctx.takeoff_accel_tau);
+        float max_az = max_vz / tau;
+        z_profile_.reset(ctx.start_local_z, max_vz, max_az, 0.1f);
 
-        RCLCPP_INFO(ctx.logger, "[TAKEOFF] 이륙 시작: 목표 고도 %.1fm (start_z=%.1f, target_z=%.1f, max_vz=%.1f)",
-                    ctx.takeoff_altitude, ctx.start_local_z, takeoff_z_, TAKEOFF_MAX_VZ);
+        // 동적 타임아웃: (고도/속도)*1.5 + 가속구간 + 안정화 여유
+        timeout_sec_ = (ctx.takeoff_altitude / max_vz) * 1.5f + tau + 10.0f;
+        timeout_sec_ = std::max(30.0f, std::min(timeout_sec_, 180.0f));  // 30~180초 클램프
+
+        RCLCPP_INFO(ctx.logger, "[TAKEOFF] 이륙 시작: 목표 고도 %.1fm (start_z=%.1f, target_z=%.1f, max_vz=%.2f, tau=%.1fs, max_az=%.3f, timeout=%.0fs)",
+                    ctx.takeoff_altitude, ctx.start_local_z, takeoff_z_, max_vz, tau, max_az, timeout_sec_);
     }
 
     void onExit(MissionContext& ctx) override {
@@ -69,9 +77,9 @@ public:
             }
         }
 
-        // 타임아웃: 30초
-        if (ctx.elapsedSec() > 30.0) {
-            RCLCPP_ERROR(ctx.logger, "[TAKEOFF] 타임아웃 (30초)! 고도 오차: %.2fm → ABORT_RTL", error);
+        // 동적 타임아웃
+        if (ctx.elapsedSec() > timeout_sec_) {
+            RCLCPP_ERROR(ctx.logger, "[TAKEOFF] 타임아웃 (%.0f초)! 고도 오차: %.2fm → ABORT_RTL", timeout_sec_, error);
             return TransitionResult::ABORT_RTL;
         }
 
@@ -94,16 +102,16 @@ public:
         z_profile_.update(takeoff_z_);
 
         // X,Y: 이륙 위치 고정 (position control)
-        // Z: velocity-only 제어 → PX4가 100Hz로 직접 속도 적용 (10Hz 계단식 방지)
+        // Z: position + velocity 피드포워드 → PX4가 위치 오차 보정 + 속도 힌트로 부드럽게 상승
         sp.position = {
             ctx.start_local_x,
             ctx.start_local_y,
-            NAN                         // Z position 비활성화 → velocity control로 전환
+            z_profile_.getPosition()    // 프로파일 위치 → PX4 위치 제어 (오차 보정)
         };
         sp.velocity = {
             NAN,
             NAN,
-            z_profile_.getVelocity()    // 프로파일 속도만 제공 (계단식 제거)
+            z_profile_.getVelocity()    // 프로파일 속도 → 피드포워드 (부드러운 상승)
         };
         sp.yaw = ctx.initial_yaw;
         sp.yawspeed = 0.0f;
@@ -114,16 +122,13 @@ public:
 
 private:
     float takeoff_z_{0.0f};
+    float timeout_sec_{30.0f};
     std::chrono::steady_clock::time_point stable_start_{};
     bool stable_logged_{false};
     int last_log_tick_{-1};
 
     // Z축 모션 프로파일
     MotionProfile1D z_profile_;
-
-    // 이륙 제한값 (헥사콥터 안전 기본값)
-    static constexpr float TAKEOFF_MAX_VZ = 1.5f;    // m/s (PX4 MPC_TKO_SPEED와 일치)
-    static constexpr float TAKEOFF_MAX_AZ = 1.0f;    // m/s² (1.5초 만에 최대 속도)
 };
 
 #endif // TAKEOFF_HANDLER_H

@@ -152,6 +152,9 @@ private:
     // offboard 설정 파일에서 mission_mode 읽기 (true=formation, false=solo)
     bool readMissionModeFromConfig() const;
 
+    // offboard 설정 파일에서 float 파라미터 범용 읽기
+    float readFloatFromOffboardConfig(const char* key, float default_val, float min_val, float max_val) const;
+
     // offboard 설정 파일에서 temp_threshold 읽기
     double readTempThresholdFromConfig() const;
 

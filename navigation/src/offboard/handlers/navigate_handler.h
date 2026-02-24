@@ -27,6 +27,10 @@ public:
 
         navigate_z_ = ctx.start_local_z - ctx.takeoff_altitude;
 
+        // ctx에서 이동 파라미터 로드
+        nav_max_axy_ = ctx.nav_max_accel_xy;
+        nav_max_vz_ = ctx.nav_max_speed_z;
+
         // 현재 드론 위치에서 모션 프로파일 초기화 (목적지가 아닌 현재 위치!)
         float cur_x = ctx.current_local_x.load();
         float cur_y = ctx.current_local_y.load();
@@ -34,8 +38,8 @@ public:
 
         profile_.reset(
             cur_x, cur_y, cur_z,
-            ctx.flight_speed, NAV_MAX_AXY,   // XY: 미션 속도, 안전 가속도
-            NAV_MAX_VZ, NAV_MAX_AZ,           // Z: 보수적 수직 이동
+            ctx.flight_speed, nav_max_axy_,   // XY: 미션 속도, 설정 가속도
+            nav_max_vz_, nav_max_vz_,          // Z: 수직 속도/가속도
             0.1f                               // dt = 100ms (10Hz)
         );
         was_holding_ = false;
@@ -44,7 +48,7 @@ public:
         RCLCPP_INFO(ctx.logger, "[NAVIGATE] 이동 시작: 현재 (%.1f,%.1f,%.1f) → 목표 (%.1f,%.1f,%.1f) speed=%.1f accel=%.1f",
                     cur_x, cur_y, cur_z,
                     ctx.target_ned_x, ctx.target_ned_y, navigate_z_,
-                    ctx.flight_speed, NAV_MAX_AXY);
+                    ctx.flight_speed, nav_max_axy_);
     }
 
     void onExit(MissionContext& ctx) override {
@@ -120,8 +124,8 @@ public:
             float cur_y = ctx.current_local_y.load();
             float cur_z = ctx.current_local_z.load();
             profile_.reset(cur_x, cur_y, cur_z,
-                           ctx.flight_speed, NAV_MAX_AXY,
-                           NAV_MAX_VZ, NAV_MAX_AZ, 0.1f);
+                           ctx.flight_speed, nav_max_axy_,
+                           nav_max_vz_, nav_max_vz_, 0.1f);
             was_holding_ = false;
             prev_yawspeed_ = 0.0f;
             RCLCPP_INFO(ctx.logger, "[NAVIGATE] HOLD 해제 → 프로파일 재초기화 (%.1f,%.1f,%.1f)",
@@ -189,11 +193,9 @@ private:
     // yaw 가속도 제한
     float prev_yawspeed_{0.0f};
 
-    // 수평 이동 제한값 (헥사콥터 안전 기본값)
-    // NAV_MAX_VXY는 ctx.flight_speed 사용 (미션별 설정 가능)
-    static constexpr float NAV_MAX_AXY = 1.5f;    // m/s² (최대 틸트 ~8.7°)
-    static constexpr float NAV_MAX_VZ  = 1.0f;    // m/s (순항 중 수직 이동)
-    static constexpr float NAV_MAX_AZ  = 1.0f;    // m/s² (수직 가속도)
+    // 이동 제한값 (onEnter에서 ctx로부터 로드)
+    float nav_max_axy_{1.5f};   // m/s² (수평 최대 가속도)
+    float nav_max_vz_{1.0f};    // m/s (수직 최대 속도)
 
     // yaw 제어 상수
     static constexpr float MAX_YAW_ACCEL = 0.2f;    // rad/s² (rotate_handler와 동일)

@@ -1,5 +1,15 @@
 {
+  "takeoff_max_speed": 0.5,
+  "takeoff_accel_tau": 1,
+  "updated_at": "2026-02-24 09:36:43",
   "target_altitude": 2,
-  "mission_mode": "formation",
-  "updated_at": "2026-02-22 06:03:48"
+  "mission_mode": "solo",
+  "nav_max_accel_xy": 1.5,
+  "nav_max_speed_z": 10,
+  "adjust_approach_speed": 0.3,
+  "adjust_target_wall_dist": 10,
+  "adjust_retreat_dist": 0,
+  "rtl_descent_speed": 0.2,
+  "rtl_soft_land_alt": 1.5,
+  "rtl_landing_speed_min": 0.03
 }

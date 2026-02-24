@@ -4,6 +4,7 @@
  *
  * 목표 도착 후 호버링 + 점진적 고도 하강.
  * target_altitude > 0이면 해당 고도로 하강, 아니면 takeoff_altitude 유지.
+ * MotionProfile1D로 부드러운 고도 전환 (사다리꼴 속도 프로파일).
  *
  * 전환 조건 (OR):
  *   1. 소화탄 모두 소진 → 2초 대기 후 COMPLETE
@@ -14,6 +15,7 @@
 #define HOVER_AT_TARGET_HANDLER_H
 
 #include "state_handler.h"
+#include "motion_profile.h"
 #include "../mission_context.h"
 
 class HoverAtTargetHandler : public StateHandler {
@@ -27,6 +29,12 @@ public:
                               : ctx.takeoff_altitude;
         final_z_ = ctx.start_local_z - effective_alt;
 
+        // Z축 모션 프로파일: 현재 고도에서 목표 고도로 부드럽게 전환
+        float current_z = ctx.current_local_z.load();
+        float descent_speed = std::max(0.1f, ctx.rtl_descent_speed);  // RTL 하강 속도 재활용
+        float descent_accel = descent_speed;  // 가속도 = 속도 (1초에 최대 속도 도달)
+        z_profile_.reset(current_z, descent_speed, descent_accel, 0.1f);
+
         hover_duration_ = ctx.formation_mode ? SUPPRESS_HOVER_SEC : TARGET_HOVER_SEC;
 
         // 소화탄 소진 상태 초기화
@@ -34,8 +42,9 @@ public:
         ammo_depleted_time_ = {};
 
         int remaining = getRemaining(ctx);
-        RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 목표지점 호버링 시작 (최대 %.0f초), 목표고도: %.1fm, 잔탄: %d/%d",
-                    hover_duration_, effective_alt, remaining, ctx.fire_gpio_count);
+        float alt_diff = -(final_z_ - current_z);  // 고도 차이 (양수=하강)
+        RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 목표지점 호버링 시작 (최대 %.0f초), 목표고도: %.1fm, 고도차: %.1fm, 하강속도: %.1fm/s, 잔탄: %d/%d",
+                    hover_duration_, effective_alt, alt_diff, descent_speed, remaining, ctx.fire_gpio_count);
     }
 
     void onExit(MissionContext& ctx) override {
@@ -86,22 +95,11 @@ public:
 
     bool fillSetpoint(MissionContext& ctx,
                       px4_msgs::msg::TrajectorySetpoint& sp) override {
-        float current_z = ctx.current_local_z.load();
+        // Z축 모션 프로파일로 부드러운 고도 전환 (사다리꼴 가감속)
+        z_profile_.update(final_z_);
 
-        // 점진적 하강: 0.3m/s (중량 기체 안전값)
-        constexpr float DESCENT_PER_TICK = 0.03f;  // 0.3m/s * 0.1s
-
-        float sp_z;
-        if (current_z - final_z_ > 0.3f) {
-            // NED: z가 작을수록 높음, +z = 아래로
-            sp_z = current_z + DESCENT_PER_TICK;
-            if (sp_z > final_z_) sp_z = final_z_;
-        } else {
-            sp_z = final_z_;
-        }
-
-        sp.position = {ctx.target_ned_x, ctx.target_ned_y, sp_z};
-        sp.velocity = {NAN, NAN, NAN};
+        sp.position = {ctx.target_ned_x, ctx.target_ned_y, z_profile_.getPosition()};
+        sp.velocity = {NAN, NAN, z_profile_.getVelocity()};  // Z velocity 피드포워드
         sp.yaw = ctx.target_yaw;
         sp.yawspeed = 0.0f;
         return true;
@@ -118,6 +116,9 @@ private:
     float final_z_{0.0f};
     float hover_duration_{30.0f};
     int last_log_tick_{-1};
+
+    // Z축 모션 프로파일 (부드러운 고도 전환)
+    MotionProfile1D z_profile_;
 
     // 소화탄 소진 상태
     bool ammo_depleted_{false};

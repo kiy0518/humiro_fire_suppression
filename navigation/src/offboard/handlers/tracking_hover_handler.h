@@ -22,6 +22,7 @@
 #define TRACKING_HOVER_HANDLER_H
 
 #include "state_handler.h"
+#include "motion_profile.h"
 #include "../mission_context.h"
 #include "thermal_data.h"
 
@@ -41,6 +42,12 @@ public:
         // XY 위치 고정점
         hold_x_ = ctx.target_ned_x;
         hold_y_ = ctx.target_ned_y;
+
+        // Z축 모션 프로파일: 현재 고도에서 목표 고도로 부드럽게 전환
+        float current_z = ctx.current_local_z.load();
+        float descent_speed = std::max(0.1f, ctx.rtl_descent_speed);
+        float descent_accel = descent_speed;
+        z_profile_.reset(current_z, descent_speed, descent_accel, 0.1f);
 
         // 고도 안전 한계 (NED: 작을수록 높음)
         min_z_ = ctx.start_local_z - MAX_ALTITUDE;  // 최대 고도 (가장 작은 z)
@@ -301,20 +308,15 @@ public:
         // === Setpoint 구성 ===
         if (use_vz) {
             // 추적 중: XY 위치 고정, 고도는 속도 제어
+            // Z 프로파일도 갱신하여 추적 종료 후 현재 위치 기준으로 이어가도록
+            z_profile_.reset(current_z, std::max(0.1f, MAX_TRACKING_VZ), MAX_TRACKING_VZ, DT);
             sp.position = {hold_x_, hold_y_, NAN};
             sp.velocity = {NAN, NAN, vz};
         } else {
-            // 추적 비활성 또는 데드존 내: 전체 위치 제어
-            // 점진적 하강 로직 (hover_at_target_handler와 동일)
-            float sp_z;
-            if (current_z - final_z_ > 0.3f) {
-                sp_z = current_z + DESCENT_PER_TICK;
-                if (sp_z > final_z_) sp_z = final_z_;
-            } else {
-                sp_z = final_z_;
-            }
-            sp.position = {hold_x_, hold_y_, sp_z};
-            sp.velocity = {NAN, NAN, NAN};
+            // 추적 비활성 또는 데드존 내: 모션 프로파일로 부드러운 고도 제어
+            z_profile_.update(final_z_);
+            sp.position = {hold_x_, hold_y_, z_profile_.getPosition()};
+            sp.velocity = {NAN, NAN, z_profile_.getVelocity()};
         }
 
         // === Yaw 제어 ===
@@ -365,7 +367,6 @@ private:
     // ========== 타이밍 ==========
     static constexpr float ARRIVAL_STABILIZE_SEC = 2.0f;     // 도착 후 안정화 대기
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;
-    static constexpr float DESCENT_PER_TICK = 0.03f;        // 0.3m/s 하강 (중량 기체 안전값)
 
     // ========== 열원 미감지 RTL ==========
     static constexpr float FIRE_TEMP_THRESHOLD = 80.0f;     // °C (화재 판정 온도)
@@ -382,6 +383,7 @@ private:
     float hold_yaw_{0.0f};   // 비추적 시 절대 헤딩 고정점 (rad)
     float final_z_{0.0f};
     float min_z_{0.0f}, max_z_{0.0f};
+    MotionProfile1D z_profile_;   // Z축 모션 프로파일 (부드러운 고도 전환)
 
     // ========== 도착 안정화 ==========
     bool stabilized_{false};

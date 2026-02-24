@@ -39,6 +39,13 @@ def get_next_mavlink_seq():
         _mavlink_seq = (_mavlink_seq + 1) % 256
         return seq
 
+def derive_drone_id_from_port(port: int) -> int:
+    """포트 번호에서 드론 ID 추출 (15001+(N-1)*10 패턴)
+    15001 → 1, 15011 → 2, 15021 → 3, ...
+    """
+    derived = (port - 15001) // 10 + 1
+    return derived if 1 <= derived <= 254 else 1
+
 @app.context_processor
 def inject_drone_info():
     """모든 템플릿에 기체 정보 주입"""
@@ -2586,6 +2593,37 @@ def get_failsafe_params_checklist(indoor=True):
     ]
 
 
+def get_crash_prevention_params_checklist():
+    """추락 방지 핵심 PX4 파라미터 체크리스트 (2026-02-22 비행 사고 분석 기반)"""
+    return [
+        # 속도/가속도 제한
+        {"id": "cp1",  "text": "MPC_XY_VEL_MAX = 2 (최대 수평 속도 (m/s) — 12m/s 설정 시 폭주 추락)", "auto": True, "check": "fc-param/MPC_XY_VEL_MAX?expected=2"},
+        {"id": "cp2",  "text": "MPC_Z_VEL_MAX_UP = 1.5 (최대 상승 속도 (m/s) — 3.0에서 이륙 시 급상승)", "auto": True, "check": "fc-param/MPC_Z_VEL_MAX_UP?expected=1.5"},
+        {"id": "cp3",  "text": "MPC_Z_VEL_MAX_DN = 0.6 (최대 하강 속도 (m/s) — 중량 기체 AUTO_RTL 과속 위험)", "auto": True, "check": "fc-param/MPC_Z_VEL_MAX_DN?expected=0.6"},
+        {"id": "cp4",  "text": "MPC_ACC_HOR_MAX = 2 (최대 수평 가속도 (m/s²) — 5.0에서 급가속 자세 불안정)", "auto": True, "check": "fc-param/MPC_ACC_HOR_MAX?expected=2"},
+        {"id": "cp5",  "text": "MPC_VEL_MANUAL = 3 (수동 비행 최대 속도 (m/s) — 기본 10.0은 테스트에 과도)", "auto": True, "check": "fc-param/MPC_VEL_MANUAL?expected=3"},
+        {"id": "cp6",  "text": "MPC_XY_CRUISE = 3 (수평 순항 속도 (m/s) — 기본 5.0은 테스트에 과도)", "auto": True, "check": "fc-param/MPC_XY_CRUISE?expected=3"},
+        # 자세 제한
+        {"id": "cp7",  "text": "MPC_TILTMAX_AIR = 25 (최대 틸트 각도 (도) — 45도에서 저고도 전복 추락)", "auto": True, "check": "fc-param/MPC_TILTMAX_AIR?expected=25"},
+        {"id": "cp8",  "text": "MC_PITCHRATE_MAX = 120 (최대 피치 각속도 (deg/s) — 급격한 자세 변화 제한)", "auto": True, "check": "fc-param/MC_PITCHRATE_MAX?expected=120"},
+        {"id": "cp9",  "text": "MC_ROLLRATE_MAX = 120 (최대 롤 각속도 (deg/s) — 0.3초 roll -70° 급변 방지)", "auto": True, "check": "fc-param/MC_ROLLRATE_MAX?expected=120"},
+        # 비행 종료/안전
+        {"id": "cp10", "text": "CBRK_FLIGHTTERM = 0 (비행 종료 차단기 — 반드시 0! 121212면 추락 시 모터 안 꺼짐)", "auto": True, "check": "fc-param/CBRK_FLIGHTTERM?expected=0"},
+        {"id": "cp11", "text": "FD_FAIL_P = 50 (Pitch 실패 감지 각도 (도) — 기본 60° → 50° 더 빠른 대응)", "auto": True, "check": "fc-param/FD_FAIL_P?expected=50"},
+        {"id": "cp12", "text": "FD_FAIL_R = 50 (Roll 실패 감지 각도 (도) — 기체 2번 roll -70° 사고 방지)", "auto": True, "check": "fc-param/FD_FAIL_R?expected=50"},
+        # 착륙/복귀
+        {"id": "cp13", "text": "MPC_LAND_SPEED = 0.6 (착륙 최종 하강 속도 (m/s) — PX4 AUTO_RTL 시 최소 0.6)", "auto": True, "check": "fc-param/MPC_LAND_SPEED?expected=0.6"},
+        {"id": "cp14", "text": "RTL_DESCEND_ALT = 10 (RTL 하강 시작 고도 (m) — 장애물 회피 충분한 고도)", "auto": True, "check": "fc-param/RTL_DESCEND_ALT?expected=10"},
+        {"id": "cp15", "text": "RTL_RETURN_ALT = 15 (RTL 복귀 비행 고도 (m) — 안전한 복귀 경로)", "auto": True, "check": "fc-param/RTL_RETURN_ALT?expected=15"},
+        {"id": "cp16", "text": "RTL_LAND_DELAY = 3 (RTL 착륙 전 대기 시간 (초) — 위치 확인 및 안정화)", "auto": True, "check": "fc-param/RTL_LAND_DELAY?expected=3"},
+        # 지오펜스
+        {"id": "cp17", "text": "GF_ACTION = 2 (지오펜스 위반 시 동작 — 2=RTL)", "auto": True, "check": "fc-param/GF_ACTION?expected=2"},
+        {"id": "cp18", "text": "GF_MAX_HOR_DIST = 100 (최대 수평 거리 제한 (m) — 932m 폭주 사고 방지)", "auto": True, "check": "fc-param/GF_MAX_HOR_DIST?expected=100"},
+        # 호버링 추력 (기체별 튜닝)
+        {"id": "cp19", "text": "MPC_THR_HOVER (호버링 추력 — 기체별 튜닝 필요, 일반적으로 0.4~0.6)", "auto": True, "check": "fc-param/MPC_THR_HOVER"},
+    ]
+
+
 def get_custom_params_checklist(category: str):
     """커스텀 파라미터를 체크리스트 형식으로 변환"""
     # 해당 카테고리 + common 파라미터 가져오기
@@ -2715,6 +2753,7 @@ def get_outdoor_gps_checklist(no_rc=False):
             {"id": "param6", "text": "GPS_1_CONFIG = 201 (GPS1)", "auto": True, "check": "fc-param/GPS_1_CONFIG?expected=201"},
         ]},
         {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
+        {"section": "추락 방지 파라미터 (필수 검토)", "items": get_crash_prevention_params_checklist()},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
@@ -2769,6 +2808,7 @@ def get_outdoor_rtk_checklist(no_rc=False):
             {"id": "param8", "text": "GPS_UBX_MODE = 0 (Default, RTK 포함)", "auto": True, "check": "fc-param/GPS_UBX_MODE?expected=0"},
         ]},
         {"section": "페일세이프 파라미터 확인 (야외)", "items": get_failsafe_params_checklist(indoor=False)},
+        {"section": "추락 방지 파라미터 (필수 검토)", "items": get_crash_prevention_params_checklist()},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
@@ -2870,8 +2910,8 @@ def api_mavlink_send_standard():
 
         print(f"[DEBUG] Sending {message_type} to {target_ip}:{target_port}, sys={system_id}, comp={component_id}")
 
-        # Target FC: MAV_SYS_ID는 DRONE_ID와 동일
-        target_system = int(config_manager.get('MAV_SYS_ID', '1'))
+        # Target FC: 포트 번호에서 드론 ID 자동 추출 (15001+(N-1)*10 패턴)
+        target_system = derive_drone_id_from_port(target_port)
         target_component = 1
 
         if message_type == 'ARM':
@@ -3070,6 +3110,9 @@ def api_mavlink_send_fire():
         message_type = data.get('message_type')
         params = data.get('params', {})
 
+        # 포트에서 대상 드론 ID 자동 추출 (15001+(N-1)*10 패턴)
+        payload_target_system = derive_drone_id_from_port(target_port)
+
         # 메시지 ID 매핑
         # 60000: 미션 스타트, 60001: 자동조준, 60002: 발사, 60003: 복귀
         message_ids = {
@@ -3095,7 +3138,7 @@ def api_mavlink_send_fire():
                 float(params.get('target_alt', 10.0)),
                 float(params.get('takeoff_speed', 3.0)),
                 float(params.get('flight_speed', 5.0)),
-                int(params.get('target_system', 1)),
+                payload_target_system,
                 int(params.get('target_component', 191)),
                 int(params.get('auto_fire', 0)),
                 int(params.get('max_projectiles', 1))
@@ -3103,19 +3146,19 @@ def api_mavlink_send_fire():
         elif message_type == 'FIRE_AUTO_AIM':
             # 60001 자동조준 - target_system, target_component만 포함
             payload = struct.pack('<BB',
-                int(params.get('target_system', 1)),
+                payload_target_system,
                 int(params.get('target_component', 191))
             )
         elif message_type == 'FIRE_LAUNCH':
             # 60002 발사 - target_system, target_component만 포함
             payload = struct.pack('<BB',
-                int(params.get('target_system', 1)),
+                payload_target_system,
                 int(params.get('target_component', 191))
             )
         elif message_type == 'FIRE_RETURN':
             # 60003 복귀 - target_system, target_component만 포함
             payload = struct.pack('<BB',
-                int(params.get('target_system', 1)),
+                payload_target_system,
                 int(params.get('target_component', 191))
             )
 
@@ -3406,12 +3449,22 @@ def api_set_offboard_config():
                         "message": "FC가 Armed 상태입니다. Disarm 후 비행 모드를 변경하세요."
                     })
 
+        # 기존 설정 읽어서 머지 (덮어쓰기 방지)
+        existing = {}
+        if os.path.exists(OFFBOARD_CONFIG_PATH):
+            try:
+                with open(OFFBOARD_CONFIG_PATH, 'r') as f:
+                    existing = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                existing = {}
+        existing.update(data)
+
         from datetime import datetime
-        data["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        existing["updated_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         os.makedirs(os.path.dirname(OFFBOARD_CONFIG_PATH), exist_ok=True)
         with open(OFFBOARD_CONFIG_PATH, 'w') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(existing, f, indent=2, ensure_ascii=False)
 
         return jsonify({"success": True, "message": "오프보드 설정이 저장되었습니다."})
     except Exception as e:

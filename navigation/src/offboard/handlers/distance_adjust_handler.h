@@ -38,6 +38,12 @@ public:
         hold_z_ = ctx.start_local_z - ctx.takeoff_altitude;
         approach_heading_ = ctx.target_yaw;
 
+        // ctx에서 거리조정 파라미터 로드
+        approach_speed_ = ctx.adjust_approach_speed;
+        retreat_speed_ = ctx.adjust_approach_speed;  // 후진 속도 = 접근 속도
+        target_wall_dist_ = ctx.adjust_target_wall_dist;
+        retreat_distance_ = ctx.adjust_retreat_dist;
+
         // 상태 초기화
         phase_ = AdjustPhase::INITIAL_HOVER;
         phase_enter_time_ = std::chrono::steady_clock::now();
@@ -177,8 +183,8 @@ public:
                     sp.yawspeed = 0.0f;
                 } else {
                     // 전진: velocity 제어 + 고도 위치 제어
-                    float vx = APPROACH_SPEED * std::cos(approach_heading_);
-                    float vy = APPROACH_SPEED * std::sin(approach_heading_);
+                    float vx = approach_speed_ * std::cos(approach_heading_);
+                    float vy = approach_speed_ * std::sin(approach_heading_);
                     sp.position = {NAN, NAN, hold_z_};
                     sp.velocity = {vx, vy, NAN};
                     sp.yaw = approach_heading_;
@@ -235,8 +241,8 @@ public:
             case AdjustPhase::RETREAT: {
                 // 벽 반대 방향으로 후진 + 고도/헤딩 유지
                 float retreat_heading = target_perp_yaw_ + M_PI;
-                float vx = RETREAT_SPEED * std::cos(retreat_heading);
-                float vy = RETREAT_SPEED * std::sin(retreat_heading);
+                float vx = retreat_speed_ * std::cos(retreat_heading);
+                float vy = retreat_speed_ * std::sin(retreat_heading);
                 sp.position = {NAN, NAN, hold_z_};
                 sp.velocity = {vx, vy, NAN};
                 sp.yaw = target_perp_yaw_;
@@ -276,12 +282,14 @@ private:
         DONE
     };
 
+    // ========== 설정 가능 파라미터 (onEnter에서 ctx로부터 로드) ==========
+    float approach_speed_{0.3f};          // m/s
+    float retreat_speed_{0.3f};            // m/s (= approach_speed)
+    float target_wall_dist_{10.0f};       // m (목표 벽 거리)
+    float retreat_distance_{4.0f};         // m (감지점에서 후진 거리)
+
     // ========== 상수 ==========
-    static constexpr float APPROACH_SPEED = 0.3f;          // m/s
-    static constexpr float RETREAT_SPEED = 0.3f;            // m/s
     static constexpr float LIDAR_DETECT_DIST = 6.0f;       // m (벽 감지 거리)
-    static constexpr float TARGET_WALL_DIST = 10.0f;       // m (목표 벽 거리)
-    static constexpr float RETREAT_DISTANCE = 4.0f;         // m (감지점에서 후진 거리)
     static constexpr float EMERGENCY_STOP_DIST = 2.0f;     // m (비상 정지)
     static constexpr float MAX_ALIGN_YAW_RATE = 0.3f;      // rad/s
     static constexpr float ALIGN_YAW_ACCEL = 0.2f;         // rad/s² (yaw 가속도 제한)
@@ -502,12 +510,12 @@ private:
         float dy = cy - detect_y_;
         float retreat_dist = std::sqrt(dx * dx + dy * dy);
 
-        if (retreat_dist >= RETREAT_DISTANCE) {
+        if (retreat_dist >= retreat_distance_) {
             final_x_ = cx;
             final_y_ = cy;
             char msg[128];
             snprintf(msg, sizeof(msg), "후진 완료: %.2fm (목표 %.1fm)",
-                     retreat_dist, RETREAT_DISTANCE);
+                     retreat_dist, retreat_distance_);
             setPhase(AdjustPhase::FINAL_STABILIZE, ctx, msg);
         }
     }
@@ -541,7 +549,7 @@ private:
         ctx.distance_adjust_result.final_alt_amsl = ctx.current_alt_amsl.load();
         ctx.distance_adjust_result.final_yaw = target_perp_yaw_;
         ctx.distance_adjust_result.wall_distance = wall_detected_ ?
-            (best_wall_.distance + RETREAT_DISTANCE) : 0.0f;
+            (best_wall_.distance + retreat_distance_) : 0.0f;
 
         final_x_ = ctx.current_local_x.load();
         final_y_ = ctx.current_local_y.load();

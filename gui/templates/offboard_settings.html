@@ -108,6 +108,159 @@
     </div>
 </div>
 
+<!-- 비행 파라미터 (아코디언) -->
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div><i class="bi bi-sliders"></i> 비행 파라미터</div>
+        <button type="button" class="btn btn-primary btn-sm" id="saveFlightParams">
+            <i class="bi bi-save"></i> 비행 파라미터 저장
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="accordion accordion-flush" id="flightParamsAccordion">
+            <!-- 이륙 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTakeoff">
+                        이륙 (Takeoff)
+                    </button>
+                </h2>
+                <div id="collapseTakeoff" class="accordion-collapse collapse show" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">이륙 최대 속도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="takeoff_max_speed"
+                                           step="0.05" min="0.05" max="3.0" placeholder="0.2">
+                                    <span class="input-group-text">m/s</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">가속 시정수</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="takeoff_accel_tau"
+                                           step="0.1" min="0.1" max="10.0" placeholder="1.0">
+                                    <span class="input-group-text">초</span>
+                                </div>
+                                <div class="form-text">0→최대속도 도달 시간</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 이동 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseNavigate">
+                        이동 (Navigate)
+                    </button>
+                </h2>
+                <div id="collapseNavigate" class="accordion-collapse collapse" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">수평 가속도</label>
+                                <div class="input-group" style="width:160px">
+                                    <input type="number" class="form-control" id="nav_max_accel_xy"
+                                           step="0.1" min="0.5" max="5.0" placeholder="1.5">
+                                    <span class="input-group-text">m/s²</span>
+                                </div>
+                                <div class="form-text">수평 속도는 미션 명령에서 설정</div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">상승하강 속도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="nav_max_speed_z"
+                                           step="0.1" min="0.2" max="3.0" placeholder="1.0">
+                                    <span class="input-group-text">m/s</span>
+                                </div>
+                                <div class="form-text">이동 중 고도 변경 시 적용</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 거리조정 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAdjust">
+                        거리조정 (Distance Adjust)
+                    </button>
+                </h2>
+                <div id="collapseAdjust" class="accordion-collapse collapse" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">접근 속도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="adjust_approach_speed"
+                                           step="0.05" min="0.1" max="1.0" placeholder="0.3">
+                                    <span class="input-group-text">m/s</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">목표 벽 거리</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="adjust_target_wall_dist"
+                                           step="1" min="3" max="30" placeholder="10">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">후퇴 거리</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="adjust_retreat_dist"
+                                           step="0.5" min="1" max="10" placeholder="4">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 복귀/착륙 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseRTL">
+                        복귀/착륙 (RTL)
+                    </button>
+                </h2>
+                <div id="collapseRTL" class="accordion-collapse collapse" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">하강 속도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="rtl_descent_speed"
+                                           step="0.05" min="0.1" max="2.0" placeholder="0.4">
+                                    <span class="input-group-text">m/s</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">감속 착륙 시작 고도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="rtl_soft_land_alt"
+                                           step="0.5" min="0.5" max="5.0" placeholder="2.0">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">최종 착지 속도</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="rtl_landing_speed_min"
+                                           step="0.01" min="0.02" max="0.3" placeholder="0.05">
+                                    <span class="input-group-text">m/s</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 편대 설정: 좌=진압, 우=이동 -->
 <div class="row">
     <!-- 좌측: 진압 편대 -->
@@ -344,7 +497,12 @@
 {% block extra_js %}
 <script>
 // ===== 오프보드 기본 설정 =====
-const configFields = ['target_altitude'];
+const configFields = ['target_altitude',
+    'takeoff_max_speed', 'takeoff_accel_tau',
+    'nav_max_accel_xy', 'nav_max_speed_z',
+    'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
+    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min'
+];
 
 function loadConfig() {
     fetch('/api/offboard-config')
@@ -385,7 +543,10 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
 
     // 오프보드 기본 설정 + 편대 기본 설정 동시 저장
     const missionMode = document.querySelector('input[name="mission_mode"]:checked').value;
-    const offboardData = { target_altitude: altitude, mission_mode: missionMode };
+    const offboardData = {
+        target_altitude: altitude,
+        mission_mode: missionMode
+    };
 
     // 비행 모드 변경 시 확인 메시지
     const currentMode = document.querySelector('input[name="mission_mode"][data-saved]')?.value;
@@ -436,6 +597,43 @@ document.getElementById('offboardForm').addEventListener('submit', function(e) {
         // 단독비행 배너 즉시 갱신
         if (typeof checkSoloMode === 'function') checkSoloMode();
     }).catch(err => showToast('저장 실패: ' + err, 'danger'));
+});
+
+
+// ===== 비행 파라미터 저장 =====
+document.getElementById('saveFlightParams').addEventListener('click', function() {
+    const flightFields = [
+        'takeoff_max_speed', 'takeoff_accel_tau',
+        'nav_max_accel_xy', 'nav_max_speed_z',
+        'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
+        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min'
+    ];
+    const data = {};
+    flightFields.forEach(f => {
+        const el = document.getElementById(f);
+        if (el && el.value !== '') data[f] = parseFloat(el.value);
+    });
+
+    if (Object.keys(data).length === 0) {
+        showToast('변경할 파라미터가 없습니다.', 'warning');
+        return;
+    }
+
+    fetch('/api/offboard-config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(result => {
+        if (result.success) {
+            showToast('비행 파라미터 저장 완료', 'success');
+            loadConfig();
+        } else {
+            showToast(result.message || '저장 실패', 'danger');
+        }
+    })
+    .catch(err => showToast('저장 실패: ' + err, 'danger'));
 });
 
 

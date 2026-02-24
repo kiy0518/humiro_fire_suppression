@@ -727,8 +727,12 @@ void ApplicationManager::initializeCustomMessage() {
                     std::cout << "[FIRE_RETURN] ★ 60003 수신 → 무조건 RTL (drone_id="
                               << (int)drone_id_ << ")" << std::endl;
                     offboard_manager_->abortMission();
-                    std::cout << "[FIRE_RETURN] ✓ abortMission() → RTL 전환 완료" << std::endl;
-                    finishMission(false);
+                    std::cout << "[FIRE_RETURN] ✓ abortMission() → RTL 전환 요청 (미션 스레드에서 자연 종료 대기)" << std::endl;
+                    // ★ finishMission() 호출 금지!
+                    // abortMission()이 abort_requested_ 플래그를 설정하면,
+                    // OffboardManager 타이머가 RTL handler로 전환 → LANDED → 미션 스레드 자연 종료
+                    // finishMission(false)를 여기서 호출하면 AppMgr::mission_running_이 조기에 false가 되어
+                    // 미션 스레드 정리가 꼬이고 새 미션 중복 시작 위험
                 } else {
                     std::cerr << "[FIRE_RETURN] Error: OffboardManager 미초기화" << std::endl;
                 }
@@ -1540,6 +1544,16 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.target_altitude = readTargetAltitudeFromConfig();
             config.flight_speed = start.flight_speed;
             config.hover_duration_sec = 5.0f;
+            config.takeoff_max_speed     = readFloatFromOffboardConfig("takeoff_max_speed",     0.2f,  0.05f, 3.0f);
+            config.takeoff_accel_tau     = readFloatFromOffboardConfig("takeoff_accel_tau",      1.0f,  0.1f,  10.0f);
+            config.nav_max_accel_xy      = readFloatFromOffboardConfig("nav_max_accel_xy",       1.5f,  0.5f,  5.0f);
+            config.nav_max_speed_z       = readFloatFromOffboardConfig("nav_max_speed_z",        1.0f,  0.2f,  3.0f);
+            config.adjust_approach_speed = readFloatFromOffboardConfig("adjust_approach_speed",   0.3f,  0.1f,  1.0f);
+            config.adjust_target_wall_dist = readFloatFromOffboardConfig("adjust_target_wall_dist", 10.0f, 3.0f, 30.0f);
+            config.adjust_retreat_dist   = readFloatFromOffboardConfig("adjust_retreat_dist",     4.0f,  1.0f,  10.0f);
+            config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
+            config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
+            config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
 
             // 비행 모드 결정
             bool use_formation = formation_controller_ && readMissionModeFromConfig();
@@ -1597,6 +1611,18 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
 
     // 목표지점 고도: GUI offboard_config.json에서 읽기 (리더/팔로워 공통)
     config.target_altitude = readTargetAltitudeFromConfig();
+
+    // 비행 파라미터 (offboard_config.json)
+    config.takeoff_max_speed     = readFloatFromOffboardConfig("takeoff_max_speed",     0.2f,  0.05f, 3.0f);
+    config.takeoff_accel_tau     = readFloatFromOffboardConfig("takeoff_accel_tau",      1.0f,  0.1f,  10.0f);
+    config.nav_max_accel_xy      = readFloatFromOffboardConfig("nav_max_accel_xy",       1.5f,  0.5f,  5.0f);
+    config.nav_max_speed_z       = readFloatFromOffboardConfig("nav_max_speed_z",        1.0f,  0.2f,  3.0f);
+    config.adjust_approach_speed = readFloatFromOffboardConfig("adjust_approach_speed",   0.3f,  0.1f,  1.0f);
+    config.adjust_target_wall_dist = readFloatFromOffboardConfig("adjust_target_wall_dist", 10.0f, 3.0f, 30.0f);
+    config.adjust_retreat_dist   = readFloatFromOffboardConfig("adjust_retreat_dist",     4.0f,  1.0f,  10.0f);
+    config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
+    config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
+    config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -1838,6 +1864,33 @@ float ApplicationManager::readTargetAltitudeFromConfig() const {
         }
     }
     return -1.0f;
+}
+
+float ApplicationManager::readFloatFromOffboardConfig(const char* key, float default_val, float min_val, float max_val) const {
+    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
+    std::ifstream file(config_path);
+    if (!file.is_open()) return default_val;
+
+    std::string search_key = std::string("\"") + key + "\"";
+    std::string line;
+    while (std::getline(file, line)) {
+        auto pos = line.find(search_key);
+        if (pos != std::string::npos) {
+            auto colon_pos = line.find(':', pos);
+            if (colon_pos != std::string::npos) {
+                std::string value_str = line.substr(colon_pos + 1);
+                value_str.erase(std::remove(value_str.begin(), value_str.end(), ','), value_str.end());
+                try {
+                    float val = std::stof(value_str);
+                    if (val >= min_val && val <= max_val) {
+                        std::cout << "[Config] " << key << ": " << val << std::endl;
+                        return val;
+                    }
+                } catch (...) {}
+            }
+        }
+    }
+    return default_val;
 }
 
 double ApplicationManager::readTempThresholdFromConfig() const {
