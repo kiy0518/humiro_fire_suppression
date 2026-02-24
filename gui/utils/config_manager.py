@@ -21,6 +21,10 @@ class ConfigManager:
         "THERMAL_SCALE", "STATUS_BAR_HEIGHT",
     }
 
+    # DRONE_TYPE ↔ 프로파일 ID 매핑
+    DRONE_TYPE_PROFILES = {"F450": "f450", "HEXA1500": "hexa1500"}
+    PROFILE_DRONE_TYPES = {v: k for k, v in DRONE_TYPE_PROFILES.items()}
+
     def __init__(self, project_root: str):
         self.project_root = project_root
         self.config_dir = os.path.join(project_root, "config")
@@ -548,32 +552,26 @@ class ConfigManager:
 
     # === 커스텀 FC 파라미터 관리 ===
 
+    _default_categories = {
+        "indoor": {"name": "실내 모드", "params": []},
+        "outdoor_gps": {"name": "야외 GPS 모드", "params": []},
+        "outdoor_rtk": {"name": "야외 RTK 모드", "params": []},
+        "common": {"name": "공통", "params": []}
+    }
+
     def _init_custom_params_file(self):
-        """커스텀 파라미터 파일 초기화"""
+        """커스텀 파라미터 파일 초기화 (프로파일 구조)"""
+        import copy
         default_data = {
-            "categories": {
-                "indoor": {
-                    "name": "실내 모드",
-                    "params": []
+            "active_profile": "f450",
+            "profiles": {
+                "f450": {
+                    "name": "F450 테스트 기체",
+                    "categories": copy.deepcopy(self._default_categories)
                 },
-                "outdoor_gps": {
-                    "name": "야외 GPS 모드",
-                    "params": []
-                },
-                "outdoor_rtk": {
-                    "name": "야외 RTK 모드",
-                    "params": []
-                },
-                "common": {
-                    "name": "공통",
-                    "params": [
-                        {
-                            "name": "MPC_XY_VEL_MAX",
-                            "expected": 5,
-                            "description": "최대 수평 속도 (m/s)",
-                            "auto_check": True
-                        }
-                    ]
+                "hexa1500": {
+                    "name": "HEXA1500 소방드론",
+                    "categories": copy.deepcopy(self._default_categories)
                 }
             },
             "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -581,11 +579,43 @@ class ConfigManager:
         with open(self.custom_params_file, "w") as f:
             json.dump(default_data, f, indent=2, ensure_ascii=False)
 
+    def _migrate_to_profiles(self, data: Dict) -> Dict:
+        """기존 flat/구버전 구조를 현재 프로파일 구조로 마이그레이션"""
+        import copy
+        changed = False
+
+        if "profiles" not in data:
+            # flat 구조 → 프로파일 구조 마이그레이션
+            old_categories = data.get("categories", copy.deepcopy(self._default_categories))
+            data = {
+                "active_profile": "f450",
+                "profiles": {
+                    "f450": {"name": "F450 테스트 기체", "categories": old_categories},
+                    "hexa1500": {"name": "HEXA1500 소방드론", "categories": copy.deepcopy(self._default_categories)}
+                },
+                "updated_at": data.get("updated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            }
+            changed = True
+
+        # fire_drone → hexa1500 이름 변경 마이그레이션
+        profiles = data.get("profiles", {})
+        if "fire_drone" in profiles:
+            profiles["hexa1500"] = profiles.pop("fire_drone")
+            profiles["hexa1500"]["name"] = "HEXA1500 소방드론"
+            if data.get("active_profile") == "fire_drone":
+                data["active_profile"] = "hexa1500"
+            changed = True
+
+        if changed:
+            self.save_custom_params(data)
+        return data
+
     def load_custom_params(self) -> Dict:
-        """커스텀 파라미터 전체 로드"""
+        """커스텀 파라미터 전체 로드 (프로파일 구조 자동 마이그레이션)"""
         try:
             with open(self.custom_params_file, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+            return self._migrate_to_profiles(data)
         except Exception as e:
             print(f"커스텀 파라미터 로드 실패: {e}")
             self._init_custom_params_file()
@@ -602,47 +632,69 @@ class ConfigManager:
             print(f"커스텀 파라미터 저장 실패: {e}")
             return False
 
-    def get_custom_params_by_category(self, category: str) -> List[Dict]:
-        """카테고리별 커스텀 파라미터 목록 반환
+    def get_active_profile(self) -> str:
+        """현재 활성 프로파일 ID 반환 (device_config.env DRONE_TYPE 기준)"""
+        drone_type = self._device_config.get("DRONE_TYPE", "F450").strip()
+        return self.DRONE_TYPE_PROFILES.get(drone_type, "f450")
 
-        Args:
-            category: indoor, outdoor_gps, outdoor_rtk, common
-
-        Returns:
-            [{"name": "PARAM_NAME", "expected": 123, "description": "설명", "auto_check": True}, ...]
-        """
+    def set_active_profile(self, profile_id: str) -> bool:
+        """활성 프로파일 변경 (device_config.env + custom_params.json 동기화)"""
         data = self.load_custom_params()
-        categories = data.get("categories", {})
+        if profile_id not in data.get("profiles", {}):
+            return False
+        # device_config.env에 DRONE_TYPE 저장
+        drone_type = self.PROFILE_DRONE_TYPES.get(profile_id)
+        if drone_type:
+            self._device_config["DRONE_TYPE"] = drone_type
+            self.save_device_config()
+        # custom_params.json에도 동기화
+        data["active_profile"] = profile_id
+        return self.save_custom_params(data)
+
+    def get_profiles(self) -> Dict[str, str]:
+        """프로파일 목록 반환 {id: name}"""
+        data = self.load_custom_params()
+        profiles = data.get("profiles", {})
+        return {k: v.get("name", k) for k, v in profiles.items()}
+
+    def _get_active_categories(self, data: Dict = None) -> Dict:
+        """활성 프로파일의 categories 반환"""
+        if data is None:
+            data = self.load_custom_params()
+        profile_id = self.get_active_profile()
+        profiles = data.get("profiles", {})
+        if profile_id in profiles:
+            return profiles[profile_id].get("categories", {})
+        # fallback: 첫 번째 프로파일
+        if profiles:
+            first = next(iter(profiles.values()))
+            return first.get("categories", {})
+        return {}
+
+    def get_custom_params_by_category(self, category: str) -> List[Dict]:
+        """카테고리별 커스텀 파라미터 목록 반환 (활성 프로파일 기준)"""
+        categories = self._get_active_categories()
         if category in categories:
             return categories[category].get("params", [])
         return []
 
     def add_custom_param(self, category: str, param: Dict) -> bool:
-        """커스텀 파라미터 추가
-
-        Args:
-            category: indoor, outdoor_gps, outdoor_rtk, common
-            param: {"name": "PARAM_NAME", "expected": 123, "description": "설명", "auto_check": True}
-        """
+        """커스텀 파라미터 추가 (활성 프로파일에)"""
         data = self.load_custom_params()
-        categories = data.get("categories", {})
+        categories = self._get_active_categories(data)
 
         if category not in categories:
             return False
 
-        # 필수 필드 검증
         if "name" not in param:
             return False
 
-        # 중복 체크
         existing = categories[category].get("params", [])
         for p in existing:
             if p.get("name") == param["name"]:
-                # 이미 존재하면 업데이트
                 p.update(param)
                 return self.save_custom_params(data)
 
-        # 기본값 설정
         param.setdefault("expected", None)
         param.setdefault("description", "")
         param.setdefault("auto_check", True)
@@ -651,9 +703,9 @@ class ConfigManager:
         return self.save_custom_params(data)
 
     def update_custom_param(self, category: str, param_name: str, param: Dict) -> bool:
-        """커스텀 파라미터 업데이트"""
+        """커스텀 파라미터 업데이트 (활성 프로파일)"""
         data = self.load_custom_params()
-        categories = data.get("categories", {})
+        categories = self._get_active_categories(data)
 
         if category not in categories:
             return False
@@ -666,9 +718,9 @@ class ConfigManager:
         return False
 
     def delete_custom_param(self, category: str, param_name: str) -> bool:
-        """커스텀 파라미터 삭제"""
+        """커스텀 파라미터 삭제 (활성 프로파일)"""
         data = self.load_custom_params()
-        categories = data.get("categories", {})
+        categories = self._get_active_categories(data)
 
         if category not in categories:
             return False
@@ -681,9 +733,8 @@ class ConfigManager:
         return False
 
     def get_all_categories(self) -> Dict[str, str]:
-        """모든 카테고리 목록 반환"""
-        data = self.load_custom_params()
-        categories = data.get("categories", {})
+        """모든 카테고리 목록 반환 (활성 프로파일)"""
+        categories = self._get_active_categories()
         return {k: v.get("name", k) for k, v in categories.items()}
 
     # === 페일세이프 설정 ===

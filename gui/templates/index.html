@@ -173,6 +173,9 @@
                     <button class="btn btn-sm btn-outline-danger" onclick="rebootFc()">
                         <i class="bi bi-power"></i> FC 재부팅
                     </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="restartGui()">
+                        <i class="bi bi-arrow-repeat"></i> GUI 재시작
+                    </button>
                 </div>
             </div>
             <div class="card-body">
@@ -342,6 +345,23 @@
             })
             .catch(err => {
                 showToast('FC 재부팅 실패', 'danger');
+            });
+    }
+
+    function restartGui() {
+        if (!confirm('GUI를 재시작하시겠습니까?\n페이지가 잠시 끊긴 후 자동으로 새로고침됩니다.')) return;
+        showToast('GUI 재시작 중...', 'info');
+        fetch('/api/gui/restart', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    setTimeout(() => { location.reload(); }, 3000);
+                } else {
+                    showToast(data.message, 'danger');
+                }
+            })
+            .catch(() => {
+                setTimeout(() => { location.reload(); }, 3000);
             });
     }
 

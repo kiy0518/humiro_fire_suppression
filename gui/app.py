@@ -234,7 +234,21 @@ class MavlinkManager:
                         if received_name == param_name:
                             return True, f"{param_name} = {value} 설정 완료"
 
-                return False, "응답 시간 초과"
+                # PX4 1.16.0: 현재 값과 동일하면 ACK 없음 → read로 검증
+                read_val, read_err = self.read_param(param_name)
+                if read_err:
+                    return False, f"응답 시간 초과 (재확인 실패: {read_err})"
+                try:
+                    fval = float(value)
+                    if fval == 0:
+                        ok = abs(read_val) < 0.001
+                    else:
+                        ok = abs(read_val - fval) / abs(fval) < 0.001 or abs(read_val - fval) < 0.001
+                except (TypeError, ValueError):
+                    ok = False
+                if ok:
+                    return True, f"{param_name} = {value} 설정 완료 (확인됨)"
+                return False, f"응답 시간 초과 (현재값: {read_val})"
             except Exception as e:
                 self._mav = None
                 return False, str(e)
@@ -749,6 +763,17 @@ def api_fc_reboot():
         })
 
 
+@app.route('/api/gui/restart', methods=['POST'])
+def api_gui_restart():
+    """GUI 서비스 재시작 API"""
+    try:
+        subprocess.Popen(['sudo', 'systemctl', 'restart', 'humiro-gui'],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return jsonify({"success": True, "message": "GUI 재시작 중..."})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
+
 @app.route('/api/services')
 def api_services():
     """서비스 상태 API"""
@@ -908,6 +933,30 @@ def api_checklist(mode):
         items = get_postflight_checklist()
 
     return jsonify(items)
+
+
+# ==================== 기체 프로파일 API ====================
+
+@app.route('/api/profiles')
+def api_get_profiles():
+    """프로파일 목록 및 활성 프로파일 반환"""
+    config_manager.reload()
+    profiles = config_manager.get_profiles()
+    active = config_manager.get_active_profile()
+    return jsonify({"profiles": profiles, "active": active})
+
+@app.route('/api/profiles/active', methods=['POST'])
+def api_set_active_profile():
+    """활성 프로파일 변경"""
+    data = request.json
+    if not data or 'profile' not in data:
+        return jsonify({"success": False, "message": "profile 필수"})
+    profile_id = data['profile']
+    success = config_manager.set_active_profile(profile_id)
+    if success:
+        name = config_manager.get_profiles().get(profile_id, profile_id)
+        return jsonify({"success": True, "message": f"프로파일 변경: {name}"})
+    return jsonify({"success": False, "message": f"프로파일 '{profile_id}' 없음"})
 
 
 # ==================== 커스텀 파라미터 관리 API ====================

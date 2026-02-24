@@ -1,154 +1,193 @@
 {
-  "categories": {
-    "indoor": {
-      "name": "실내 모드",
-      "params": []
-    },
-    "outdoor_gps": {
-      "name": "야외 GPS 모드",
-      "params": []
-    },
-    "outdoor_rtk": {
-      "name": "야외 RTK 모드",
-      "params": [
-        {
-          "name": "MPC_XY_VEL_MAX",
-          "expected": 2,
-          "description": "최대 수평 속도 (m/s) — 12m/s 설정 시 폭주 추락",
-          "auto_check": true
+  "active_profile": "hexa1500",
+  "profiles": {
+    "f450": {
+      "name": "F450 테스트 기체",
+      "categories": {
+        "indoor": {
+          "name": "실내 모드",
+          "params": []
         },
-        {
-          "name": "MPC_TILTMAX_AIR",
-          "expected": 25,
-          "description": "최대 틸트 각도 (도) — 45도에서 저고도 전복 추락 발생",
-          "auto_check": true
+        "outdoor_gps": {
+          "name": "야외 GPS 모드",
+          "params": []
         },
-        {
-          "name": "MPC_Z_VEL_MAX_UP",
-          "expected": 1.5,
-          "description": "최대 상승 속도 (m/s) — 3.0에서 이륙 시 급상승 발생",
-          "auto_check": true
+        "outdoor_rtk": {
+          "name": "야외 RTK 모드",
+          "params": [
+            {
+              "name": "MPC_XY_VEL_MAX",
+              "expected": 2,
+              "description": "최대 수평 속도 (m/s) — 12m/s 설정 시 폭주 추락",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_TILTMAX_AIR",
+              "expected": 25,
+              "description": "최대 틸트 각도 (도) — 45도에서 저고도 전복 추락 발생",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_Z_VEL_MAX_UP",
+              "expected": 1.5,
+              "description": "최대 상승 속도 (m/s) — 3.0에서 이륙 시 급상승 발생",
+              "auto_check": true
+            },
+            {
+              "name": "CBRK_FLIGHTTERM",
+              "expected": 0,
+              "description": "비행 종료 회로 차단기 — 반드시 0 (활성화). 121212면 추락 시 모터 꺼지지 않음!",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_THR_HOVER",
+              "expected": 0.5,
+              "description": "호버링 추력 (기체별 튜닝 필요, 0.5는 기본값)",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_LAND_SPEED",
+              "expected": 0.6,
+              "description": "착륙 최종 하강 속도 (m/s) — PX4 AUTO_RTL 시 사용. 최소 0.6 (기본 0.7)",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_Z_VEL_MAX_DN",
+              "expected": 0.6,
+              "description": "최대 하강 속도 (m/s) — PX4 AUTO_RTL 시 사용. 기본 1.5는 중량 기체에 과속 위험",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_ACC_HOR_MAX",
+              "expected": 2,
+              "description": "최대 수평 가속도 (m/s²) — 5.0에서 급가속으로 자세 불안정",
+              "auto_check": true
+            },
+            {
+              "name": "GF_ACTION",
+              "expected": 2,
+              "description": "지오펜스 위반 시 동작 — 2=RTL (복귀)",
+              "auto_check": true
+            },
+            {
+              "name": "GF_MAX_HOR_DIST",
+              "expected": 200,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_VEL_MANUAL",
+              "expected": 2,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_XY_CRUISE",
+              "expected": 3,
+              "description": "수평 순항 속도 (m/s) — 기본 5.0은 테스트에 과도",
+              "auto_check": true
+            },
+            {
+              "name": "FD_FAIL_P",
+              "expected": 50,
+              "description": "Pitch 실패 감지 각도 (도) — 기본 60° → 50° (더 빠른 대응)",
+              "auto_check": true
+            },
+            {
+              "name": "FD_FAIL_R",
+              "expected": 50,
+              "description": "Roll 실패 감지 각도 (도) — 기본 60° → 50° (기체 2번 roll -70° 사고 방지)",
+              "auto_check": true
+            },
+            {
+              "name": "RTL_DESCEND_ALT",
+              "expected": 10,
+              "description": "RTL 하강 시작 고도 (m) — 장애물 회피를 위한 충분한 고도",
+              "auto_check": true
+            },
+            {
+              "name": "RTL_RETURN_ALT",
+              "expected": 15,
+              "description": "RTL 복귀 비행 고도 (m) — 안전한 복귀 경로",
+              "auto_check": true
+            },
+            {
+              "name": "RTL_LAND_DELAY",
+              "expected": 3,
+              "description": "RTL 착륙 전 대기 시간 (초) — 위치 확인 및 안정화",
+              "auto_check": true
+            },
+            {
+              "name": "MC_PITCHRATE_MAX",
+              "expected": 120,
+              "description": "최대 피치 각속도 (deg/s) — 급격한 자세 변화 제한",
+              "auto_check": true
+            },
+            {
+              "name": "MC_ROLLRATE_MAX",
+              "expected": 120,
+              "description": "최대 롤 각속도 (deg/s) — 0.3초 만에 roll -70° 급변 방지",
+              "auto_check": true
+            },
+            {
+              "name": "GPS_1_CONFIG",
+              "expected": 201,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "GPS_1_PROTOCOL",
+              "expected": 1,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "EKF2_OF_CTRL",
+              "expected": 1,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "UXRCE_DDS_CFG",
+              "expected": null,
+              "description": "Ethernet",
+              "auto_check": true
+            },
+            {
+              "name": "COM_OF_LOSS_T",
+              "expected": 3,
+              "description": "",
+              "auto_check": true
+            }
+          ]
         },
-        {
-          "name": "CBRK_FLIGHTTERM",
-          "expected": 0,
-          "description": "비행 종료 회로 차단기 — 반드시 0 (활성화). 121212면 추락 시 모터 꺼지지 않음!",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_THR_HOVER",
-          "expected": 0.5,
-          "description": "호버링 추력 (기체별 튜닝 필요, 0.5는 기본값)",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_LAND_SPEED",
-          "expected": 0.6,
-          "description": "착륙 최종 하강 속도 (m/s) — PX4 AUTO_RTL 시 사용. 최소 0.6 (기본 0.7)",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_Z_VEL_MAX_DN",
-          "expected": 0.6,
-          "description": "최대 하강 속도 (m/s) — PX4 AUTO_RTL 시 사용. 기본 1.5는 중량 기체에 과속 위험",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_ACC_HOR_MAX",
-          "expected": 2,
-          "description": "최대 수평 가속도 (m/s²) — 5.0에서 급가속으로 자세 불안정",
-          "auto_check": true
-        },
-        {
-          "name": "GF_ACTION",
-          "expected": 2,
-          "description": "지오펜스 위반 시 동작 — 2=RTL (복귀)",
-          "auto_check": true
-        },
-        {
-          "name": "GF_MAX_HOR_DIST",
-          "expected": 200,
-          "description": "",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_VEL_MANUAL",
-          "expected": 2,
-          "description": "",
-          "auto_check": true
-        },
-        {
-          "name": "MPC_XY_CRUISE",
-          "expected": 3,
-          "description": "수평 순항 속도 (m/s) — 기본 5.0은 테스트에 과도",
-          "auto_check": true
-        },
-        {
-          "name": "FD_FAIL_P",
-          "expected": 50,
-          "description": "Pitch 실패 감지 각도 (도) — 기본 60° → 50° (더 빠른 대응)",
-          "auto_check": true
-        },
-        {
-          "name": "FD_FAIL_R",
-          "expected": 50,
-          "description": "Roll 실패 감지 각도 (도) — 기본 60° → 50° (기체 2번 roll -70° 사고 방지)",
-          "auto_check": true
-        },
-        {
-          "name": "RTL_DESCEND_ALT",
-          "expected": 10,
-          "description": "RTL 하강 시작 고도 (m) — 장애물 회피를 위한 충분한 고도",
-          "auto_check": true
-        },
-        {
-          "name": "RTL_RETURN_ALT",
-          "expected": 15,
-          "description": "RTL 복귀 비행 고도 (m) — 안전한 복귀 경로",
-          "auto_check": true
-        },
-        {
-          "name": "RTL_LAND_DELAY",
-          "expected": 3,
-          "description": "RTL 착륙 전 대기 시간 (초) — 위치 확인 및 안정화",
-          "auto_check": true
-        },
-        {
-          "name": "MC_PITCHRATE_MAX",
-          "expected": 120,
-          "description": "최대 피치 각속도 (deg/s) — 급격한 자세 변화 제한",
-          "auto_check": true
-        },
-        {
-          "name": "MC_ROLLRATE_MAX",
-          "expected": 120,
-          "description": "최대 롤 각속도 (deg/s) — 0.3초 만에 roll -70° 급변 방지",
-          "auto_check": true
-        },
-        {
-          "name": "GPS_1_CONFIG",
-          "expected": 201,
-          "description": "",
-          "auto_check": true
-        },
-        {
-          "name": "GPS_1_PROTOCOL",
-          "expected": 1,
-          "description": "",
-          "auto_check": true
-        },
-        {
-          "name": "EKF2_OF_CTRL",
-          "expected": 1,
-          "description": "",
-          "auto_check": true
+        "common": {
+          "name": "공통",
+          "params": []
         }
-      ]
+      }
     },
-    "common": {
-      "name": "공통",
-      "params": []
+    "hexa1500": {
+      "name": "HEXA1500 소방드론",
+      "categories": {
+        "indoor": {
+          "name": "실내 모드",
+          "params": []
+        },
+        "outdoor_gps": {
+          "name": "야외 GPS 모드",
+          "params": []
+        },
+        "outdoor_rtk": {
+          "name": "야외 RTK 모드",
+          "params": []
+        },
+        "common": {
+          "name": "공통",
+          "params": []
+        }
+      }
     }
   },
-  "updated_at": "2026-02-24 18:01:44"
+  "updated_at": "2026-02-24 19:20:02"
 }
