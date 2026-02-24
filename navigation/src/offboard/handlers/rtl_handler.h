@@ -39,12 +39,11 @@ public:
         landing_speed_min_ = ctx.rtl_landing_speed_min;
         soft_land_alt_ = ctx.rtl_soft_land_alt;
 
-        // 동적 타임아웃 계산 (고도/속도 기반)
+        // DESCEND 타임아웃 계산 (고도/속도 기반)
         float agl_now = -(ctx.current_local_z.load() - ctx.start_local_z);
         float descend_alt = std::max(0.0f, agl_now - soft_land_alt_);
         descend_timeout_ = std::max(60.0f, std::min(descend_alt / descent_speed_ * 2.0f + 30.0f, 300.0f));
-        float avg_land_speed = (descent_speed_ + landing_speed_min_) * 0.5f;
-        soft_land_timeout_ = std::max(30.0f, std::min(soft_land_alt_ / avg_land_speed * 2.0f + 15.0f, 120.0f));
+        // SOFT_LAND 타임아웃: 동적 (매 tick AGL 기반으로 갱신), 비상 180초
 
         // 착지 감지 초기화
         ground_detected_ = false;
@@ -71,14 +70,14 @@ public:
             phase_ = RtlPhase::DESCEND;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작 (홈 근처 %.1fm → 즉시 하강) AGL=%.1fm, descent=%.2fm/s, timeout: descend=%.0fs soft_land=%.0fs",
-                home_dist, getAGL(ctx), descent_speed_, descend_timeout_, soft_land_timeout_);
+                "[RTL] 귀환 시작 (홈 근처 %.1fm → 즉시 하강) AGL=%.1fm, descent=%.2fm/s, descend_timeout=%.0fs",
+                home_dist, getAGL(ctx), descent_speed_, descend_timeout_);
         } else {
             phase_ = RtlPhase::NAVIGATE_HOME;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, speed=%.1f, descent=%.2fm/s, timeout: descend=%.0fs soft_land=%.0fs",
-                home_dist, getAGL(ctx), ctx.flight_speed, descent_speed_, descend_timeout_, soft_land_timeout_);
+                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, speed=%.1f, descent=%.2fm/s, descend_timeout=%.0fs",
+                home_dist, getAGL(ctx), ctx.flight_speed, descent_speed_, descend_timeout_);
         }
     }
 
@@ -175,16 +174,29 @@ public:
                 }
             }
 
-            // 동적 타임아웃
-            if (phase_elapsed > soft_land_timeout_) {
+            // 동적 타임아웃: 현재 AGL 기반으로 매 tick 갱신
+            // 기압계 오차로 AGL이 부정확할 수 있으므로, 타임아웃 시 GROUND_DISARM 강제 전환하지 않음
+            // → landing_speed_min으로 계속 하강하여 착지 감지 대기
+            float dynamic_timeout = calcDynamicSoftLandTimeout(agl);
+            if (phase_elapsed > dynamic_timeout) {
+                // 타임아웃 초과해도 하강 계속 (착지 감지될 때까지)
+                logPeriodic(ctx, 10.0,
+                    "[RTL] SOFT_LAND 동적타임아웃 초과 (%.0fs > %.0fs) AGL=%.2fm → landing_speed_min(%.2fm/s)으로 하강 계속",
+                    phase_elapsed, dynamic_timeout, agl, landing_speed_min_);
+            }
+
+            // 비상 타임아웃: 180초 → 일반 disarm 시도 (force 아님, PX4 자체 안전검사)
+            if (phase_elapsed > SOFT_LAND_EMERGENCY_TIMEOUT) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] SOFT_LAND 타임아웃 (%.0f초, AGL=%.1fm) → DISARM 강제 시도", soft_land_timeout_, agl);
+                    "[RTL] SOFT_LAND 비상 타임아웃 (%.0fs, AGL=%.2fm) → 일반 disarm 시도",
+                    phase_elapsed, agl);
                 setPhase(RtlPhase::GROUND_DISARM);
                 break;
             }
 
-            logPeriodic(ctx, 2.0, "[RTL] SOFT_LAND AGL=%.2fm vz=%.2fm/s speed=%.2fm/s (%.0fs)",
-                        agl, ctx.actual_vz.load(), calcLandingSpeed(agl), ctx.elapsedSec());
+            logPeriodic(ctx, 2.0, "[RTL] SOFT_LAND AGL=%.2fm vz=%.2fm/s speed=%.2fm/s (%.0f/%.0fs)",
+                        agl, ctx.actual_vz.load(), calcLandingSpeed(agl),
+                        phase_elapsed, dynamic_timeout);
             break;
         }
 
@@ -192,22 +204,26 @@ public:
             auto now = std::chrono::steady_clock::now();
 
             // DISARM 명령 전송 (3초 간격, 최대 5회)
+            // 일반 disarm (param2=0): PX4 자체 공중 안전검사가 거부 가능
+            // force disarm (param2=21196): 착지 감지 경로에서만 사용
             if (!disarm_sent_ || (disarm_attempts_ < 5 &&
                 std::chrono::duration<double>(now - last_disarm_time_).count() >= 3.0)) {
                 disarm_attempts_++;
                 disarm_sent_ = true;
                 last_disarm_time_ = now;
 
-                // VEHICLE_CMD_COMPONENT_ARM_DISARM: param1=0 (disarm), param2=21196 (force)
-                ctx.publishCommand(400, 0.0f, 21196.0f, 0.0f);
+                float force_param = ground_detected_ ? 21196.0f : 0.0f;
+                ctx.publishCommand(400, 0.0f, force_param, 0.0f);
                 RCLCPP_INFO(ctx.logger,
-                    "[RTL] DISARM 명령 전송 (%d/%d)", disarm_attempts_, 5);
+                    "[RTL] DISARM 명령 전송 (%d/%d, AGL=%.2fm, %s)",
+                    disarm_attempts_, 5, agl,
+                    ground_detected_ ? "FORCE" : "NORMAL");
             }
 
             // 타임아웃: 20초
             if (phase_elapsed > 20.0) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] GROUND_DISARM 타임아웃 (20초) → COMPLETE 강제 반환");
+                    "[RTL] GROUND_DISARM 타임아웃 (20초, AGL=%.2fm) → COMPLETE 강제 반환", agl);
                 return TransitionResult::COMPLETE;
             }
 
@@ -301,9 +317,10 @@ public:
         }
 
         case RtlPhase::GROUND_DISARM: {
-            // 지상 위치 고정 (모터 저출력 유지)
-            sp.position = {home_x_, home_y_, home_z_};
-            sp.velocity = {NAN, NAN, NAN};
+            // 지면에 눌리도록 최소 하강 속도 유지 (호버링 방지)
+            // position hold(home_z)로 하면 10cm 위에서 호버링 → disarm 시 추락
+            sp.position = {home_x_, home_y_, NAN};
+            sp.velocity = {NAN, NAN, landing_speed_min_};  // NED +z = 하강 계속
             sp.yaw = ctx.current_yaw.load();
             sp.yawspeed = 0.0f;
             return true;
@@ -329,12 +346,13 @@ private:
     float landing_speed_min_{0.05f};   // 최종 착륙 속도 (m/s)
     float soft_land_alt_{2.0f};        // 감속 시작 고도 (m AGL)
     float descend_timeout_{60.0f};     // DESCEND 페이즈 타임아웃 (동적)
-    float soft_land_timeout_{30.0f};   // SOFT_LAND 페이즈 타임아웃 (동적)
 
     // === 상수 ===
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
+    static constexpr float FINAL_DECEL_ALT = 0.3f;      // 최종 감속 시작 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
-    static constexpr float RTL_MAX_AZ  = 1.0f;   // m/s²
+    static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
+    static constexpr float SOFT_LAND_EMERGENCY_TIMEOUT = 180.0f;  // SOFT_LAND 비상 타임아웃 (초)
 
     // yaw 제어 상수
     static constexpr float RTL_MAX_YAW_ACCEL = 0.2f;    // rad/s²
@@ -366,12 +384,26 @@ private:
         return -(ctx.current_local_z.load() - home_z_);
     }
 
-    /** 감속 착륙 속도 계산 */
+    /** 감속 착륙 속도 계산
+     * 2단계 감속: soft_land_alt → FINAL_DECEL_ALT 구간은 descent_speed 유지,
+     * FINAL_DECEL_ALT 이하에서만 landing_speed_min까지 감속.
+     * PX4 land_detector가 낮은 속도를 "착지"로 오인하는 것을 방지.
+     */
     float calcLandingSpeed(float agl) const {
         if (agl > soft_land_alt_) return descent_speed_;
         if (agl <= 0.0f) return landing_speed_min_;
-        // 선형 보간: 1.5m=0.7, 0m=0.1
-        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * (agl / soft_land_alt_);
+        if (agl > FINAL_DECEL_ALT) return descent_speed_;
+        // FINAL_DECEL_ALT 이하: descent_speed → landing_speed_min 선형 감속
+        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * (agl / FINAL_DECEL_ALT);
+    }
+
+    /** 동적 SOFT_LAND 타임아웃: 현재 AGL 기반으로 매 tick 갱신 */
+    float calcDynamicSoftLandTimeout(float agl) const {
+        float safe_agl = std::max(0.0f, agl);
+        float avg_speed = (calcLandingSpeed(safe_agl) + landing_speed_min_) * 0.5f;
+        if (avg_speed < 0.01f) avg_speed = 0.01f;
+        // 예상 착륙 시간 × 2배 마진 + 15초 여유
+        return std::max(30.0f, safe_agl / avg_speed * 2.0f + 15.0f);
     }
 
     /** 페이즈 전환 */
