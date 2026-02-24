@@ -180,7 +180,116 @@
         },
         "outdoor_rtk": {
           "name": "야외 RTK 모드",
-          "params": []
+          "params": [
+            {
+              "name": "CA_ROTOR5_PY",
+              "expected": -0.37,
+              "description": "모터6 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR5_PX",
+              "expected": -0.63,
+              "description": "모터6 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR4_PY",
+              "expected": 0.37,
+              "description": "모터5 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR4_PX",
+              "expected": 0.63,
+              "description": "모터5 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR3_PY",
+              "expected": 0.37,
+              "description": "모터4 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR3_PX",
+              "expected": -0.63,
+              "description": "모터4 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR2_PY",
+              "expected": -0.37,
+              "description": "모터3 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR2_PX",
+              "expected": 0.63,
+              "description": "모터3 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR1_PY",
+              "expected": -0.73,
+              "description": "모터2 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR1_PX",
+              "expected": 0,
+              "description": "모터2 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR0_PY",
+              "expected": 0.73,
+              "description": "모터1 Y축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "CA_ROTOR0_PX",
+              "expected": 0,
+              "description": "모터1 X축 위치",
+              "auto_check": true
+            },
+            {
+              "name": "COM_OF_LOSS_T",
+              "expected": 3,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_VEL_MANUAL",
+              "expected": 2,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "GF_MAX_HOR_DIST",
+              "expected": 200,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_XY_CRUISE",
+              "expected": 2,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "PWM_AUX_MAX6",
+              "expected": 1940,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "MPC_THR_HOVER",
+              "expected": 0.5,
+              "description": "",
+              "auto_check": true
+            }
+          ]
         },
         "common": {
           "name": "공통",
@@ -189,5 +298,5 @@
       }
     }
   },
-  "updated_at": "2026-02-24 19:20:02"
+  "updated_at": "2026-02-24 20:37:18"
 }
