@@ -33,10 +33,10 @@ EXTERNAL_PORT=$(( 16001 + PORT_OFFSET ))
 APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
 TCP_PORT=$(( 5790 + PORT_OFFSET ))
 
-# GCS 포트: unified 모드이면 device_config의 QGC_UDP_PORT 사용
+# GCS 포트: unified 모드이면 항상 14550, separate 모드이면 DRONE_ID 기반 계산
 GCS_PORT_MODE=${GCS_PORT_MODE:-unified}
 if [ "$GCS_PORT_MODE" = "unified" ]; then
-    QGC_PORT=${QGC_UDP_PORT:-14550}
+    QGC_PORT=14550
 else
     QGC_PORT=$(( 14550 + PORT_OFFSET ))
 fi

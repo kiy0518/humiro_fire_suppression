@@ -46,8 +46,7 @@ APPLICATION_PORT=$(( 15001 + PORT_OFFSET ))
 TCP_PORT=$(( 5790 + PORT_OFFSET ))
 
 if [ "$GCS_PORT_MODE" = "unified" ]; then
-    QGC_PORT=$(grep "^QGC_UDP_PORT=" "$CONFIG_FILE" | cut -d= -f2)
-    QGC_PORT=${QGC_PORT:-14550}
+    QGC_PORT=14550
 else
     QGC_PORT=$(( 14550 + PORT_OFFSET ))
 fi
