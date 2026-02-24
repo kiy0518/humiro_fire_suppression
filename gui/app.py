@@ -2791,6 +2791,32 @@ def get_crash_prevention_params_checklist():
     ]
 
 
+def get_pwm_params_checklist():
+    """PWM 출력 범위 파라미터 체크리스트"""
+    items = []
+    idx = 1
+    for prefix in ["PWM_MAIN", "PWM_AUX"]:
+        label = "MAIN" if "MAIN" in prefix else "AUX"
+        for ch in range(1, 7):
+            items.append({"id": f"pwm{idx}", "text": f"{prefix}_MIN{ch} = 1100 ({label} CH{ch} 최소 PWM)", "auto": True, "check": f"fc-param/{prefix}_MIN{ch}?expected=1100"})
+            idx += 1
+            items.append({"id": f"pwm{idx}", "text": f"{prefix}_MAX{ch} = 1940 ({label} CH{ch} 최대 PWM)", "auto": True, "check": f"fc-param/{prefix}_MAX{ch}?expected=1940"})
+            idx += 1
+    return items
+
+
+def get_motor_geometry_checklist():
+    """모터 지오메트리(CA_ROTOR) 파라미터 체크리스트"""
+    items = []
+    idx = 1
+    for rotor in range(6):
+        items.append({"id": f"ca{idx}", "text": f"CA_ROTOR{rotor}_PX (모터{rotor} X축 위치)", "auto": True, "check": f"fc-param/CA_ROTOR{rotor}_PX"})
+        idx += 1
+        items.append({"id": f"ca{idx}", "text": f"CA_ROTOR{rotor}_PY (모터{rotor} Y축 위치)", "auto": True, "check": f"fc-param/CA_ROTOR{rotor}_PY"})
+        idx += 1
+    return items
+
+
 def _apply_param_overrides(items, category):
     """하드코딩된 체크리스트 항목에 custom_params.json 오버라이드 적용
     custom_params.json에 같은 이름의 파라미터가 있으면 expected 값을 교체"""
@@ -2820,7 +2846,7 @@ def _apply_param_overrides(items, category):
             old_text = item['text']
             import re
             new_text = re.sub(
-                rf'^({re.escape(param_name)}\s*=\s*)[\d.]+',
+                rf'^({re.escape(param_name)}\s*=\s*)-?[\d.]+',
                 rf'\g<1>{new_expected}',
                 old_text
             )
@@ -3035,6 +3061,8 @@ def get_outdoor_rtk_checklist(no_rc=False):
         ]},
         {"section": "페일세이프 파라미터 확인 (야외)", "items": _apply_param_overrides(get_failsafe_params_checklist(indoor=False), 'outdoor_rtk')},
         {"section": "추락 방지 파라미터 (필수 검토)", "items": _apply_param_overrides(get_crash_prevention_params_checklist(), 'outdoor_rtk')},
+        {"section": "PWM 출력 범위", "items": _apply_param_overrides(get_pwm_params_checklist(), 'outdoor_rtk')},
+        {"section": "모터 지오메트리 (CA_ROTOR)", "items": _apply_param_overrides(get_motor_geometry_checklist(), 'outdoor_rtk')},
         {"section": "안전 확인", "items": [
             {"id": "safe1", "text": "비행 금지 구역 확인", "auto": False},
             {"id": "safe2", "text": "지오펜스 설정 확인", "auto": False},
