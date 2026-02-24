@@ -389,7 +389,18 @@
         if (!match) return;
 
         const paramName = match[1];
-        const expectedValue = parseFloat(match[2]);
+        const expectedValue = match[2];
+
+        // 사용자가 값을 직접 지정 가능 (기본값: 체크리스트 기대값)
+        const input = prompt(`${paramName} 쓰기 값 입력:`, expectedValue);
+        if (input === null) return;  // 취소
+
+        const writeValue = parseFloat(input);
+        if (isNaN(writeValue)) {
+            alert('숫자를 입력하세요.');
+            return;
+        }
+
         const resultEl = document.getElementById(`${itemId}_result`);
         const writeBtn = document.getElementById(`${itemId}_write`);
 
@@ -400,13 +411,12 @@
         fetch('/api/fc-param/set', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({param_name: paramName, value: expectedValue})
+            body: JSON.stringify({param_name: paramName, value: writeValue})
         })
         .then(r => r.json())
         .then(data => {
             if (writeBtn) writeBtn.disabled = false;
             if (data.success) {
-                // 쓰기 성공 → 자동 재확인
                 runAutoCheck(itemId, checkType);
             } else {
                 resultEl.textContent = data.message;
