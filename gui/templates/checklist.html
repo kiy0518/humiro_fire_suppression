@@ -25,6 +25,9 @@
                     <button class="btn btn-sm btn-outline-primary" onclick="autoCheckAll()">
                         <i class="bi bi-lightning"></i> 자동 확인
                     </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="writeAllFromInputs()">
+                        <i class="bi bi-pencil-square"></i> 일괄 적용
+                    </button>
                     <button class="btn btn-sm btn-outline-success" onclick="checkAll(true)">
                         <i class="bi bi-check-all"></i> 모두 체크
                     </button>
@@ -422,6 +425,71 @@
             resultEl.textContent = '쓰기 오류';
             resultEl.className = 'check-result fail';
         });
+    }
+
+    async function writeAllFromInputs() {
+        // 입력필드가 있는 모든 FC 파라미터 항목 수집
+        const allInputs = document.querySelectorAll('input[id$="_input"]');
+        const targets = [];
+        for (const input of allInputs) {
+            const itemId = input.id.replace('_input', '');
+            const checkBtn = document.querySelector(`.auto-check[data-item-id="${itemId}"]`);
+            if (!checkBtn) continue;
+            const checkType = checkBtn.getAttribute('data-check-type');
+            const m = checkType.match(/fc-param\/([A-Z0-9_]+)/);
+            if (!m) continue;
+            const val = parseFloat(input.value);
+            if (isNaN(val)) continue;
+            targets.push({ itemId, paramName: m[1], value: val, checkType });
+        }
+
+        if (targets.length === 0) {
+            showToast('적용할 파라미터가 없습니다.', 'info');
+            return;
+        }
+
+        const statusEl = document.getElementById('readyText');
+        const originalText = statusEl.textContent;
+
+        for (let i = 0; i < targets.length; i++) {
+            const t = targets[i];
+            statusEl.textContent = `일괄 적용 중... (${i+1}/${targets.length}) ${t.paramName}`;
+            const resultEl = document.getElementById(`${t.itemId}_result`);
+            if (resultEl) {
+                resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중...';
+                resultEl.className = 'check-result';
+            }
+
+            await new Promise((resolve) => {
+                fetch('/api/fc-param/set', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({param_name: t.paramName, value: t.value})
+                })
+                .then(r => r.json())
+                .then(async (data) => {
+                    if (data.success) {
+                        await runAutoCheck(t.itemId, t.checkType);
+                    } else if (resultEl) {
+                        resultEl.textContent = data.message;
+                        resultEl.className = 'check-result fail';
+                    }
+                    await new Promise(r => setTimeout(r, 150));
+                    resolve();
+                })
+                .catch(() => {
+                    if (resultEl) {
+                        resultEl.textContent = '쓰기 오류';
+                        resultEl.className = 'check-result fail';
+                    }
+                    resolve();
+                });
+            });
+        }
+
+        statusEl.textContent = originalText;
+        updateProgress();
+        showToast(`${targets.length}개 파라미터 적용 완료`, 'success');
     }
 
     // ===== 사용자 파라미터 관리 =====
