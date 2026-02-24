@@ -250,7 +250,7 @@
                         <input class="form-check-input" type="checkbox" id="${item.id}" onchange="updateProgress()">
                         <label for="${item.id}">${item.text}</label>
                         ${item.auto && item.check && item.check.includes('fc-param/') ? (() => {
-                            const m = item.check.match(/fc-param\/([A-Z0-9_]+)(?:\\?expected=([\\d.]+))?/);
+                            const m = item.check.match(/fc-param\/([A-Z0-9_]+)(?:\?expected=([\d.]+))?/);
                             const pName = m ? m[1] : '';
                             const pExpected = m && m[2] ? m[2] : '';
                             return `
