@@ -200,6 +200,44 @@ class MavlinkManager:
                 self._mav = None
                 return None, str(e)
 
+    def write_param(self, param_name, value):
+        """파라미터 쓰기 (스레드 안전)"""
+        with self._lock:
+            if not self._mav or (time.time() - self._last_connect) > 30:
+                if not self._connect():
+                    return False, "FC 연결 실패"
+
+            try:
+                from pymavlink import mavutil
+
+                # 잔여 메시지 비우기
+                while self._mav.recv_match(blocking=False):
+                    pass
+
+                # 파라미터 설정
+                self._mav.mav.param_set_send(
+                    self._target_sys,
+                    self._target_comp,
+                    param_name.encode('utf-8'),
+                    float(value),
+                    mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+                )
+
+                # 확인 응답 대기 (최대 3초)
+                start = time.time()
+                while time.time() - start < 3:
+                    msg = self._mav.recv_match(type='PARAM_VALUE', blocking=True, timeout=0.5)
+                    if msg and msg.param_id == param_name:
+                        if abs(msg.param_value - float(value)) < 0.001:
+                            return True, f"{param_name} = {value} 설정 완료"
+                        else:
+                            return False, f"설정 불일치: {msg.param_value} (예상: {value})"
+
+                return False, "응답 시간 초과"
+            except Exception as e:
+                self._mav = None
+                return False, str(e)
+
     def is_armed(self):
         """FC arming 상태 확인. True=armed, False=disarmed, None=확인불가"""
         with self._lock:
@@ -2420,6 +2458,38 @@ def api_check_fc_param(param_name):
             result["message"] = f"{value}"
 
     return jsonify(result)
+
+
+@app.route('/api/fc-param/set', methods=['POST'])
+def api_set_fc_param():
+    """FC 파라미터 쓰기 API (MAVLink)"""
+    data = request.json
+    if not data or 'param_name' not in data or 'value' not in data:
+        return jsonify({"success": False, "message": "param_name과 value 필수"})
+
+    param_name = data['param_name']
+    value = data['value']
+
+    # armed 상태 확인
+    armed = mavlink_mgr.is_armed()
+    if armed:
+        return jsonify({"success": False, "message": "기체 시동 중 파라미터 변경 불가"})
+
+    # 파라미터 쓰기
+    success, message = mavlink_mgr.write_param(param_name, value)
+    if not success:
+        return jsonify({"success": False, "message": message})
+
+    # 쓰기 후 재확인
+    read_value, error = mavlink_mgr.read_param(param_name)
+    if error:
+        return jsonify({"success": True, "message": f"{message} (재확인 실패: {error})"})
+
+    return jsonify({
+        "success": True,
+        "message": f"{param_name} = {read_value} 설정 완료",
+        "value": read_value
+    })
 
 
 # ==================== 서비스 로그 스트리밍 API ====================

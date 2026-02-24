@@ -25,6 +25,9 @@
                     <button class="btn btn-sm btn-outline-primary" onclick="autoCheckAll()">
                         <i class="bi bi-lightning"></i> 자동 확인
                     </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="writeAllFailed()">
+                        <i class="bi bi-pencil-square"></i> 불일치 쓰기
+                    </button>
                     <button class="btn btn-sm btn-outline-success" onclick="checkAll(true)">
                         <i class="bi bi-check-all"></i> 모두 체크
                     </button>
@@ -253,6 +256,14 @@
                                     onclick="runAutoCheck('${item.id}', '${item.check}')">
                                 <i class="bi bi-lightning"></i> 확인
                             </button>
+                            ${item.check && item.check.includes('expected=') ? `
+                                <button class="btn btn-sm btn-outline-danger ms-1 write-param-btn"
+                                        id="${item.id}_write"
+                                        style="display:none"
+                                        onclick="writeParam('${item.id}', '${item.check}')">
+                                    <i class="bi bi-pencil-square"></i> 쓰기
+                                </button>
+                            ` : ''}
                             <span class="check-result ms-2" id="${item.id}_result"></span>
                         ` : ''}
                         ${isCustomItem && paramName ? `
@@ -325,6 +336,12 @@
                     resultEl.textContent = data.message;
                     resultEl.className = `check-result ${data.success ? 'success' : 'fail'}`;
 
+                    // 쓰기 버튼 표시/숨김
+                    const writeBtn = document.getElementById(`${itemId}_write`);
+                    if (writeBtn) {
+                        writeBtn.style.display = (!data.success && data.match === false) ? '' : 'none';
+                    }
+
                     updateProgress();
                     resolve(data.success);
                 })
@@ -358,6 +375,93 @@
             if (checkType.startsWith('fc-param/')) {
                 await new Promise(r => setTimeout(r, 100));
             }
+        }
+
+        statusEl.textContent = originalText;
+        updateProgress();
+    }
+
+    // ===== FC 파라미터 쓰기 =====
+
+    function writeParam(itemId, checkType) {
+        // checkType: "fc-param/MPC_XY_VEL_MAX?expected=2"
+        const match = checkType.match(/fc-param\/([A-Z0-9_]+)\?expected=([\d.]+)/);
+        if (!match) return;
+
+        const paramName = match[1];
+        const expectedValue = parseFloat(match[2]);
+        const resultEl = document.getElementById(`${itemId}_result`);
+        const writeBtn = document.getElementById(`${itemId}_write`);
+
+        resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중...';
+        resultEl.className = 'check-result';
+        if (writeBtn) writeBtn.disabled = true;
+
+        fetch('/api/fc-param/set', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({param_name: paramName, value: expectedValue})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (writeBtn) writeBtn.disabled = false;
+            if (data.success) {
+                // 쓰기 성공 → 자동 재확인
+                runAutoCheck(itemId, checkType);
+            } else {
+                resultEl.textContent = data.message;
+                resultEl.className = 'check-result fail';
+            }
+        })
+        .catch(() => {
+            if (writeBtn) writeBtn.disabled = false;
+            resultEl.textContent = '쓰기 오류';
+            resultEl.className = 'check-result fail';
+        });
+    }
+
+    async function writeAllFailed() {
+        const writeBtns = document.querySelectorAll('.write-param-btn');
+        const visible = Array.from(writeBtns).filter(btn => btn.style.display !== 'none');
+
+        if (visible.length === 0) {
+            showToast('불일치 항목이 없습니다.', 'info');
+            return;
+        }
+
+        const statusEl = document.getElementById('readyText');
+        const originalText = statusEl.textContent;
+        let completed = 0;
+
+        for (const btn of visible) {
+            const itemId = btn.id.replace('_write', '');
+            const checkBtn = document.querySelector(`.auto-check[data-item-id="${itemId}"]`);
+            if (!checkBtn) continue;
+
+            const checkType = checkBtn.getAttribute('data-check-type');
+            completed++;
+            statusEl.textContent = `파라미터 쓰기 중... (${completed}/${visible.length})`;
+
+            // 쓰기 실행
+            const match = checkType.match(/fc-param\/([A-Z0-9_]+)\?expected=([\d.]+)/);
+            if (!match) continue;
+
+            await new Promise((resolve) => {
+                fetch('/api/fc-param/set', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({param_name: match[1], value: parseFloat(match[2])})
+                })
+                .then(r => r.json())
+                .then(async (data) => {
+                    if (data.success) {
+                        await runAutoCheck(itemId, checkType);
+                    }
+                    await new Promise(r => setTimeout(r, 150));
+                    resolve();
+                })
+                .catch(() => resolve());
+            });
         }
 
         statusEl.textContent = originalText;
