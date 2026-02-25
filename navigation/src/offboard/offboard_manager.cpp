@@ -82,9 +82,28 @@ bool OffboardManager::executeMissionFormation(const MissionConfig& config)
     return executeMissionInternal(config);
 }
 
+bool OffboardManager::executeMissionSwarm(const MissionConfig& config)
+{
+    formation_mode_ = false;  // 편대 게이트 비활성
+    swarm_mode_ = true;
+    continuous_update_mode_.store(false);  // swarm: 독립 비행이므로 NAVIGATE 도착 판정 활성화
+    RCLCPP_INFO(node_->get_logger(), "[SWARM] 독립 편대 미션 시작");
+    return executeMissionInternal(config);
+}
+
+void OffboardManager::setSwarmSuppressTarget(double lat, double lon, float yaw)
+{
+    ctx_.swarm_suppress_lat = lat;
+    ctx_.swarm_suppress_lon = lon;
+    ctx_.swarm_suppress_yaw = yaw;
+    ctx_.swarm_alignment_received.store(true);
+    RCLCPP_INFO(node_->get_logger(), "[SWARM] 진압 위치 설정: (%.7f, %.7f), yaw=%.1f°",
+                lat, lon, yaw * 180.0f / M_PI);
+}
+
 bool OffboardManager::executeMissionInternal(const MissionConfig& config)
 {
-    const char* mode_str = formation_mode_ ? "FORMATION" : "SOLO";
+    const char* mode_str = swarm_mode_ ? "SWARM" : (formation_mode_ ? "FORMATION" : "SOLO");
 
     // ★ 미션 시작 구간 mutex (중복 스레드 동시 시작 방지)
     {
@@ -142,6 +161,7 @@ bool OffboardManager::executeMissionInternal(const MissionConfig& config)
         ctx_.reset();
         ctx_.loadFromConfig(config);
         ctx_.formation_mode = formation_mode_;
+        ctx_.swarm_mode = swarm_mode_;
         ctx_.target_system = target_system_;
         syncContextFromMembers();
 
@@ -193,6 +213,7 @@ bool OffboardManager::executeMissionInternal(const MissionConfig& config)
                 timer_.reset();
             }
             formation_mode_ = false;
+            swarm_mode_ = false;
         }
     }
     mission_running_.store(false);
@@ -655,6 +676,7 @@ void OffboardManager::resetToIdle()
     evade_offset_n_ = 0.0f;
     evade_offset_e_ = 0.0f;
     formation_mode_ = false;
+    swarm_mode_ = false;
     formation_ready_to_rotate_.store(false);
     formation_ready_to_navigate_.store(false);
     offboard_lost_tracking_ = false;
@@ -808,6 +830,38 @@ void OffboardManager::advanceToNextHandler()
         current_state_.store(MissionState::RTL);
         transitionTo(rtl_handler_.get());
     } else if (current_handler_ == hover_at_target_handler_.get()) {
+        // Swarm 팔로워: 리더 정렬 완료 수신 → 진압 위치로 재이동
+        if (ctx_.swarm_reposition_needed) {
+            ctx_.swarm_reposition_needed = false;
+
+            // 진압 위치로 타겟 좌표 업데이트
+            double suppress_lat = ctx_.swarm_suppress_lat;
+            double suppress_lon = ctx_.swarm_suppress_lon;
+            float suppress_yaw = ctx_.swarm_suppress_yaw;
+
+            float local_x, local_y, local_z;
+            gpsToLocalNED(suppress_lat, suppress_lon, mission_config_.takeoff_altitude,
+                          local_x, local_y, local_z);
+
+            target_ned_x_ = local_x;
+            target_ned_y_ = local_y;
+            // target_ned_z_ 유지 (현재 고도)
+            target_yaw_ = suppress_yaw;
+
+            ctx_.target_ned_x = target_ned_x_;
+            ctx_.target_ned_y = target_ned_y_;
+            ctx_.target_yaw = target_yaw_;
+            ctx_.target_lat = suppress_lat;
+            ctx_.target_lon = suppress_lon;
+
+            RCLCPP_INFO(node_->get_logger(),
+                "[SWARM] 진압 위치로 재이동: GPS(%.7f,%.7f) NED(%.1f,%.1f) Yaw=%.1f°",
+                suppress_lat, suppress_lon, local_x, local_y, suppress_yaw * 180.0f / M_PI);
+
+            current_state_.store(MissionState::NAVIGATE);
+            transitionTo(navigate_handler_.get());
+            return;
+        }
         current_state_.store(MissionState::RTL);
         transitionTo(rtl_handler_.get());
     } else if (current_handler_ == rtl_handler_.get()) {

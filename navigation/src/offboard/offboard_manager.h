@@ -73,6 +73,21 @@ public:
     bool executeMissionFormation(const MissionConfig& config);
 
     /**
+     * @brief Swarm 독립 편대 미션 (블로킹)
+     * 편대 게이트 없음. 각 기체 독립 비행.
+     * 팔로워: 리더 정렬 알림 수신 후 진압 위치로 재이동.
+     * @param config 미션 설정
+     * @return 미션 성공 여부
+     */
+    bool executeMissionSwarm(const MissionConfig& config);
+
+    /**
+     * @brief Swarm 진압 위치 설정 (FormationController → OffboardManager)
+     * CMD_ALIGN_COMPLETE 수신 시 호출. 팔로워가 진압 위치로 재이동.
+     */
+    void setSwarmSuppressTarget(double lat, double lon, float yaw);
+
+    /**
      * @brief 미션 진행 중 목표 좌표 업데이트 (경로 변경)
      * @param new_target 새 목표 GPS 좌표
      * @param yaw_override 헤딩 오버라이드 (rad). NAN이면 목표방향 자동계산
@@ -99,6 +114,11 @@ public:
      * @brief 현재 상태 반환
      */
     MissionState getCurrentState() const { return current_state_.load(); }
+
+    /**
+     * @brief 미션 컨텍스트 참조 반환
+     */
+    MissionContext& getContext() { return ctx_; }
 
     /**
      * @brief 상태 이름 반환
@@ -278,6 +298,7 @@ private:
 
     // ========== 군집비행 모드 ==========
     bool formation_mode_{false};
+    bool swarm_mode_{false};       // Swarm 독립 편대 모드
     std::atomic<bool> formation_ready_to_rotate_{false};
     std::atomic<bool> formation_ready_to_navigate_{false};
     std::atomic<bool> continuous_update_mode_{false};

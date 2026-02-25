@@ -31,11 +31,16 @@ public:
 
         // Z축 모션 프로파일: 현재 고도에서 목표 고도로 부드럽게 전환
         float current_z = ctx.current_local_z.load();
-        float descent_speed = std::max(0.1f, ctx.rtl_descent_speed);  // RTL 하강 속도 재활용
+        float descent_speed = std::max(0.1f, ctx.nav_max_speed_z);  // 이동 상승/하강 속도 적용
         float descent_accel = descent_speed;  // 가속도 = 속도 (1초에 최대 속도 도달)
         z_profile_.reset(current_z, descent_speed, descent_accel, 0.1f);
 
-        hover_duration_ = ctx.formation_mode ? SUPPRESS_HOVER_SEC : TARGET_HOVER_SEC;
+        // Swarm 팔로워: 리더 정렬 대기 모드 (최대 300초)
+        swarm_wait_mode_ = (ctx.swarm_mode && !ctx.formation_mode);
+
+        hover_duration_ = swarm_wait_mode_ ? SWARM_ALIGNMENT_WAIT_SEC
+                        : ctx.formation_mode ? SUPPRESS_HOVER_SEC
+                        : TARGET_HOVER_SEC;
 
         // 소화탄 소진 상태 초기화
         ammo_depleted_ = false;
@@ -53,6 +58,29 @@ public:
 
     TransitionResult tick(MissionContext& ctx) override {
         double elapsed = ctx.elapsedSec();
+
+        // Swarm 팔로워: 리더 정렬 완료 대기
+        if (swarm_wait_mode_) {
+            if (ctx.swarm_alignment_received.load()) {
+                ctx.swarm_alignment_received.store(false);  // 시그널 소비 (재진입 방지)
+                RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] 리더 정렬 완료 수신 → 진압 위치로 이동 (%.1fs 대기)", elapsed);
+                ctx.swarm_reposition_needed = true;
+                return TransitionResult::COMPLETE;
+            }
+            // 300초 타임아웃 (안전)
+            if (elapsed >= SWARM_ALIGNMENT_WAIT_SEC) {
+                RCLCPP_WARN(ctx.logger, "[HOVER_AT_TARGET] Swarm 정렬 대기 타임아웃 (%.0fs) → RTL", elapsed);
+                return TransitionResult::ABORT_RTL;
+            }
+            // 로깅 (30초마다)
+            int tick_30s = static_cast<int>(elapsed / 30.0);
+            if (tick_30s != last_swarm_log_tick_) {
+                last_swarm_log_tick_ = tick_30s;
+                RCLCPP_INFO(ctx.logger, "[HOVER_AT_TARGET] Swarm 정렬 대기 중... %.0f/%.0fs",
+                            elapsed, SWARM_ALIGNMENT_WAIT_SEC);
+            }
+            return TransitionResult::STAY;
+        }
 
         // 조건 1: 소화탄 모두 소진 → 2초 대기 후 RTL
         if (ctx.fire_gpio_index_ptr && ctx.fire_gpio_count > 0) {
@@ -111,11 +139,16 @@ private:
     // 테스트용: 30초 (운용: 300초로 변경)
     static constexpr float TARGET_HOVER_SEC = 30.0f;
     static constexpr float SUPPRESS_HOVER_SEC = 30.0f;
+    static constexpr float SWARM_ALIGNMENT_WAIT_SEC = 300.0f;  // Swarm 정렬 대기 최대 시간
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;  // 소화탄 소진 후 RTL까지 대기
 
     float final_z_{0.0f};
     float hover_duration_{30.0f};
     int last_log_tick_{-1};
+
+    // Swarm 팔로워 정렬 대기
+    bool swarm_wait_mode_{false};
+    int last_swarm_log_tick_{-1};
 
     // Z축 모션 프로파일 (부드러운 고도 전환)
     MotionProfile1D z_profile_;

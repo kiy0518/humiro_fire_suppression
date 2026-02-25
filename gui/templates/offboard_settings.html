@@ -257,6 +257,39 @@
                     </div>
                 </div>
             </div>
+            <!-- 조준 데드존 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseAiming">
+                        조준 데드존 (Aiming)
+                    </button>
+                </h2>
+                <div id="collapseAiming" class="accordion-collapse collapse" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">수평 데드존</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="deadzone_h_px"
+                                           step="1" min="5" max="80" placeholder="33">
+                                    <span class="input-group-text">px</span>
+                                </div>
+                                <div class="form-text" id="deadzone_h_radius">10m 거리: 약 ±69cm</div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">수직 데드존</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="deadzone_v_px"
+                                           step="1" min="5" max="80" placeholder="33">
+                                    <span class="input-group-text">px</span>
+                                </div>
+                                <div class="form-text" id="deadzone_v_radius">10m 거리: 약 ±71cm</div>
+                            </div>
+                        </div>
+                        <div class="form-text mt-1">정조준 판정 범위. 열원이 이 범위 안에 들어오면 자동 격발 (10m 기준 약 2.1cm/px)</div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -501,7 +534,8 @@ const configFields = ['target_altitude',
     'takeoff_max_speed', 'takeoff_accel_tau',
     'nav_max_accel_xy', 'nav_max_speed_z',
     'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min'
+    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min',
+    'deadzone_h_px', 'deadzone_v_px'
 ];
 
 function loadConfig() {
@@ -528,10 +562,29 @@ function loadConfig() {
                 }
                 if (config.updated_at)
                     document.getElementById('lastUpdated').textContent = config.updated_at;
+                // 데드존 반경 표시 업데이트
+                updateDeadzoneRadius('deadzone_h_px', 'deadzone_h_radius', 2.07);
+                updateDeadzoneRadius('deadzone_v_px', 'deadzone_v_radius', 2.15);
             }
         })
         .catch(err => showToast('설정 로드 실패: ' + err, 'danger'));
 }
+
+// 데드존 반경 실시간 계산 (10m 거리 기준)
+function updateDeadzoneRadius(inputId, labelId, cmPerPx) {
+    const el = document.getElementById(inputId);
+    const label = document.getElementById(labelId);
+    if (!el || !label) return;
+    const px = parseFloat(el.value) || 33;
+    const cm = (px * cmPerPx).toFixed(0);
+    label.textContent = '10m 거리: 약 ±' + cm + 'cm';
+}
+document.getElementById('deadzone_h_px').addEventListener('input', function() {
+    updateDeadzoneRadius('deadzone_h_px', 'deadzone_h_radius', 2.07);
+});
+document.getElementById('deadzone_v_px').addEventListener('input', function() {
+    updateDeadzoneRadius('deadzone_v_px', 'deadzone_v_radius', 2.15);
+});
 
 document.getElementById('offboardForm').addEventListener('submit', function(e) {
     e.preventDefault();
@@ -606,7 +659,8 @@ document.getElementById('saveFlightParams').addEventListener('click', function()
         'takeoff_max_speed', 'takeoff_accel_tau',
         'nav_max_accel_xy', 'nav_max_speed_z',
         'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min'
+        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min',
+        'deadzone_h_px', 'deadzone_v_px'
     ];
     const data = {};
     flightFields.forEach(f => {

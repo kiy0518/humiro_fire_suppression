@@ -333,14 +333,15 @@ void ApplicationManager::initializeFormation() {
             std::cout << "  [설정] 진압 파라미터: distance=" << sd
                       << "m, angle=" << sa << "°" << std::endl;
 
-            // 팔로워 명령 콜백: CMD_FOLLOW 수신 시 자체 미션 시작
+            // 팔로워 명령 콜백: CMD_FOLLOW/CMD_SWARM_START 수신 시 자체 미션 시작
             formation_controller_->setCommandCallback(
                 [this](uint8_t cmd, double lat, double lon) {
-                    if (cmd == humiro_msgs::msg::FormationCommand::CMD_FOLLOW
+                    if ((cmd == humiro_msgs::msg::FormationCommand::CMD_FOLLOW ||
+                         cmd == humiro_msgs::msg::FormationCommand::CMD_SWARM_START)
                         && !mission_running_.load()) {
                         // 소화탄 소진 시 편대 합류 거부
                         if (fire_gpio_index_.load() >= FIRE_GPIO_COUNT) {
-                            std::cout << "[FormationController] CMD_FOLLOW 거부 — 소화탄 소진 ("
+                            std::cout << "[FormationController] 미션 거부 — 소화탄 소진 ("
                                       << FIRE_GPIO_COUNT << "/" << FIRE_GPIO_COUNT << ")" << std::endl;
                             if (status_overlay_) {
                                 status_overlay_->setCustomMessage("Formation Rejected: No Ammo!", 5.0);
@@ -349,15 +350,32 @@ void ApplicationManager::initializeFormation() {
                         }
                         float alt = formation_controller_->getReceivedAltitude();
                         float spd = formation_controller_->getReceivedSpeed();
-                        std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작"
-                                  << " (alt=" << alt << "m, speed=" << spd << "m/s)" << std::endl;
-                        custom_message::FireMissionStart start{};
-                        start.target_lat = (int32_t)(lat * 1e7);
-                        start.target_lon = (int32_t)(lon * 1e7);
-                        start.target_alt = alt;
-                        start.flight_speed = spd;
-                        start.auto_fire = 0;
-                        executeMission(start);
+
+                        if (cmd == humiro_msgs::msg::FormationCommand::CMD_SWARM_START) {
+                            // Swarm 모드: 팔로워 독립 목적지 사용
+                            GPSCoordinate dest = formation_controller_->getSwarmDestination();
+                            std::cout << "[FormationController] CMD_SWARM_START → 팔로워 독립 미션 시작"
+                                      << " dest=(" << dest.latitude << "," << dest.longitude
+                                      << "), alt=" << alt << "m, speed=" << spd << "m/s" << std::endl;
+                            custom_message::FireMissionStart start{};
+                            start.target_lat = (int32_t)(dest.latitude * 1e7);
+                            start.target_lon = (int32_t)(dest.longitude * 1e7);
+                            start.target_alt = alt;
+                            start.flight_speed = spd;
+                            start.auto_fire = 0;
+                            executeSwarmMission(start);
+                        } else {
+                            // Formation 모드: 리더 목적지 그대로 사용
+                            std::cout << "[FormationController] CMD_FOLLOW → 팔로워 미션 시작"
+                                      << " (alt=" << alt << "m, speed=" << spd << "m/s)" << std::endl;
+                            custom_message::FireMissionStart start{};
+                            start.target_lat = (int32_t)(lat * 1e7);
+                            start.target_lon = (int32_t)(lon * 1e7);
+                            start.target_alt = alt;
+                            start.flight_speed = spd;
+                            start.auto_fire = 0;
+                            executeMission(start);
+                        }
                     }
                 });
         }
@@ -613,8 +631,14 @@ void ApplicationManager::initializeCustomMessage() {
                     // testExeMission3(start);
                     std::cout << "[INFO] 실내 테스트 미션은 비활성화되었습니다" << std::endl;
                 } else {
-                    std::cout << "[INFO] GPS 기반 미션 모드" << std::endl;
-                    executeMission(start);
+                    std::string mode = readMissionModeString();
+                    if (mode == "swarm") {
+                        std::cout << "[INFO] Swarm 독립 편대 미션 모드" << std::endl;
+                        executeSwarmMission(start);
+                    } else {
+                        std::cout << "[INFO] GPS 기반 미션 모드 (" << mode << ")" << std::endl;
+                        executeMission(start);
+                    }
                 }
             }
         );
@@ -645,7 +669,22 @@ void ApplicationManager::initializeCustomMessage() {
                     status_overlay_->setCustomMessage("Auto Aim Activated", 3.0);
                 }
 
-                // TODO: 자동조준 로직 구현
+                // 자동 격발 모드 활성화 (상태 무관, TRACKING_HOVER 진입 시 동작)
+                if (offboard_manager_) {
+                    offboard_manager_->getContext().auto_fire_enabled.store(true);
+                    auto state = offboard_manager_->getCurrentState();
+                    std::cout << "[AUTO_FIRE] 자동 격발 모드 활성화 (현재 state="
+                              << static_cast<int>(state) << ", TRACKING_HOVER 진입 시 격발 시작)" << std::endl;
+                    if (status_overlay_) {
+                        status_overlay_->setCustomMessage("Auto Fire ON", 3.0);
+                    }
+                }
+
+                // 리더 → 팔로워 전달 (CMD_AUTO_FIRE via ROS2 DDS)
+                if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+                    formation_controller_->sendCommand(0, CMD_AUTO_FIRE);
+                    std::cout << "[AUTO_FIRE] 팔로워에 CMD_AUTO_FIRE 전달" << std::endl;
+                }
             }
         );
 
@@ -1273,6 +1312,30 @@ void ApplicationManager::lidarLoop() {
             }
         }
         
+        // === 자동 격발 요청 폴링 (tracking_hover_handler → fireGpioPin) ===
+        if (offboard_manager_ && offboard_manager_->getContext().auto_fire_request.load()) {
+            offboard_manager_->getContext().auto_fire_request.store(false);
+
+            int idx = fire_gpio_index_.load();
+            if (idx < FIRE_GPIO_COUNT) {
+                int gpio = FIRE_GPIO_PINS[idx];
+                fire_gpio_index_.store(idx + 1);
+                int remaining = FIRE_GPIO_COUNT - (idx + 1);
+
+                std::cout << "[AUTO_FIRE] 격발 " << (idx + 1) << "/" << FIRE_GPIO_COUNT
+                          << " → GPIO " << gpio << " (잔탄: " << remaining << ")" << std::endl;
+
+                if (status_overlay_) {
+                    std::string msg = "Auto Fire " + std::to_string(idx + 1) + "/" + std::to_string(FIRE_GPIO_COUNT);
+                    status_overlay_->setCustomMessage(msg, 2.0);
+                    status_overlay_->setAmmunition(remaining, FIRE_GPIO_COUNT);
+                }
+                writeAmmoStatus();
+
+                std::thread([this, gpio]() { fireGpioPin(gpio); }).detach();
+            }
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
@@ -1554,6 +1617,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
             config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
             config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+            config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
+            config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
 
             // 비행 모드 결정
             bool use_formation = formation_controller_ && readMissionModeFromConfig();
@@ -1623,6 +1688,8 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
     config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
     config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+    config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
+    config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -1966,4 +2033,178 @@ bool ApplicationManager::readMissionModeFromConfig() const {
     }
     std::cout << "[Config] mission_mode 필드 없음 → 기본값: formation" << std::endl;
     return true;  // 기본값: formation
+}
+
+std::string ApplicationManager::readMissionModeString() const {
+    const std::string config_path = "/home/khadas/humiro_fire_suppression/config/offboard_config.json";
+    std::ifstream file(config_path);
+    if (!file.is_open()) return "formation";
+
+    std::string line;
+    while (std::getline(file, line)) {
+        auto pos = line.find("\"mission_mode\"");
+        if (pos != std::string::npos) {
+            if (line.find("\"solo\"") != std::string::npos) return "solo";
+            if (line.find("\"swarm\"") != std::string::npos) return "swarm";
+            return "formation";
+        }
+    }
+    return "formation";
+}
+
+void ApplicationManager::executeSwarmMission(const custom_message::FireMissionStart& start) {
+#ifdef ENABLE_ROS2
+    if (!offboard_manager_) {
+        std::cerr << "[Error] OffboardManager가 초기화되지 않았습니다" << std::endl;
+        return;
+    }
+
+    // ========== 미션 사전 조건 체크 (executeMission과 동일) ==========
+    if (status_ros2_subscriber_) {
+        if (!status_ros2_subscriber_->isFCConnected()) {
+            std::cerr << "[미션 거부] FC 연결 없음" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No FC", 5.0);
+            return;
+        }
+        if (!status_ros2_subscriber_->isGPSFixed() && !is_sitl_mode_) {
+            std::cerr << "[미션 거부] GPS 미고정" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
+            return;
+        }
+        float battery = status_ros2_subscriber_->getBatteryRemaining();
+        if (battery > 0.0f && battery < 0.2f) {
+            std::cerr << "[미션 거부] 배터리 부족 (" << static_cast<int>(battery * 100) << "%)" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: Low Battery", 5.0);
+            return;
+        }
+    }
+
+    // 중복 실행 방지
+    bool expected = false;
+    if (!mission_running_.compare_exchange_strong(expected, true)) {
+        MissionState current_state = offboard_manager_->getCurrentState();
+        if (current_state == MissionState::IDLE || current_state == MissionState::ERROR ||
+            current_state == MissionState::LANDED || current_state == MissionState::RTL) {
+            finishMission(true);
+            expected = false;
+            if (!mission_running_.compare_exchange_strong(expected, true)) {
+                std::cout << "[Swarm] 리셋 후에도 미션 실행 중" << std::endl;
+                return;
+            }
+        } else {
+            std::cout << "[Swarm] 미션 진행 중, 좌표 업데이트" << std::endl;
+            MissionConfig config;
+            config.target_waypoint.latitude = start.target_lat / 1e7;
+            config.target_waypoint.longitude = start.target_lon / 1e7;
+            config.target_waypoint.altitude = start.target_alt;
+            config.takeoff_altitude = start.target_alt;
+            config.flight_speed = start.flight_speed;
+            offboard_manager_->executeMissionSwarm(config);
+            return;
+        }
+    }
+
+    // 상태 확인 및 리셋
+    MissionState current_state = offboard_manager_->getCurrentState();
+    if (current_state != MissionState::IDLE) {
+        if (current_state == MissionState::ERROR || current_state == MissionState::LANDED ||
+            current_state == MissionState::RTL) {
+            offboard_manager_->resetToIdle();
+        } else {
+            std::cout << "[Swarm] 미션 진행 중, 시작 불가 (state="
+                      << OffboardManager::getStateName(current_state) << ")" << std::endl;
+            finishMission(false);
+            return;
+        }
+    }
+
+    // 미션 설정 구성
+    MissionConfig config;
+    config.target_waypoint.latitude = start.target_lat / 1e7;
+    config.target_waypoint.longitude = start.target_lon / 1e7;
+    config.target_waypoint.altitude = start.target_alt;
+    config.takeoff_altitude = start.target_alt;
+    config.flight_speed = start.flight_speed;
+    config.target_altitude = readTargetAltitudeFromConfig();
+    config.hover_duration_sec = 5.0f;
+
+    // 비행 파라미터 (offboard_config.json)
+    config.takeoff_max_speed     = readFloatFromOffboardConfig("takeoff_max_speed",     0.2f,  0.05f, 3.0f);
+    config.takeoff_accel_tau     = readFloatFromOffboardConfig("takeoff_accel_tau",      1.0f,  0.1f,  10.0f);
+    config.nav_max_accel_xy      = readFloatFromOffboardConfig("nav_max_accel_xy",       1.5f,  0.5f,  5.0f);
+    config.nav_max_speed_z       = readFloatFromOffboardConfig("nav_max_speed_z",        1.0f,  0.2f,  3.0f);
+    config.adjust_approach_speed = readFloatFromOffboardConfig("adjust_approach_speed",   0.3f,  0.1f,  1.0f);
+    config.adjust_target_wall_dist = readFloatFromOffboardConfig("adjust_target_wall_dist", 10.0f, 3.0f, 30.0f);
+    config.adjust_retreat_dist   = readFloatFromOffboardConfig("adjust_retreat_dist",     4.0f,  1.0f,  10.0f);
+    config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
+    config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
+    config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+    config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
+    config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
+
+    // 입력 검증
+    if (config.target_waypoint.latitude < -90.0 || config.target_waypoint.latitude > 90.0 ||
+        config.target_waypoint.longitude < -180.0 || config.target_waypoint.longitude > 180.0) {
+        std::cerr << "[Swarm] 좌표 범위 초과" << std::endl;
+        finishMission(false);
+        return;
+    }
+    if (config.takeoff_altitude <= 0.0f || config.takeoff_altitude > 120.0f) {
+        std::cerr << "[Swarm] 고도 범위 초과: " << config.takeoff_altitude << "m" << std::endl;
+        finishMission(false);
+        return;
+    }
+    if (config.flight_speed <= 0.0f || config.flight_speed > 15.0f) {
+        config.flight_speed = 5.0f;
+    }
+
+    std::cout << "\n[Swarm 미션 시작]" << std::endl;
+    std::cout << "  - 목표: (" << config.target_waypoint.latitude << ", "
+              << config.target_waypoint.longitude << ")" << std::endl;
+    std::cout << "  - 고도: " << config.takeoff_altitude << "m, 속도: " << config.flight_speed << "m/s" << std::endl;
+
+    // 리더: 접근 헤딩 계산 + CMD_SWARM_START 전송
+    if (formation_controller_ && formation_controller_->getRole() == FormationRole::LEADER) {
+        formation_controller_->setSoloMode(false);
+
+        // 접근 헤딩: 현재 위치 → 목표
+        double cur_lat = offboard_manager_->getCurrentLat();
+        double cur_lon = offboard_manager_->getCurrentLon();
+        double cos_lat = std::cos(cur_lat * M_PI / 180.0);
+        double dn = (config.target_waypoint.latitude - cur_lat) * 111320.0;
+        double de = (config.target_waypoint.longitude - cur_lon) * 111320.0 * cos_lat;
+        float approach_heading = static_cast<float>(std::atan2(de, dn));
+
+        formation_controller_->startSwarmMission(
+            config.target_waypoint.latitude, config.target_waypoint.longitude,
+            approach_heading, config.takeoff_altitude, config.flight_speed);
+
+        std::cout << "  - 접근 헤딩: " << (approach_heading * 180.0f / M_PI) << "°" << std::endl;
+    } else if (formation_controller_) {
+        formation_controller_->setSoloMode(false);
+    }
+
+    // 미션 실행 (별도 스레드)
+    std::thread([this, config, start]() {
+        bool success = false;
+        try {
+            success = offboard_manager_->executeMissionSwarm(config);
+        } catch (const std::exception& e) {
+            std::cerr << "[Swarm 미션 오류] " << e.what() << std::endl;
+        }
+
+        if (success) {
+            std::cout << "\n[Swarm 미션 성공]" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Swarm Mission Complete", 5.0);
+            finishMission(false);
+        } else {
+            std::cerr << "\n[Swarm 미션 실패]" << std::endl;
+            if (status_overlay_) status_overlay_->setCustomMessage("Swarm Mission FAILED", 5.0);
+            finishMission(true);
+        }
+    }).detach();
+
+#else
+    std::cout << "[경고] ROS2가 비활성화되어 미션 실행 불가" << std::endl;
+#endif
 }

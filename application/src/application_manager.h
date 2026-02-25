@@ -4,6 +4,7 @@
 #include <atomic>
 #include <thread>
 #include <memory>
+#include <string>
 #include <opencv2/opencv.hpp>
 #include "thread_safe_queue.h"
 #include "thermal_data.h"
@@ -145,12 +146,16 @@ private:
     
     // 미션 실행
     void executeMission(const custom_message::FireMissionStart& start);
+    void executeSwarmMission(const custom_message::FireMissionStart& start);
 
     // offboard 설정 파일에서 target_altitude 읽기
     float readTargetAltitudeFromConfig() const;
 
     // offboard 설정 파일에서 mission_mode 읽기 (true=formation, false=solo)
     bool readMissionModeFromConfig() const;
+
+    // offboard 설정 파일에서 mission_mode 문자열 읽기 ("solo"/"formation"/"swarm")
+    std::string readMissionModeString() const;
 
     // offboard 설정 파일에서 float 파라미터 범용 읽기
     float readFloatFromOffboardConfig(const char* key, float default_val, float min_val, float max_val) const;

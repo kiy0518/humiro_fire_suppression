@@ -247,9 +247,15 @@ void FormationController::leaderStatusTimerCallback() {
     if (solo_mode_.load()) return;  // Solo 모드: CMD_FOLLOW 및 편대 동기화 안 함
 
     // 미션 시작 즉시 → CMD_FOLLOW 전송 (리더/팔로워 동시 시동+이륙)
+    // Swarm 모드: CMD_SWARM_START는 startSwarmMission()에서 이미 전송됨 → CMD_FOLLOW 스킵
     MissionState current = offboard_mgr_->getCurrentState();
     if (offboard_mgr_->isMissionRunning() && !cmd_follow_sent_) {
         cmd_follow_sent_ = true;
+
+        if (swarm_mode_) {
+            std::cout << "[Formation] Swarm 모드 → CMD_FOLLOW 스킵 (CMD_SWARM_START 사용)" << std::endl;
+            // fall through to sync checks below (skipped by swarm_mode_ guard)
+        } else {
 
         // 네트워크 팔로워 로그
         {
@@ -281,7 +287,11 @@ void FormationController::leaderStatusTimerCallback() {
             std::cout << "[Formation] CMD_FOLLOW 전송 완료 (alt=" << takeoff_alt
                       << "m, speed=" << flight_spd << "m/s)" << std::endl;
         }).detach();
+        } // else (non-swarm)
     }
+
+    // Swarm 모드에서는 편대 게이트/SUPPRESS 동기화 불필요 → 리턴
+    if (swarm_mode_) return;
 
     // === 편대 동기화 체크 (1Hz) ===
     if (cmd_follow_sent_ && offboard_mgr_) {
@@ -329,6 +339,20 @@ void FormationController::leaderStatusTimerCallback() {
                 formation_ready_to_navigate_notified_ = true;
                 std::cout << "[Formation] 모든 팔로워 편대 배치 완료 → NAVIGATE 허가" << std::endl;
             }
+        }
+    }
+
+    // === Swarm 모드: 리더 정렬 완료 감지 → CMD_ALIGN_COMPLETE 자동 전송 ===
+    if (swarm_mode_ && !swarm_align_sent_) {
+        // 조건: DISTANCE_ADJUST 완료 OR HOVER_AT_TARGET/TRACKING_HOVER 진입 (LiDAR 미사용 시)
+        bool dist_adj_done = offboard_mgr_->getDistanceAdjustCompleted();
+        bool at_target = (current == MissionState::HOVER_AT_TARGET);
+        if (dist_adj_done || at_target) {
+            swarm_align_sent_ = true;
+            std::cout << "[Formation] Swarm 정렬 완료 감지 (dist_adj="
+                      << (dist_adj_done ? "Y" : "N") << ", at_target="
+                      << (at_target ? "Y" : "N") << ")" << std::endl;
+            std::thread([this]() { notifyAlignmentComplete(); }).detach();
         }
     }
 
@@ -709,12 +733,31 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             break;
         }
 
+        case humiro_msgs::msg::FormationCommand::CMD_SWARM_START:
+            onSwarmStart(msg);
+            // 외부 콜백으로 ApplicationManager에 swarm 미션 시작 요청
+            if (command_callback_) {
+                command_callback_(msg->command, msg->target_latitude, msg->target_longitude);
+            }
+            return;  // 콜백 중복 호출 방지
+
+        case humiro_msgs::msg::FormationCommand::CMD_ALIGN_COMPLETE:
+            onAlignComplete(msg);
+            break;
+
+        case CMD_AUTO_FIRE:
+            if (offboard_mgr_) {
+                offboard_mgr_->getContext().auto_fire_enabled.store(true);
+                std::cout << "  → AUTO_FIRE: 자동 격발 모드 활성화" << std::endl;
+            }
+            break;
+
         default:
             std::cout << "  → 알 수 없는 명령: " << (int)msg->command << std::endl;
             break;
     }
 
-    // 외부 콜백 (CMD_FOLLOW는 위에서 이미 호출)
+    // 외부 콜백 (CMD_FOLLOW/CMD_SWARM_START는 위에서 이미 호출)
     if (command_callback_) {
         command_callback_(msg->command, msg->target_latitude, msg->target_longitude);
     }
@@ -1089,4 +1132,195 @@ GPSCoordinate FormationController::calculateSuppressPosition() {
               << std::endl;
 
     return pos;
+}
+
+// ============================================================================
+// Swarm 모드: 리더 — startSwarmMission()
+// ============================================================================
+
+void FormationController::startSwarmMission(double target_lat, double target_lon,
+                                             float approach_heading, float alt, float speed) {
+    swarm_mode_ = true;
+    swarm_cmd_sent_ = false;
+    swarm_align_sent_ = false;
+    swarm_approach_heading_ = approach_heading;
+    mission_target_lat_ = target_lat;
+    mission_target_lon_ = target_lon;
+    mission_takeoff_altitude_ = alt;
+    mission_flight_speed_ = speed;
+
+    std::cout << "[Formation] Swarm 미션 시작: target=("
+              << target_lat << "," << target_lon
+              << "), heading=" << (approach_heading * 180.0f / M_PI)
+              << "°, alt=" << alt << "m, speed=" << speed << "m/s" << std::endl;
+
+    // CMD_SWARM_START 3회 전송 (별도 스레드)
+    std::thread([this, target_lat, target_lon, approach_heading, alt, speed]() {
+        for (int i = 0; i < 3; i++) {
+            auto cmd_msg = humiro_msgs::msg::FormationCommand();
+            cmd_msg.header.stamp = node_->now();
+            cmd_msg.target_drone_id = 0;  // broadcast
+            cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_SWARM_START;
+            cmd_msg.target_latitude = target_lat;
+            cmd_msg.target_longitude = target_lon;
+            cmd_msg.approach_heading = approach_heading;
+            cmd_msg.takeoff_altitude = alt;
+            cmd_msg.flight_speed = speed;
+            command_pub_->publish(cmd_msg);
+            if (i < 2) std::this_thread::sleep_for(100ms);
+        }
+        swarm_cmd_sent_ = true;
+        std::cout << "[Formation] CMD_SWARM_START 전송 완료 (3회)" << std::endl;
+    }).detach();
+}
+
+// ============================================================================
+// Swarm 모드: 리더 — notifyAlignmentComplete()
+// ============================================================================
+
+void FormationController::notifyAlignmentComplete() {
+    if (!offboard_mgr_) return;
+
+    const auto& result = offboard_mgr_->getDistanceAdjustResult();
+    double leader_lat = offboard_mgr_->getCurrentLat();
+    double leader_lon = offboard_mgr_->getCurrentLon();
+    float leader_heading = offboard_mgr_->getCurrentYaw();
+
+    // 화점 GPS 추정 (리더 위치 + heading × wall_distance)
+    double heading_rad = static_cast<double>(result.final_yaw);
+    double cos_lat = std::cos(leader_lat * M_PI / 180.0);
+    double fire_lat = leader_lat +
+        (result.wall_distance * std::cos(heading_rad)) / DEG_TO_M_LAT;
+    double fire_lon = leader_lon +
+        (result.wall_distance * std::sin(heading_rad)) / (DEG_TO_M_LAT * cos_lat);
+
+    std::cout << "[Formation] CMD_ALIGN_COMPLETE 전송: leader=("
+              << leader_lat << "," << leader_lon
+              << "), heading=" << (leader_heading * 180.0f / M_PI) << "°"
+              << ", fire=(" << fire_lat << "," << fire_lon << ")" << std::endl;
+
+    // 3회 전송
+    for (int i = 0; i < 3; i++) {
+        auto cmd_msg = humiro_msgs::msg::FormationCommand();
+        cmd_msg.header.stamp = node_->now();
+        cmd_msg.target_drone_id = 0;  // broadcast
+        cmd_msg.command = humiro_msgs::msg::FormationCommand::CMD_ALIGN_COMPLETE;
+        cmd_msg.target_latitude = leader_lat;
+        cmd_msg.target_longitude = leader_lon;
+        cmd_msg.approach_heading = leader_heading;
+        cmd_msg.fire_target_latitude = fire_lat;
+        cmd_msg.fire_target_longitude = fire_lon;
+        command_pub_->publish(cmd_msg);
+        if (i < 2) std::this_thread::sleep_for(100ms);
+    }
+    std::cout << "[Formation] CMD_ALIGN_COMPLETE 전송 완료 (3회)" << std::endl;
+}
+
+// ============================================================================
+// Swarm 모드: 팔로워 — CMD_SWARM_START 수신 처리
+// ============================================================================
+
+void FormationController::onSwarmStart(const humiro_msgs::msg::FormationCommand::SharedPtr msg) {
+    swarm_mode_ = true;
+    follower_phase_ = FollowerPhase::FOLLOWING;
+    received_takeoff_altitude_ = msg->takeoff_altitude;
+    received_flight_speed_ = msg->flight_speed;
+    swarm_approach_heading_ = msg->approach_heading;
+
+    // 팔로워 독립 목적지 계산 (리더 목적지에서 접근 헤딩 수직 방향으로 offset)
+    swarm_destination_ = calculateSwarmDestination(
+        msg->target_latitude, msg->target_longitude,
+        msg->approach_heading, offset_right_cm_);
+    swarm_destination_set_ = true;
+
+    std::cout << "[Formation] CMD_SWARM_START 수신: leader_target=("
+              << msg->target_latitude << "," << msg->target_longitude
+              << "), heading=" << (msg->approach_heading * 180.0f / M_PI) << "°"
+              << ", my_dest=(" << swarm_destination_.latitude << ","
+              << swarm_destination_.longitude << ")"
+              << ", alt=" << msg->takeoff_altitude << "m"
+              << ", speed=" << msg->flight_speed << "m/s" << std::endl;
+}
+
+// ============================================================================
+// Swarm 모드: 팔로워 — CMD_ALIGN_COMPLETE 수신 처리
+// ============================================================================
+
+void FormationController::onAlignComplete(const humiro_msgs::msg::FormationCommand::SharedPtr msg) {
+    if (!offboard_mgr_) return;
+
+    // 진압 위치 계산 (리더 위치 기준, 헤딩 수직 방향에 offset)
+    GPSCoordinate suppress_pos = calculateSwarmSuppressPosition(
+        msg->target_latitude, msg->target_longitude,
+        msg->approach_heading, offset_right_cm_);
+
+    // OffboardManager에 진압 위치 설정 → swarm_alignment_received=true
+    offboard_mgr_->setSwarmSuppressTarget(
+        suppress_pos.latitude, suppress_pos.longitude, msg->approach_heading);
+
+    std::cout << "[Formation] CMD_ALIGN_COMPLETE 수신: leader=("
+              << msg->target_latitude << "," << msg->target_longitude
+              << "), heading=" << (msg->approach_heading * 180.0f / M_PI) << "°"
+              << ", fire=(" << msg->fire_target_latitude << "," << msg->fire_target_longitude
+              << "), suppress=(" << suppress_pos.latitude << "," << suppress_pos.longitude
+              << ")" << std::endl;
+}
+
+// ============================================================================
+// Swarm 모드: 팔로워 독립 목적지 계산
+// 리더 목적지에서 접근 헤딩 수직 방향으로 offset_right만큼 이동
+// ============================================================================
+
+GPSCoordinate FormationController::calculateSwarmDestination(
+    double leader_target_lat, double leader_target_lon,
+    float approach_heading, int16_t offset_right_cm) {
+
+    float offset_m = static_cast<float>(offset_right_cm) / 100.0f;
+
+    // 접근 헤딩 수직 방향 (NED 좌표계: heading + π/2)
+    float perp_heading = approach_heading + static_cast<float>(M_PI_2);
+
+    double cos_lat = std::cos(leader_target_lat * M_PI / 180.0);
+    GPSCoordinate dest;
+    dest.latitude = leader_target_lat +
+        (offset_m * std::cos(perp_heading)) / DEG_TO_M_LAT;
+    dest.longitude = leader_target_lon +
+        (offset_m * std::sin(perp_heading)) / (DEG_TO_M_LAT * cos_lat);
+    dest.altitude = 0.0f;  // 고도는 MissionConfig에서 설정
+
+    return dest;
+}
+
+// ============================================================================
+// Swarm 모드: 진압 위치 계산
+// 리더 GPS/헤딩 기준, 헤딩 수직 방향에 offset_right 배치
+// (모든 기체가 화점을 향해 일렬로 서게 됨)
+// ============================================================================
+
+GPSCoordinate FormationController::calculateSwarmSuppressPosition(
+    double leader_lat, double leader_lon,
+    float leader_heading, int16_t offset_right_cm) {
+
+    float offset_m = static_cast<float>(offset_right_cm) / 100.0f;
+
+    // 리더 헤딩 수직 방향
+    float perp = leader_heading + static_cast<float>(M_PI_2);
+
+    double cos_lat = std::cos(leader_lat * M_PI / 180.0);
+    GPSCoordinate pos;
+    pos.latitude = leader_lat +
+        (offset_m * std::cos(perp)) / DEG_TO_M_LAT;
+    pos.longitude = leader_lon +
+        (offset_m * std::sin(perp)) / (DEG_TO_M_LAT * cos_lat);
+    pos.altitude = 0.0f;
+
+    return pos;
+}
+
+// ============================================================================
+// Swarm 모드: 팔로워 독립 목적지 반환
+// ============================================================================
+
+GPSCoordinate FormationController::getSwarmDestination() const {
+    return swarm_destination_;
 }

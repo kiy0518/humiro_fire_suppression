@@ -45,7 +45,7 @@ public:
 
         // Z축 모션 프로파일: 현재 고도에서 목표 고도로 부드럽게 전환
         float current_z = ctx.current_local_z.load();
-        float descent_speed = std::max(0.1f, ctx.rtl_descent_speed);
+        float descent_speed = std::max(0.1f, ctx.nav_max_speed_z);  // 이동 상승/하강 속도 적용
         float descent_accel = descent_speed;
         z_profile_.reset(current_z, descent_speed, descent_accel, 0.1f);
 
@@ -77,6 +77,10 @@ public:
         last_fire_detected_time_ = {};
         no_fire_warned_ = false;
         prev_ammo_index_ = ctx.fire_gpio_index_ptr ? ctx.fire_gpio_index_ptr->load() : 0;
+
+        // 자동 격발 타이머 초기화 (첫 격발 즉시 가능)
+        last_auto_fire_time_ = {};
+        auto_fire_log_tick_ = -1;
 
         // 추적은 안정화 완료 후 시작
         tracking_started_ = false;
@@ -125,6 +129,43 @@ public:
             prev_error_yaw_ = 0.0f;
             prev_error_alt_ = 0.0f;
             RCLCPP_INFO(ctx.logger, "[TRACKING_HOVER] 추적 비활성화 → 위치 고정");
+        }
+
+        // === 자동 격발 (60001 FIRE_AUTO_AIM) ===
+        if (ctx.auto_fire_enabled.load() && tracking_started_ && ctx.thermal_data_ptr) {
+            ThermalData data = ctx.thermal_data_ptr->copy();
+            bool thermal_valid = data.valid
+                && data.max_temp_celsius >= MIN_TEMP_THRESHOLD;
+
+            if (thermal_valid) {
+                bool aimed = (std::abs(data.rel_x) <= ctx.deadzone_h_px)
+                          && (std::abs(data.rel_y) <= ctx.deadzone_v_px);
+                int remaining = getRemaining(ctx);
+
+                if (aimed && remaining > 0) {
+                    auto now = std::chrono::steady_clock::now();
+                    double since_last = std::chrono::duration<double>(
+                        now - last_auto_fire_time_).count();
+
+                    if (since_last >= AUTO_FIRE_INTERVAL_SEC) {
+                        ctx.auto_fire_request.store(true);
+                        last_auto_fire_time_ = now;
+                        RCLCPP_INFO(ctx.logger,
+                            "[AUTO_FIRE] 정조준 확인 → 격발 요청 (잔탄 %d/%d, rel=(%d,%d) %.1f°C)",
+                            remaining, ctx.fire_gpio_count,
+                            data.rel_x, data.rel_y, data.max_temp_celsius);
+                    } else {
+                        int tick_af = static_cast<int>(elapsed / 5.0);
+                        if (tick_af != auto_fire_log_tick_) {
+                            auto_fire_log_tick_ = tick_af;
+                            RCLCPP_INFO(ctx.logger,
+                                "[AUTO_FIRE] 정조준 대기 (%.1f/%.1fs), rel=(%d,%d)",
+                                since_last, AUTO_FIRE_INTERVAL_SEC,
+                                data.rel_x, data.rel_y);
+                        }
+                    }
+                }
+            }
         }
 
         // 조건 1: 소화탄 모두 소진 → 2초 대기 후 RTL
@@ -246,7 +287,7 @@ public:
                 int rel_y = data.rel_y;  // 핫스팟 수직 오프셋 (양수=아래)
 
                 // --- Yaw PD 제어 (수평 보정) ---
-                if (std::abs(rel_x) > DEADZONE_H) {
+                if (std::abs(rel_x) > ctx.deadzone_h_px) {
                     float error_yaw = static_cast<float>(rel_x) * RAD_PER_PIXEL_H;
                     float d_error_yaw = 0.0f;
                     if (prev_thermal_timestamp_ > 0.0 &&
@@ -266,7 +307,7 @@ public:
                 }
 
                 // --- 고도 PD 제어 (수직 보정) ---
-                if (std::abs(rel_y) > DEADZONE_V) {
+                if (std::abs(rel_y) > ctx.deadzone_v_px) {
                     float error_alt_m = static_cast<float>(rel_y) * M_PER_PIXEL_V;
                     float d_error_alt = 0.0f;
                     if (prev_thermal_timestamp_ > 0.0 &&
@@ -350,10 +391,6 @@ private:
     static constexpr float KP_ALT = 0.3f;    // 고도 비례
     static constexpr float KD_ALT = 0.15f;   // 고도 미분
 
-    // ========== 데드존 (픽셀) ==========
-    static constexpr int DEADZONE_H = 10;    // ~1.2° 수평 (10m: ±21cm 정밀도)
-    static constexpr int DEADZONE_V = 8;     // ~1.0° 수직
-
     // ========== 제어 한계 (10m 정밀 조준) ==========
     static constexpr float MAX_TRACKING_YAW_RATE = 0.1f;   // rad/s (~5.7°/s, 10m: ~1m/s)
     static constexpr float MAX_TRACKING_VZ = 0.2f;          // m/s
@@ -371,6 +408,9 @@ private:
     // ========== 열원 미감지 RTL ==========
     static constexpr float FIRE_TEMP_THRESHOLD = 80.0f;     // °C (화재 판정 온도)
     static constexpr float NO_FIRE_TIMEOUT_SEC = 120.0f;    // 2분간 미감지 시 RTL
+
+    // ========== 자동 격발 ==========
+    static constexpr float AUTO_FIRE_INTERVAL_SEC = 3.0f;   // 격발 간격 (초)
 
     // ========== PD 제어 상태 ==========
     float prev_error_yaw_{0.0f};
@@ -401,6 +441,10 @@ private:
     std::chrono::steady_clock::time_point last_fire_detected_time_;
     bool no_fire_warned_{false};
     int prev_ammo_index_{0};
+
+    // ========== 자동 격발 ==========
+    std::chrono::steady_clock::time_point last_auto_fire_time_;
+    int auto_fire_log_tick_{-1};
 
     int getRemaining(const MissionContext& ctx) const {
         if (!ctx.fire_gpio_index_ptr || ctx.fire_gpio_count <= 0) return 0;

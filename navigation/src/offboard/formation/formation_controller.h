@@ -25,9 +25,11 @@
 #include <mutex>
 #include <string>
 
+// GPSCoordinate 완전 정의 필요 (값 멤버로 사용)
+#include "../mission_context.h"
+
 // 전방 선언
 class OffboardManager;
-struct GPSCoordinate;
 
 enum class FormationRole {
     LEADER,
@@ -41,6 +43,9 @@ enum class FollowerPhase {
     HOLD,           // 현재 위치 유지
     RTL             // 귀환
 };
+
+// humiro_msgs에 미정의된 확장 커맨드 (C++ 전용)
+static constexpr uint8_t CMD_AUTO_FIRE = 7;   // 리더→팔로워: 자동 격발 모드 활성화
 
 class FormationController {
 public:
@@ -72,12 +77,21 @@ public:
     void setSoloMode(bool solo) { solo_mode_.store(solo); }
     bool isSoloMode() const { return solo_mode_.load(); }
 
+    // === Swarm 모드 (리더) ===
+    void startSwarmMission(double target_lat, double target_lon,
+                           float approach_heading, float alt, float speed);
+    void notifyAlignmentComplete();  // 정렬 완료 → CMD_ALIGN_COMPLETE 전송
+
+    // === Swarm 모드 (팔로워) ===
+    GPSCoordinate getSwarmDestination() const;  // 팔로워 독립 목적지 반환
+
     // 상태 조회
     FormationRole getRole() const { return role_; }
     uint8_t getDroneId() const { return drone_id_; }
     FollowerPhase getFollowerPhase() const { return follower_phase_; }
     float getReceivedAltitude() const { return received_takeoff_altitude_; }
     float getReceivedSpeed() const { return received_flight_speed_; }
+    bool isSwarmMode() const { return swarm_mode_; }
 
     // 명령 수신 콜백 (ApplicationManager에서 설정)
     using CommandCallback = std::function<void(uint8_t command, double lat, double lon)>;
@@ -231,6 +245,22 @@ private:
 
     // === SUPPRESS 대기 로그 제어 ===
     bool suppress_wait_logged_{false};
+
+    // === Swarm 모드 ===
+    bool swarm_mode_{false};
+    bool swarm_cmd_sent_{false};          // CMD_SWARM_START 전송 여부 (리더)
+    bool swarm_align_sent_{false};        // CMD_ALIGN_COMPLETE 전송 여부 (리더)
+    float swarm_approach_heading_{0.0f};  // 접근 헤딩 (rad)
+    GPSCoordinate swarm_destination_;     // 팔로워 계산된 목적지
+    bool swarm_destination_set_{false};
+
+    // Swarm 내부 함수
+    void onSwarmStart(const humiro_msgs::msg::FormationCommand::SharedPtr msg);
+    void onAlignComplete(const humiro_msgs::msg::FormationCommand::SharedPtr msg);
+    GPSCoordinate calculateSwarmDestination(double leader_target_lat, double leader_target_lon,
+                                             float approach_heading, int16_t offset_right_cm);
+    GPSCoordinate calculateSwarmSuppressPosition(double leader_lat, double leader_lon,
+                                                  float leader_heading, int16_t offset_right_cm);
 
     // === 콜백 ===
     CommandCallback command_callback_;

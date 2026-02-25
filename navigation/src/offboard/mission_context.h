@@ -46,6 +46,9 @@ struct MissionConfig {
     float rtl_descent_speed = 0.4f;          // 하강 속도 (m/s)
     float rtl_soft_land_alt = 2.0f;          // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min = 0.05f;     // 최종 착지 속도 (m/s)
+    // 조준 데드존 (Aiming)
+    int deadzone_h_px = 33;                  // 수평 데드존 (px, 10m 기준 ~69cm)
+    int deadzone_v_px = 33;                  // 수직 데드존 (px, 10m 기준 ~71cm)
 };
 
 struct MissionContext {
@@ -81,6 +84,8 @@ struct MissionContext {
     float rtl_descent_speed{0.4f};           // 하강 속도 (m/s)
     float rtl_soft_land_alt{2.0f};           // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min{0.05f};      // 최종 착지 속도 (m/s)
+    int deadzone_h_px{33};                   // 조준 데드존 수평 (px)
+    int deadzone_v_px{33};                   // 조준 데드존 수직 (px)
     double target_lat{0.0};
     double target_lon{0.0};
 
@@ -114,6 +119,14 @@ struct MissionContext {
     std::atomic<bool> continuous_update_mode{false};
     std::atomic<bool> force_navigate_complete{false};   // CMD_SUPPRESS → 팔로워 NAVIGATE 완료 허용
 
+    // === Swarm 모드 (독립 편대 비행) ===
+    bool swarm_mode{false};                              // Swarm 미션 모드 활성
+    std::atomic<bool> swarm_alignment_received{false};   // 리더 정렬 완료 수신 (팔로워)
+    bool swarm_reposition_needed{false};                 // 진압 위치로 재이동 필요 (팔로워)
+    double swarm_suppress_lat{0.0};                      // 진압 목표 GPS 위도
+    double swarm_suppress_lon{0.0};                      // 진압 목표 GPS 경도
+    float swarm_suppress_yaw{NAN};                       // 진압 시 헤딩 (화점 방향, rad)
+
     // === 소화탄 상태 (ApplicationManager가 설정) ===
     std::atomic<int>* fire_gpio_index_ptr{nullptr};  // 현재 발사 인덱스 포인터
     int fire_gpio_count{0};                           // 총 소화탄 수 (6)
@@ -122,6 +135,10 @@ struct MissionContext {
     ThermalData* thermal_data_ptr{nullptr};               // ApplicationManager의 thermal_data_ 포인터
     std::atomic<bool> thermal_tracking_auto{true};         // 자동 모드 (true=자동, false=수동)
     std::atomic<bool> thermal_tracking_active{false};      // 추적 활성 (수동 모드: GUI 버튼으로 제어)
+
+    // === 자동 격발 (60001 FIRE_AUTO_AIM) ===
+    std::atomic<bool> auto_fire_enabled{false};            // 60001 수신 → true
+    std::atomic<bool> auto_fire_request{false};            // 핸들러 → ApplicationManager 격발 요청
 
     // === LiDAR 인터페이스 (ApplicationManager가 설정) ===
     LidarInterface* lidar_ptr{nullptr};
@@ -190,6 +207,8 @@ struct MissionContext {
         rtl_descent_speed = config.rtl_descent_speed;
         rtl_soft_land_alt = config.rtl_soft_land_alt;
         rtl_landing_speed_min = config.rtl_landing_speed_min;
+        deadzone_h_px = config.deadzone_h_px;
+        deadzone_v_px = config.deadzone_v_px;
     }
 
     /** 컨텍스트 초기화 (새 미션 시작 시) */
@@ -206,6 +225,15 @@ struct MissionContext {
         home_set = false;
         target_ned_x = target_ned_y = target_ned_z = target_yaw = 0.0f;
         distance_adjust_result = DistanceAdjustResult{};
+        // 자동 격발 리셋
+        auto_fire_enabled.store(false);
+        auto_fire_request.store(false);
+        // Swarm 모드 리셋
+        swarm_alignment_received.store(false);
+        swarm_reposition_needed = false;
+        swarm_suppress_lat = 0.0;
+        swarm_suppress_lon = 0.0;
+        swarm_suppress_yaw = NAN;
     }
 };
 

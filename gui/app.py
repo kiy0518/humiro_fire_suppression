@@ -100,7 +100,7 @@ def get_mavlink_tcp_port():
 # MAVLink 연결 관리자 (스레드 안전)
 class MavlinkManager:
     def __init__(self):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._mav = None
         self._target_sys = None
         self._target_comp = None
@@ -2476,12 +2476,14 @@ def api_check_fc_param(param_name):
         try:
             expected_val = float(expected)
 
-            # 정수 비교
-            if isinstance(value, int):
-                expected_val = int(expected_val)
-                match = (value == expected_val)
-                display_val = value
-                display_expected = expected_val
+            # 정수 비교: value가 int이거나 expected가 정수형이면 정확한 비교
+            is_int_param = isinstance(value, int) or (expected_val == int(expected_val) and abs(expected_val) > 1)
+            if is_int_param:
+                int_val = int(round(value)) if isinstance(value, float) else value
+                int_expected = int(expected_val)
+                match = (int_val == int_expected)
+                display_val = int_val
+                display_expected = int_expected
             else:
                 # float 비교 - 부동소수점 오차 허용 (상대 오차 0.1% 또는 절대 오차 0.001)
                 if expected_val == 0:

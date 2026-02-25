@@ -288,6 +288,18 @@
               "expected": 0.5,
               "description": "",
               "auto_check": true
+            },
+            {
+              "name": "RTL_RETURN_ALT",
+              "expected": 5,
+              "description": "",
+              "auto_check": true
+            },
+            {
+              "name": "COM_LOW_BAT_ACT",
+              "expected": 0,
+              "description": "",
+              "auto_check": true
             }
           ]
         },
@@ -298,5 +310,5 @@
       }
     }
   },
-  "updated_at": "2026-02-24 20:37:18"
+  "updated_at": "2026-02-25 08:21:10"
 }

@@ -423,15 +423,39 @@
         updateProgress();
     }
 
+    // 진행 중인 요청의 AbortController 저장 (itemId → controller)
+    const pendingRequests = {};
+
+    function cancelRequest(itemId) {
+        if (pendingRequests[itemId]) {
+            pendingRequests[itemId].abort();
+            delete pendingRequests[itemId];
+            const resultEl = document.getElementById(`${itemId}_result`);
+            if (resultEl) {
+                resultEl.textContent = '취소됨';
+                resultEl.className = 'check-result text-muted';
+                resultEl.style.cursor = '';
+                resultEl.onclick = null;
+            }
+        }
+    }
+
     function runAutoCheck(itemId, checkType) {
+        // 기존 요청이 있으면 취소
+        if (pendingRequests[itemId]) pendingRequests[itemId].abort();
+        const controller = new AbortController();
+        pendingRequests[itemId] = controller;
+
         return new Promise((resolve) => {
             const resultEl = document.getElementById(`${itemId}_result`);
-            resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 확인 중...';
+            resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 확인 중... <small class="text-muted" style="cursor:pointer">[취소]</small>';
             resultEl.className = 'check-result';
+            resultEl.querySelector('small').onclick = (e) => { e.stopPropagation(); cancelRequest(itemId); resolve(false); };
 
-            fetch(`/api/check/${checkType}`)
+            fetch(`/api/check/${checkType}`, { signal: controller.signal })
                 .then(r => r.json())
                 .then(data => {
+                    delete pendingRequests[itemId];
                     const checkbox = document.getElementById(itemId);
                     checkbox.checked = data.success;
 
@@ -449,7 +473,12 @@
                     updateProgress();
                     resolve(data.success);
                 })
-                .catch(() => {
+                .catch((err) => {
+                    delete pendingRequests[itemId];
+                    if (err.name === 'AbortError') {
+                        resolve(false);
+                        return;
+                    }
                     resultEl.textContent = '오류';
                     resultEl.className = 'check-result fail';
                     resolve(false);
@@ -457,21 +486,35 @@
         });
     }
 
+    // 일괄 작업 취소
+    let batchCancelled = false;
+    function cancelBatch() {
+        batchCancelled = true;
+        // 진행 중인 모든 fetch 요청 즉시 abort
+        for (const id of Object.keys(pendingRequests)) {
+            pendingRequests[id].abort();
+            delete pendingRequests[id];
+        }
+    }
+
     async function autoCheckAll() {
         const autoButtons = document.querySelectorAll('.auto-check');
         const total = autoButtons.length;
         let completed = 0;
+        batchCancelled = false;
 
         // 진행 상태 표시
         const statusEl = document.getElementById('readyText');
         const originalText = statusEl.textContent;
+        statusEl.innerHTML = `자동 확인 중... (0/${total}) <a href="#" onclick="cancelBatch();return false;" style="color:#dc3545">[중단]</a>`;
 
         for (const btn of autoButtons) {
+            if (batchCancelled) break;
             const itemId = btn.getAttribute('data-item-id');
             const checkType = btn.getAttribute('data-check-type');
 
             completed++;
-            statusEl.textContent = `자동 확인 중... (${completed}/${total})`;
+            statusEl.innerHTML = `자동 확인 중... (${completed}/${total}) <a href="#" onclick="cancelBatch();return false;" style="color:#dc3545">[중단]</a>`;
 
             await runAutoCheck(itemId, checkType);
 
@@ -481,7 +524,7 @@
             }
         }
 
-        statusEl.textContent = originalText;
+        statusEl.textContent = batchCancelled ? `자동 확인 중단됨 (${completed}/${total})` : originalText;
         updateProgress();
     }
 
@@ -498,17 +541,25 @@
             return;
         }
 
+        // 기존 요청 취소
+        if (pendingRequests[itemId]) pendingRequests[itemId].abort();
+        const controller = new AbortController();
+        pendingRequests[itemId] = controller;
+
         const resultEl = document.getElementById(`${itemId}_result`);
-        resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중...';
+        resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중... <small class="text-muted" style="cursor:pointer">[취소]</small>';
         resultEl.className = 'check-result';
+        resultEl.querySelector('small').onclick = (e) => { e.stopPropagation(); cancelRequest(itemId); };
 
         fetch('/api/fc-param/set', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({param_name: paramName, value: writeValue})
+            body: JSON.stringify({param_name: paramName, value: writeValue}),
+            signal: controller.signal
         })
         .then(r => r.json())
         .then(data => {
+            delete pendingRequests[itemId];
             if (data.success) {
                 runAutoCheck(itemId, checkType);
             } else {
@@ -516,7 +567,9 @@
                 resultEl.className = 'check-result fail';
             }
         })
-        .catch(() => {
+        .catch((err) => {
+            delete pendingRequests[itemId];
+            if (err.name === 'AbortError') return;
             resultEl.textContent = '쓰기 오류';
             resultEl.className = 'check-result fail';
         });
@@ -546,10 +599,12 @@
         const statusEl = document.getElementById('readyText');
         const originalText = statusEl.textContent;
         let skipped = 0, written = 0, failed = 0;
+        batchCancelled = false;
 
         for (let i = 0; i < targets.length; i++) {
+            if (batchCancelled) break;
             const t = targets[i];
-            statusEl.textContent = `일괄 확인 중... (${i+1}/${targets.length}) ${t.paramName}`;
+            statusEl.innerHTML = `일괄 확인 중... (${i+1}/${targets.length}) ${t.paramName} <a href="#" onclick="cancelBatch();return false;" style="color:#dc3545">[중단]</a>`;
             const resultEl = document.getElementById(`${t.itemId}_result`);
 
             // 먼저 FC에서 현재 값 읽어서 입력값과 비교
@@ -575,9 +630,10 @@
                 // 읽기 실패 시 쓰기 시도
             }
             if (alreadyMatch) continue;
+            if (batchCancelled) break;
 
             // 불일치 — 쓰기 진행
-            statusEl.textContent = `일괄 적용 중... (${i+1}/${targets.length}) ${t.paramName}`;
+            statusEl.innerHTML = `일괄 적용 중... (${i+1}/${targets.length}) ${t.paramName} <a href="#" onclick="cancelBatch();return false;" style="color:#dc3545">[중단]</a>`;
             if (resultEl) {
                 resultEl.innerHTML = '<i class="bi bi-hourglass-split"></i> 쓰기 중...';
                 resultEl.className = 'check-result';
@@ -617,8 +673,9 @@
 
         statusEl.textContent = originalText;
         updateProgress();
-        showToast(`일괄 적용 완료: ${written}개 변경, ${skipped}개 일치(생략)${failed ? `, ${failed}개 실패` : ''}`,
-                  failed > 0 ? 'warning' : 'success');
+        const cancelMsg = batchCancelled ? ' (사용자 중단)' : '';
+        showToast(`일괄 적용${cancelMsg}: ${written}개 변경, ${skipped}개 일치(생략)${failed ? `, ${failed}개 실패` : ''}`,
+                  batchCancelled || failed > 0 ? 'warning' : 'success');
     }
 
     // ===== 편집 모드 =====
@@ -658,9 +715,32 @@
                 showToast(data.message, 'success');
                 // 권장값 텍스트 + 입력필드 즉시 갱신
                 const expectedEl = document.getElementById(`${itemId}_expected`);
-                if (expectedEl) expectedEl.textContent = `권장:${newExpected}`;
+                if (expectedEl) {
+                    expectedEl.textContent = `(권장: ${newExpected})`;
+                } else {
+                    // 기존에 권장값이 없었으면 새로 생성
+                    const labelEl = document.querySelector(`label[for="${itemId}"]`);
+                    if (labelEl) {
+                        const small = document.createElement('small');
+                        small.className = 'text-muted';
+                        small.id = `${itemId}_expected`;
+                        small.textContent = `(권장: ${newExpected})`;
+                        labelEl.after(small);
+                    }
+                }
                 const inputEl = document.getElementById(`${itemId}_input`);
                 if (inputEl) { inputEl.value = newExpected; inputEl.placeholder = newExpected; }
+                // 확인/쓰기 버튼의 check URL도 갱신
+                const newCheck = `fc-param/${paramName}?expected=${newExpected}`;
+                const checkBtn = document.querySelector(`.auto-check[data-item-id="${itemId}"]`);
+                if (checkBtn) {
+                    checkBtn.setAttribute('data-check-type', newCheck);
+                    checkBtn.setAttribute('onclick', `runAutoCheck('${itemId}', '${newCheck}')`);
+                }
+                const writeBtn = inputEl ? inputEl.nextElementSibling : null;
+                if (writeBtn && writeBtn.textContent.includes('쓰기')) {
+                    writeBtn.setAttribute('onclick', `writeParamFromInput('${itemId}', '${paramName}', '${newCheck}')`);
+                }
             } else {
                 showToast(data.message, 'danger');
             }

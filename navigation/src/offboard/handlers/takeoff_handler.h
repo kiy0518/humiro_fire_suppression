@@ -98,6 +98,23 @@ public:
 
     bool fillSetpoint(MissionContext& ctx,
                       px4_msgs::msg::TrajectorySetpoint& sp) override {
+        float current_z = ctx.current_local_z.load();
+
+        // 프로파일 위치가 실제 드론보다 너무 앞서가지 않도록 제한 (max_lead_z)
+        // NED 좌표계: z가 작을수록 높음. 이륙 시 프로파일은 음수 방향으로 진행.
+        // 프로파일이 실제 위치보다 max_lead_z 이상 앞서면, 실제 위치 + lead로 리셋
+        constexpr float MAX_LEAD_Z = 2.0f;  // 프로파일이 실제보다 최대 2m 앞서 허용
+        float profile_z = z_profile_.getPosition();
+        float lead = current_z - profile_z;  // 양수 = 프로파일이 위에 (앞서감)
+
+        if (lead > MAX_LEAD_Z) {
+            // 프로파일이 너무 앞서감 → 실제 위치 + MAX_LEAD_Z로 클램프
+            float clamped_z = current_z - MAX_LEAD_Z;
+            float max_vz = std::max(0.05f, ctx.takeoff_max_speed);
+            float tau = std::max(0.1f, ctx.takeoff_accel_tau);
+            z_profile_.reset(clamped_z, max_vz, max_vz / tau, 0.1f);
+        }
+
         // Z축 프로파일 업데이트: 목표 고도를 향해 점진적 이동
         z_profile_.update(takeoff_z_);
 
