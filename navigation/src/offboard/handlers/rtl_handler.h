@@ -31,8 +31,8 @@ public:
         home_y_ = ctx.start_local_y;
         home_z_ = ctx.start_local_z;  // 지상 NED z
 
-        // 현재 비행 고도 유지하면서 홈으로 이동
-        flight_z_ = ctx.current_local_z.load();
+        // RTL 고도: 5m AGL 고정 (NED: 지상 z - 5m)
+        flight_z_ = ctx.start_local_z - RTL_ALTITUDE;
 
         // ctx에서 착륙 파라미터 로드
         descent_speed_ = ctx.rtl_descent_speed;
@@ -61,9 +61,15 @@ public:
                            ctx.flight_speed, rtl_max_axy,
                            rtl_max_vz, RTL_MAX_AZ, 0.1f);
 
-        // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
+        // 후진 비행용 yaw: 홈 방향의 반대 (기수가 홈 반대를 향함)
         float dx = home_x_ - cur_x;
         float dy = home_y_ - cur_y;
+        float home_yaw = std::atan2(dy, dx);
+        rtl_yaw_ = home_yaw + static_cast<float>(M_PI);  // 180° 반대
+        if (rtl_yaw_ > M_PI) rtl_yaw_ -= 2.0f * M_PI;
+        prev_yawspeed_ = 0.0f;
+
+        // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
         float home_dist = std::sqrt(dx * dx + dy * dy);
 
         if (home_dist < HOME_ARRIVAL_DIST) {
@@ -248,17 +254,10 @@ public:
             sp.position = {pos[0], pos[1], pos[2]};
             sp.velocity = {vel[0], vel[1], vel[2]};
 
-            // Yaw: 홈 방향
-            float cur_x = ctx.current_local_x.load();
-            float cur_y = ctx.current_local_y.load();
-            float dx = home_x_ - cur_x;
-            float dy = home_y_ - cur_y;
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            if (dist > 1.0f) {
-                float target_yaw = std::atan2(dy, dx);
+            // Yaw: 후진 정렬 (홈 반대 방향으로 사다리꼴 yawspeed 회전)
+            {
                 float current_yaw = ctx.current_yaw.load();
-                float yaw_diff = target_yaw - current_yaw;
+                float yaw_diff = rtl_yaw_ - current_yaw;
                 while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
                 while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
 
@@ -275,7 +274,6 @@ public:
                     target_yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
                 }
 
-                // 가속도 제한 적용
                 float max_delta = RTL_MAX_YAW_ACCEL * 0.1f;
                 float delta = target_yawspeed - prev_yawspeed_;
                 if (delta > max_delta) delta = max_delta;
@@ -285,10 +283,6 @@ public:
 
                 sp.yaw = NAN;
                 sp.yawspeed = yawspeed;
-            } else {
-                sp.yaw = ctx.current_yaw.load();
-                sp.yawspeed = 0.0f;
-                prev_yawspeed_ = 0.0f;
             }
             return true;
         }
@@ -298,7 +292,7 @@ public:
             // Z: velocity-only 제어 → PX4 100Hz 속도 제어 (계단식 방지)
             sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
             sp.velocity = {NAN, NAN, descent_speed_};  // velocity-only Z (NED +z = 하강)
-            sp.yaw = ctx.current_yaw.load();
+            sp.yaw = rtl_yaw_;
             sp.yawspeed = 0.0f;
             return true;
         }
@@ -311,7 +305,7 @@ public:
 
             sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
             sp.velocity = {NAN, NAN, speed};           // velocity-only Z (NED +z = 하강)
-            sp.yaw = ctx.current_yaw.load();
+            sp.yaw = rtl_yaw_;
             sp.yawspeed = 0.0f;
             return true;
         }
@@ -321,7 +315,7 @@ public:
             // position hold(home_z)로 하면 10cm 위에서 호버링 → disarm 시 추락
             sp.position = {home_x_, home_y_, NAN};
             sp.velocity = {NAN, NAN, landing_speed_min_};  // NED +z = 하강 계속
-            sp.yaw = ctx.current_yaw.load();
+            sp.yaw = rtl_yaw_;
             sp.yawspeed = 0.0f;
             return true;
         }
@@ -348,6 +342,7 @@ private:
     float descend_timeout_{60.0f};     // DESCEND 페이즈 타임아웃 (동적)
 
     // === 상수 ===
+    static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
     static constexpr float FINAL_DECEL_ALT = 0.3f;      // 최종 감속 시작 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
@@ -364,6 +359,7 @@ private:
 
     float home_x_{0.0f}, home_y_{0.0f}, home_z_{0.0f};
     float flight_z_{0.0f};
+    float rtl_yaw_{0.0f};  // 후진 비행용 yaw (홈 반대 방향)
 
     // 3D 모션 프로파일 (NAVIGATE_HOME 페이즈)
     MotionProfile3D nav_profile_;

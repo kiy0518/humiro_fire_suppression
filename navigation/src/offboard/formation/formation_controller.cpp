@@ -581,11 +581,14 @@ void FormationController::onHeartbeat(const humiro_msgs::msg::FormationHeartbeat
         std::cout << "[FormationController] Heartbeat로 SUPPRESS phase 감지 → HOLD 전환" << std::endl;
     }
     if (msg->formation_phase == "RTL" && follower_phase_ != FollowerPhase::RTL) {
-        // 소화탄 잔여 + SUPPRESS 중이면 독립 작전 계속
-        if (follower_phase_ == FollowerPhase::SUPPRESSING &&
-            offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
+        // 소화탄 잔여 + 진압 중(SUPPRESSING/HOLD)이면 독립 작전 계속
+        // HOLD: 하트비트 타임아웃으로 일시적 HOLD 전환된 경우도 잔탄 보호 적용
+        bool in_suppress = (follower_phase_ == FollowerPhase::SUPPRESSING ||
+                            follower_phase_ == FollowerPhase::HOLD);
+        if (in_suppress && offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
             // 리더 RTL이지만 팔로워는 소화탄 잔여 → 독립 작전 유지
-            std::cout << "[FormationController] Heartbeat RTL 감지 → 소화탄 잔여, 독립 작전 유지" << std::endl;
+            std::cout << "[FormationController] Heartbeat RTL 감지 → 소화탄 잔여, 독립 작전 유지 ("
+                      << followerPhaseToString(follower_phase_) << ")" << std::endl;
         } else {
             // RTL 명령을 놓침 → 커스텀 RTL
             follower_phase_ = FollowerPhase::RTL;
@@ -689,11 +692,14 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             }
             break;
 
-        case humiro_msgs::msg::FormationCommand::CMD_RTL:
-            // 소화탄 잔여 + SUPPRESS 중이면 리더 RTL 무시 → 독립 작전 유지
-            if (follower_phase_ == FollowerPhase::SUPPRESSING &&
-                offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
-                std::cout << "  → CMD_RTL 무시: SUPPRESS 중 + 소화탄 잔여 → 독립 작전 유지" << std::endl;
+        case humiro_msgs::msg::FormationCommand::CMD_RTL: {
+            // 소화탄 잔여 + 진압 중(SUPPRESSING/HOLD)이면 리더 RTL 무시 → 독립 작전 유지
+            // HOLD: 하트비트 타임아웃으로 일시적 HOLD 전환된 경우도 잔탄 보호 적용
+            bool in_suppress_cmd = (follower_phase_ == FollowerPhase::SUPPRESSING ||
+                                    follower_phase_ == FollowerPhase::HOLD);
+            if (in_suppress_cmd && offboard_mgr_ && offboard_mgr_->hasAmmoRemaining()) {
+                std::cout << "  → CMD_RTL 무시: 소화탄 잔여 → 독립 작전 유지 ("
+                          << followerPhaseToString(follower_phase_) << ")" << std::endl;
             } else {
                 follower_phase_ = FollowerPhase::RTL;
                 if (offboard_mgr_) {
@@ -702,6 +708,7 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
                 }
             }
             break;
+        }
 
         case humiro_msgs::msg::FormationCommand::CMD_SUPPRESS: {
             follower_phase_ = FollowerPhase::SUPPRESSING;
