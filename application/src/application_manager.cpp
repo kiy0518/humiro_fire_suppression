@@ -1549,17 +1549,11 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No FC", 5.0);
             return;
         }
-        // F-2: GPS fix 상태 확인 (SITL 모드에서는 스킵)
+        // F-2: GPS fix 상태 확인 (경고만 출력, 거부하지 않음)
         if (!status_ros2_subscriber_->isGPSFixed()) {
-            if (is_sitl_mode_) {
-                std::cout << "[미션] GPS 미고정이지만 SITL 모드이므로 스킵 (fix_type="
-                          << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ")" << std::endl;
-            } else {
-                std::cerr << "[미션 거부] GPS 미고정 (fix_type="
-                          << static_cast<int>(status_ros2_subscriber_->getGPSFixType()) << ", 최소 3 필요)" << std::endl;
-                if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
-                return;
-            }
+            std::cout << "[미션] GPS 미고정 (fix_type="
+                      << static_cast<int>(status_ros2_subscriber_->getGPSFixType())
+                      << ") — 무시하고 진행" << std::endl;
         }
         // F-3: 배터리 잔량 확인 (20% 미만 거부)
         float battery = status_ros2_subscriber_->getBatteryRemaining();
@@ -2066,10 +2060,10 @@ void ApplicationManager::executeSwarmMission(const custom_message::FireMissionSt
             if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No FC", 5.0);
             return;
         }
-        if (!status_ros2_subscriber_->isGPSFixed() && !is_sitl_mode_) {
-            std::cerr << "[미션 거부] GPS 미고정" << std::endl;
-            if (status_overlay_) status_overlay_->setCustomMessage("Mission Rejected: No GPS Fix", 5.0);
-            return;
+        if (!status_ros2_subscriber_->isGPSFixed()) {
+            std::cout << "[미션] GPS 미고정 (fix_type="
+                      << static_cast<int>(status_ros2_subscriber_->getGPSFixType())
+                      << ") — 무시하고 진행" << std::endl;
         }
         float battery = status_ros2_subscriber_->getBatteryRemaining();
         if (battery > 0.0f && battery < 0.2f) {

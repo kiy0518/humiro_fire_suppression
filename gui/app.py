@@ -253,6 +253,39 @@ class MavlinkManager:
                 self._mav = None
                 return False, str(e)
 
+    def read_position(self):
+        """드론 현재 위치/헤딩 읽기 (GLOBAL_POSITION_INT)"""
+        with self._lock:
+            if not self._mav or (time.time() - self._last_connect) > 30:
+                if not self._connect():
+                    return None, "FC 연결 실패"
+            try:
+                # 잔여 메시지 비우기
+                while self._mav.recv_match(blocking=False):
+                    pass
+
+                # GLOBAL_POSITION_INT 요청
+                self._mav.mav.command_long_send(
+                    self._target_sys, self._target_comp,
+                    512, 0,  # MAV_CMD_REQUEST_MESSAGE, confirmation
+                    33,      # GLOBAL_POSITION_INT
+                    0, 0, 0, 0, 0, 0
+                )
+
+                # 응답 대기 (최대 3초)
+                msg = self._mav.recv_match(type='GLOBAL_POSITION_INT',
+                                           blocking=True, timeout=3)
+                if msg:
+                    lat = msg.lat / 1e7
+                    lon = msg.lon / 1e7
+                    alt = msg.relative_alt / 1000.0
+                    hdg = msg.hdg / 100.0 if msg.hdg != 65535 else 0.0
+                    return {'lat': lat, 'lon': lon, 'alt': alt, 'hdg': hdg}, None
+                return None, "위치 정보 수신 시간 초과"
+            except Exception as e:
+                self._mav = None
+                return None, str(e)
+
     def is_armed(self):
         """FC arming 상태 확인. True=armed, False=disarmed, None=확인불가"""
         with self._lock:
@@ -357,9 +390,8 @@ def api_status():
     wifi_ip = config_manager.get_wifi_ip()
     mav_sys_id = int(config_manager.get("MAV_SYS_ID", str(drone_id)))
     mav_comp_id = int(config_manager.get("MAV_COMP_ID", "191"))
-    # 앱 수신 포트 (mavlink-router Application 엔드포인트)
-    external_port_str = config_manager.get("EXTERNAL_UDP_PORT", "15001").split('#')[0].strip()
-    external_port = int(external_port_str)
+    # 앱 수신 포트 (CustomMessage가 수신하는 Application 엔드포인트: 15001+(N-1)*10)
+    app_port = 15001 + (drone_id - 1) * 10
 
     return jsonify({
         "drone_id": drone_id,
@@ -377,7 +409,7 @@ def api_status():
             "system_id": mav_sys_id,
             "component_id": mav_comp_id,
             "target_ip": wifi_ip,  # MAVLink router에 메시지를 보내기 위해 WiFi IP 사용
-            "target_port": external_port
+            "target_port": app_port
         },
         "ros2": {
             "running": ros2_running
@@ -3634,6 +3666,18 @@ def api_set_settings():
 
 AMMO_STATUS_FILE = "/tmp/humiro_ammo_status.json"
 AMMO_RELOAD_SIGNAL = "/tmp/humiro_reload_ammo"
+
+@app.route('/api/drone/position', methods=['GET'])
+def api_drone_position():
+    """드론 현재 위치/헤딩 조회 (MAVLink GLOBAL_POSITION_INT)"""
+    try:
+        pos, err = mavlink_mgr.read_position()
+        if err:
+            return jsonify({"success": False, "message": err})
+        return jsonify({"success": True, **pos})
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)})
+
 
 @app.route('/api/ammo-status', methods=['GET'])
 def api_ammo_status():

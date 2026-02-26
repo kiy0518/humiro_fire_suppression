@@ -85,7 +85,13 @@ public:
             double since_armed = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - arm_confirmed_time_).count();
             if (since_armed >= PRE_TAKEOFF_DELAY_SEC) {
-                RCLCPP_INFO(ctx.logger, "[ARM] 이륙 전 대기 완료 (%.1fs)", since_armed);
+                // TAKEOFF 전환 직전 yaw 갱신 (5초 대기 중 드리프트 보정)
+                ctx.initial_yaw = ctx.current_yaw.load();
+                ctx.start_local_x = ctx.current_local_x.load();
+                ctx.start_local_y = ctx.current_local_y.load();
+                ctx.start_local_z = ctx.current_local_z.load();
+                RCLCPP_INFO(ctx.logger, "[ARM] 이륙 전 대기 완료 (%.1fs), yaw=%.1f°",
+                            since_armed, ctx.initial_yaw * 180.0f / M_PI);
                 return TransitionResult::COMPLETE;
             }
 
@@ -127,7 +133,9 @@ public:
             ctx.current_local_z.load()
         };
         sp.velocity = {NAN, NAN, NAN};
-        sp.yaw = ctx.current_yaw.load();
+        // ARM 확인 후: 헤딩 고정 (이륙 전 드리프트 방지)
+        // ARM 전: 현재 yaw 추적 (지상에서 기체 방향 변경 허용)
+        sp.yaw = arm_confirmed_ ? ctx.initial_yaw : ctx.current_yaw.load();
         sp.yawspeed = 0.0f;
         return true;
     }

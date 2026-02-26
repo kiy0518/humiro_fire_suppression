@@ -11,8 +11,17 @@ export HOME=/home/khadas
 export ROS_DOMAIN_ID=
 export ROS_NAMESPACE=
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-# FC DDS 토픽이 WiFi로 유출되지 않도록 eth0 전용 프로파일 사용
-export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+# DDS 프로파일 자동 선택 (SITL/FC 모드)
+# - FC 모드: loopback만 사용 → eth0 멀티캐스트가 FC 이더넷에 부하주는 것 방지
+# - SITL 모드: eth0+loopback 사용 → eth0에 FC 없으므로 부하 문제 없음, DDS 정상 통신
+MAVLINK_CONF="/etc/mavlink-router/main.conf"
+if [ -f "$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "$MAVLINK_CONF"; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+    DDS_MODE="eth0+loopback (SITL)"
+else
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+    DDS_MODE="loopback only (FC 부하 방지)"
+fi
 
 # ROS2 환경 로드
 source /opt/ros/humble/setup.bash
@@ -31,7 +40,7 @@ if [ -d "$MICRO_ROS_WS/install/micro_ros_agent/lib" ]; then
     export LD_LIBRARY_PATH="$MICRO_ROS_WS/install/micro_ros_agent/lib:/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH}"
 fi
 
-# micro-ROS Agent 실행
+# micro-ROS Agent 실행 (SCHED_FIFO는 systemd ExecStartPost에서 root 권한으로 적용)
 if [ -f "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" ]; then
     exec "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" udp4 --port 8888
 else

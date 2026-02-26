@@ -167,35 +167,50 @@
                 <div id="targetPresetPanel" class="mb-3 d-none">
                     <div class="border rounded p-2" style="background:#f8f9fa;">
                         <div class="d-flex align-items-center justify-content-between mb-2">
-                            <small class="fw-bold text-secondary"><i class="bi bi-geo-alt"></i> 빠른 타겟 선택 — 1번 기체 기준 40m 정사각형</small>
+                            <small class="fw-bold text-secondary"><i class="bi bi-geo-alt"></i> 빠른 타겟 — 헤딩 기준 목적지 설정</small>
                         </div>
-                        <div class="row g-1 mb-2">
-                            <div class="col-6">
+                        <!-- 기준 좌표 -->
+                        <div class="row g-1 mb-2 align-items-end">
+                            <div class="col-4">
+                                <label class="form-label small mb-0">기준 위도</label>
                                 <input type="number" class="form-control form-control-sm" id="centerLat"
-                                       value="35.898308" step="0.000001">
+                                       value="" step="0.000001" placeholder="위도">
                             </div>
-                            <div class="col-6">
+                            <div class="col-4">
+                                <label class="form-label small mb-0">기준 경도</label>
                                 <input type="number" class="form-control form-control-sm" id="centerLon"
-                                       value="128.797265" step="0.000001">
+                                       value="" step="0.000001" placeholder="경도">
+                            </div>
+                            <div class="col-4">
+                                <button type="button" class="btn btn-sm btn-outline-info w-100" onclick="readDronePosition()" id="btnReadPos">
+                                    <i class="bi bi-crosshair"></i> 현재 좌표
+                                </button>
                             </div>
                         </div>
-                        <div class="text-center mb-1"><small class="text-muted fw-bold">N (북)</small></div>
-                        <div class="row g-1 mb-1">
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('NW')">↖ NW</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('N')">↑ N</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('NE')">↗ NE</button></div>
+                        <!-- 헤딩/각도/거리 -->
+                        <div class="row g-1 mb-2 align-items-end">
+                            <div class="col-3">
+                                <label class="form-label small mb-0">헤딩 (°)</label>
+                                <input type="number" class="form-control form-control-sm" id="droneHeading"
+                                       value="0" step="1" placeholder="0-360">
+                            </div>
+                            <div class="col-3">
+                                <label class="form-label small mb-0">방향 (°)</label>
+                                <input type="number" class="form-control form-control-sm" id="targetAngle"
+                                       value="0" step="5" placeholder="0=전방">
+                            </div>
+                            <div class="col-3">
+                                <label class="form-label small mb-0">거리 (m)</label>
+                                <input type="number" class="form-control form-control-sm" id="targetDistance"
+                                       value="25" step="1" min="1">
+                            </div>
+                            <div class="col-3">
+                                <button type="button" class="btn btn-sm btn-primary w-100" onclick="applyHeadingTarget()">
+                                    <i class="bi bi-cursor"></i> 적용
+                                </button>
+                            </div>
                         </div>
-                        <div class="row g-1 mb-1">
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('W')">← W</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-secondary w-100" disabled style="font-size:0.75rem;">● 중심</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('E')">E →</button></div>
-                        </div>
-                        <div class="row g-1">
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('SW')">↙ SW</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('S')">↓ S</button></div>
-                            <div class="col-4"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="applyPreset('SE')">↘ SE</button></div>
-                        </div>
-                        <small class="text-muted d-block mt-2">꼭지점: NW·NE·SE·SW (대각 28.3m) | 변 중점: N·E·S·W (20m)</small>
+                        <small class="text-muted">방향: 0°=전방, 90°=우측, -90°=좌측, 180°=후방 (헤딩 기준 상대각도)</small>
                     </div>
                 </div>
 
@@ -293,7 +308,7 @@
             {name: 'target_component', label: 'Target Component ID', value: 191, type: 'number'},
             {name: 'target_lat', label: 'Target Latitude (deg * 1e7)', value: 0, type: 'number'},
             {name: 'target_lon', label: 'Target Longitude (deg * 1e7)', value: 0, type: 'number'},
-            {name: 'target_alt', label: 'Target Altitude (m)', value: 3.0, type: 'number', step: '0.1'},
+            {name: 'target_alt', label: 'Target Altitude (m)', value: 5.0, type: 'number', step: '0.1'},
             {name: 'takeoff_speed', label: 'Takeoff Speed (m/s)', value: 0.5, type: 'number', step: '0.1'},
             {name: 'flight_speed', label: 'Flight Speed (m/s)', value: 3.0, type: 'number', step: '0.1'},
             {name: 'auto_fire', label: 'Auto Fire (0=manual, 1=auto)', value: 0, type: 'number'},
@@ -557,37 +572,75 @@
         container.innerHTML = html;
     }
 
-    // 타겟 프리셋 — 40m 정사각형의 8개 지점 (꼭지점 4 + 변 중점 4)
-    // 기준: 1번 기체 위치 (중심), 반경 20m
-    const PRESET_HALF = 20.0;  // 40m 정사각형 → 중심에서 각 변까지 20m
-    const presetOffsets = {
-        'N':  [+PRESET_HALF,        0],               // 북쪽 변 중점
-        'NE': [+PRESET_HALF, +PRESET_HALF],           // 북동 꼭지점
-        'E':  [       0,     +PRESET_HALF],           // 동쪽 변 중점
-        'SE': [-PRESET_HALF, +PRESET_HALF],           // 남동 꼭지점
-        'S':  [-PRESET_HALF,        0],               // 남쪽 변 중점
-        'SW': [-PRESET_HALF, -PRESET_HALF],           // 남서 꼭지점
-        'W':  [       0,     -PRESET_HALF],           // 서쪽 변 중점
-        'NW': [+PRESET_HALF, -PRESET_HALF]            // 북서 꼭지점
-    };
+    // 드론 현재 위치/헤딩 읽기
+    async function readDronePosition() {
+        const btn = document.getElementById('btnReadPos');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 읽는 중...';
 
-    function applyPreset(dir) {
+        try {
+            const resp = await fetch('/api/drone/position');
+            const data = await resp.json();
+            if (data.success) {
+                document.getElementById('centerLat').value = data.lat.toFixed(7);
+                document.getElementById('centerLon').value = data.lon.toFixed(7);
+                document.getElementById('droneHeading').value = Math.round(data.hdg);
+                addLog(`[위치 읽기] lat=${data.lat.toFixed(7)}, lon=${data.lon.toFixed(7)}, hdg=${data.hdg.toFixed(1)}°, alt=${data.alt.toFixed(1)}m`, 'success');
+                showToast('드론 위치 읽기 완료', 'success');
+            } else {
+                addLog(`[위치 읽기 실패] ${data.message}`, 'error');
+                showToast(`위치 읽기 실패: ${data.message}`, 'danger');
+            }
+        } catch (e) {
+            addLog(`[위치 읽기 오류] ${e.message}`, 'error');
+            showToast('위치 읽기 실패', 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-crosshair"></i> 현재 좌표';
+        }
+    }
+
+    // 헤딩 기준 타겟 적용
+    function applyHeadingTarget() {
         const clat = parseFloat(document.getElementById('centerLat').value);
         const clon = parseFloat(document.getElementById('centerLon').value);
-        if (isNaN(clat) || isNaN(clon)) {
-            showToast('중심 좌표(1번 기체 위치)를 먼저 입력하세요', 'warning');
+        if (isNaN(clat) || isNaN(clon) || clat === 0) {
+            showToast('먼저 [현재 좌표] 버튼으로 기준 좌표를 읽어오세요', 'warning');
             return;
         }
-        const [dn, de] = presetOffsets[dir];
+
+        const heading = parseFloat(document.getElementById('droneHeading').value) || 0;
+        const angle = parseFloat(document.getElementById('targetAngle').value) || 0;
+        const distance = parseFloat(document.getElementById('targetDistance').value) || 25;
+
+        // 절대 방위각 = 헤딩 + 상대 각도 (도 → 라디안)
+        const absAngleDeg = heading + angle;
+        const absAngleRad = absAngleDeg * Math.PI / 180.0;
+
+        // 북쪽(+lat) 및 동쪽(+lon) 오프셋 (미터)
+        const dn = distance * Math.cos(absAngleRad);  // 북 방향
+        const de = distance * Math.sin(absAngleRad);  // 동 방향
+
+        // 미터 → 도 변환
         const lat_rad = clat * Math.PI / 180.0;
         const dlat = dn / 111320.0;
         const dlon = de / (111320.0 * Math.cos(lat_rad));
+
         const tlat = Math.round((clat + dlat) * 1e7);
         const tlon = Math.round((clon + dlon) * 1e7);
 
         document.getElementById('fire_param_target_lat').value = tlat;
         document.getElementById('fire_param_target_lon').value = tlon;
-        addLog(`[프리셋 ${dir}] Δ=(${dn}m N, ${de}m E) → lat=${tlat}, lon=${tlon}`, 'info');
+
+        const compassDir = getCompassDir(absAngleDeg);
+        addLog(`[빠른 타겟] 헤딩=${heading}° + 방향=${angle}° → 절대=${absAngleDeg % 360}°(${compassDir}), ${distance}m → lat=${tlat}, lon=${tlon}`, 'info');
+    }
+
+    // 방위각 → 나침반 방향
+    function getCompassDir(deg) {
+        deg = ((deg % 360) + 360) % 360;
+        const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+        return dirs[Math.round(deg / 45) % 8];
     }
 
     // 화재 진압 메시지 전송

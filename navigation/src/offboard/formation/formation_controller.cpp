@@ -587,12 +587,12 @@ void FormationController::onHeartbeat(const humiro_msgs::msg::FormationHeartbeat
             // 리더 RTL이지만 팔로워는 소화탄 잔여 → 독립 작전 유지
             std::cout << "[FormationController] Heartbeat RTL 감지 → 소화탄 잔여, 독립 작전 유지" << std::endl;
         } else {
-            // RTL 명령을 놓침 → 즉시 RTL
+            // RTL 명령을 놓침 → 커스텀 RTL
             follower_phase_ = FollowerPhase::RTL;
             if (offboard_mgr_) {
-                offboard_mgr_->emergencyRTL();
+                offboard_mgr_->abortMission();  // 커스텀 RTL (FC RTL 대신)
             }
-            std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 즉시 RTL" << std::endl;
+            std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 커스텀 RTL" << std::endl;
         }
     }
 }
@@ -697,8 +697,8 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
             } else {
                 follower_phase_ = FollowerPhase::RTL;
                 if (offboard_mgr_) {
-                    offboard_mgr_->emergencyRTL();
-                    std::cout << "  → RTL: 귀환 명령" << std::endl;
+                    offboard_mgr_->abortMission();  // 커스텀 RTL (FC RTL 대신)
+                    std::cout << "  → RTL: 커스텀 귀환 (abortMission)" << std::endl;
                 }
             }
             break;
