@@ -158,23 +158,32 @@ public:
         }
 
         case RtlPhase::SOFT_LAND: {
-            // 착지 판정: AGL < 0.15m
-            if (agl < GROUND_THRESHOLD) {
+            // 착지 판정: AGL < 0.15m AND |actual_vz| < 0.1m/s (3초 이상 지속)
+            float actual_vz = std::fabs(ctx.actual_vz.load());
+            bool on_ground = (agl < GROUND_THRESHOLD) && (actual_vz < GROUND_VZ_THRESHOLD);
+
+            if (on_ground) {
                 if (!ground_detected_) {
                     ground_detected_ = true;
                     ground_detect_time_ = std::chrono::steady_clock::now();
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 감지 (AGL=%.2fm) → disarm 대기", agl);
+                        "[RTL] 착지 감지 시작 (AGL=%.2fm, vz=%.2fm/s) → 3초 안정화 대기", agl, actual_vz);
                 }
+            } else if (ground_detected_) {
+                // 조건 불충족 → 착지 감지 리셋
+                RCLCPP_INFO(ctx.logger,
+                    "[RTL] 착지 감지 리셋 (AGL=%.2fm, vz=%.2fm/s)", agl, actual_vz);
+                ground_detected_ = false;
             }
 
-            // 착지 감지 후 1초 안정화 → DISARM
+            // 착지 감지 후 3초 안정화 → DISARM
             if (ground_detected_) {
                 auto now = std::chrono::steady_clock::now();
                 double ground_sec = std::chrono::duration<double>(now - ground_detect_time_).count();
-                if (ground_sec >= 1.0) {
+                if (ground_sec >= GROUND_STABLE_SEC) {
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 안정화 완료 (%.1fs) → DISARM 시도", ground_sec);
+                        "[RTL] 착지 안정화 완료 (%.1fs, AGL=%.2fm, vz=%.2fm/s) → DISARM 시도",
+                        ground_sec, agl, actual_vz);
                     setPhase(RtlPhase::GROUND_DISARM);
                     break;
                 }
@@ -344,6 +353,8 @@ private:
     // === 상수 ===
     static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
+    static constexpr float GROUND_VZ_THRESHOLD = 0.1f;   // 착지 판정 수직 속도 (m/s)
+    static constexpr float GROUND_STABLE_SEC = 3.0f;     // 착지 안정화 시간 (초)
     static constexpr float FINAL_DECEL_ALT = 0.3f;      // 최종 감속 시작 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
