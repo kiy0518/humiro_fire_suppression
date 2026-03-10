@@ -585,29 +585,30 @@ void StatusOverlay::draw(cv::Mat& frame) {
                         FONT_FACE, FONT_SCALE,
                         dist_color, FONT_THICKNESS, cv::LINE_AA);
 
-            // 6.6. 수직/수평 속도 (고도 뱃지 옆, 라운드 배경)
+            // 6.6. 수직/수평 속도 (고도 뱃지 옆, 라운드 배경, arrowedLine 화살표)
             {
-                // 수직 속도 문자열 (↑ 또는 ↓ + 값)
-                std::string vspd_arrow = show_velocity_ ? (vel_vertical_ >= 0 ? "\x18" : "\x19") : "\x18";  // ↑↓
+                // 속도 문자열 (화살표 없이 값만)
                 std::string vspd_str = show_velocity_
                     ? ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(1) << std::abs(vel_vertical_); return o.str(); })() + "m/s"
                     : "--m/s";
-                // 수평 속도 문자열 (→ + 값)
                 std::string hspd_str = show_velocity_
                     ? ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(1) << vel_horizontal_; return o.str(); })() + "m/s"
                     : "--m/s";
 
-                // OpenCV에서 유니코드 화살표가 깨질 수 있으므로 ASCII 대체
-                std::string vspd_full = (show_velocity_ && vel_vertical_ >= 0 ? "^" : "v");
-                vspd_full += " " + vspd_str;
-                std::string hspd_full = "> " + hspd_str;
-                std::string speed_str = vspd_full + "  " + hspd_full;
+                // 화살표 크기 (텍스트 높이에 맞춤)
+                const int arrow_len = 10;   // 화살표 길이 (px)
+                const int arrow_gap = 3;    // 화살표와 텍스트 사이 간격
+                const int arrow_w = arrow_len + arrow_gap;  // 화살표가 차지하는 폭
 
-                cv::Size spd_size = cv::getTextSize(speed_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                // 배경 크기 계산 (화살표 + 텍스트)
+                cv::Size vspd_sz = cv::getTextSize(vspd_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                cv::Size hspd_sz = cv::getTextSize(hspd_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                cv::Size gap_sz = cv::getTextSize("  ", FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                int total_w = arrow_w + vspd_sz.width + gap_sz.width + arrow_w + hspd_sz.width;
 
                 int sb_x = ib_x + ib_w + ITEM_SPACING - pad;
                 int sb_y = box_y;
-                int sb_w = spd_size.width + pad * 2;
+                int sb_w = total_w + pad * 2;
                 int sb_h = box_h;
 
                 if (sb_x + sb_w <= frame.cols && sb_y + sb_h <= frame.rows) {
@@ -629,20 +630,44 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     cv::fillPoly(frame, spoly, bg_color, cv::LINE_AA);
                 }
 
-                // 수직 속도 텍스트
                 int spd_tx = sb_x + pad;
-                cv::Scalar vspd_color = show_velocity_ ? cv::Scalar(255, 255, 255) : cv::Scalar(128, 128, 128);
-                cv::Size vspd_sz = cv::getTextSize(vspd_full, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
-                cv::putText(frame, vspd_full, cv::Point(spd_tx, text_y),
-                            FONT_FACE, FONT_SCALE, vspd_color, FONT_THICKNESS, cv::LINE_AA);
-                spd_tx += vspd_sz.width;
+                int arrow_cy = sb_y + sb_h / 2;  // 화살표 수직 중심 = 뱃지 중심
 
-                cv::Size sp2_size = cv::getTextSize("  ", FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
-                spd_tx += sp2_size.width;
+                // 수직 속도 화살표 (arrowedLine)
+                cv::Scalar vspd_color = show_velocity_ ? cv::Scalar(255, 255, 255) : cv::Scalar(128, 128, 128);
+                {
+                    int ax = spd_tx + arrow_len / 2;  // 화살표 수평 중심
+                    cv::Point pt_from, pt_to;
+                    if (!show_velocity_ || vel_vertical_ >= 0) {
+                        // 위 화살표 (상승 또는 기본)
+                        pt_from = cv::Point(ax, arrow_cy + arrow_len / 2);
+                        pt_to   = cv::Point(ax, arrow_cy - arrow_len / 2);
+                    } else {
+                        // 아래 화살표 (하강)
+                        pt_from = cv::Point(ax, arrow_cy - arrow_len / 2);
+                        pt_to   = cv::Point(ax, arrow_cy + arrow_len / 2);
+                    }
+                    cv::arrowedLine(frame, pt_from, pt_to, vspd_color, 1, cv::LINE_AA, 0, 0.35);
+                }
+                spd_tx += arrow_w;
+
+                // 수직 속도 텍스트
+                cv::putText(frame, vspd_str, cv::Point(spd_tx, text_y),
+                            FONT_FACE, FONT_SCALE, vspd_color, FONT_THICKNESS, cv::LINE_AA);
+                spd_tx += vspd_sz.width + gap_sz.width;
+
+                // 수평 속도 화살표 (arrowedLine, 오른쪽 →)
+                cv::Scalar hspd_color = show_velocity_ ? cv::Scalar(0, 255, 255) : cv::Scalar(128, 128, 128);
+                {
+                    int ax_start = spd_tx;
+                    cv::Point pt_from(ax_start, arrow_cy);
+                    cv::Point pt_to(ax_start + arrow_len, arrow_cy);
+                    cv::arrowedLine(frame, pt_from, pt_to, hspd_color, 1, cv::LINE_AA, 0, 0.35);
+                }
+                spd_tx += arrow_w;
 
                 // 수평 속도 텍스트
-                cv::Scalar hspd_color = show_velocity_ ? cv::Scalar(0, 255, 255) : cv::Scalar(128, 128, 128);
-                cv::putText(frame, hspd_full, cv::Point(spd_tx, text_y),
+                cv::putText(frame, hspd_str, cv::Point(spd_tx, text_y),
                             FONT_FACE, FONT_SCALE, hspd_color, FONT_THICKNESS, cv::LINE_AA);
             }
         }
