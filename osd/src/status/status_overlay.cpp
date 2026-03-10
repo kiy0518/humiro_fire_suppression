@@ -23,9 +23,17 @@ StatusOverlay::StatusOverlay()
     , gps_hdop_(-1.0f)
     , max_temperature_(-1.0)
     , temp_threshold_(50.0)
+    , altitude_(0.0f)
+    , dist_bottom_(-1.0f)
+    , dist_bottom_valid_(false)
+    , vel_horizontal_(0.0f)
+    , vel_vertical_(0.0f)
+    , show_velocity_(false)
     , show_battery_(false)
     , show_gps_(false)
     , show_temperature_(false)
+    , show_altitude_(false)
+    , show_dist_bottom_(false)
     , custom_message_("")
     , custom_message_timeout_(0.0)
     , show_custom_message_(false)
@@ -122,6 +130,26 @@ void StatusOverlay::setGpsInfo(int satellites, float hdop) {
     gps_satellites_ = satellites;
     gps_hdop_ = hdop;
     show_gps_ = (satellites >= 0 && hdop >= 0.0f);
+}
+
+void StatusOverlay::setAltitude(float altitude) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    altitude_ = altitude;
+    show_altitude_ = true;
+}
+
+void StatusOverlay::setDistBottom(float distance, bool valid) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    dist_bottom_ = distance;
+    dist_bottom_valid_ = valid;
+    show_dist_bottom_ = valid;
+}
+
+void StatusOverlay::setVelocity(float vx, float vy, float vz) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    vel_horizontal_ = std::sqrt(vx * vx + vy * vy);
+    vel_vertical_ = -vz;  // NED: vz 양수=하강, 부호 반전하여 양수=상승
+    show_velocity_ = true;
 }
 
 void StatusOverlay::setMaxTemperature(double temperature) {
@@ -493,8 +521,133 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     cv::Point(mode_x_start, text_y),
                     FONT_FACE, FONT_SCALE,
                     status_text_color, FONT_THICKNESS, cv::LINE_AA);
+
+        // 6.5. 고도 + 하방거리 (상태 뱃지 옆, 라운드 배경)
+        {
+            std::string alt_str = show_altitude_
+                ? "A:" + ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(2) << altitude_; return o.str(); })() + "m"
+                : "A:--m";
+            std::string dist_str = show_dist_bottom_
+                ? "H:" + ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(2) << dist_bottom_; return o.str(); })() + "m"
+                : "H:--m";
+            std::string info_str = alt_str + "  " + dist_str;
+
+            cv::Size info_size = cv::getTextSize(info_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+
+            // 라운드 배경
+            int ib_x = box_x + box_w + ITEM_SPACING - pad;
+            int ib_y = box_y;
+            int ib_w = info_size.width + pad * 2;
+            int ib_h = box_h;
+
+            if (ib_x + ib_w <= frame.cols && ib_y + ib_h <= frame.rows) {
+                std::vector<cv::Point> ipts;
+                const int istep = 15;
+                for (int a = 180; a <= 270; a += istep)
+                    ipts.emplace_back(ib_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                      ib_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 270; a <= 360; a += istep)
+                    ipts.emplace_back(ib_x + ib_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                      ib_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 0; a <= 90; a += istep)
+                    ipts.emplace_back(ib_x + ib_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                      ib_y + ib_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 90; a <= 180; a += istep)
+                    ipts.emplace_back(ib_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                      ib_y + ib_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                std::vector<std::vector<cv::Point>> ipoly = {ipts};
+                cv::fillPoly(frame, ipoly, bg_color, cv::LINE_AA);
+            }
+
+            // 텍스트: 고도 부분
+            int info_tx = ib_x + pad;
+            cv::Scalar alt_color = show_altitude_ ? cv::Scalar(255, 255, 255) : cv::Scalar(128, 128, 128);
+            cv::Size alt_size = cv::getTextSize(alt_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+            cv::putText(frame, alt_str,
+                        cv::Point(info_tx, text_y),
+                        FONT_FACE, FONT_SCALE,
+                        alt_color, FONT_THICKNESS, cv::LINE_AA);
+            info_tx += alt_size.width;
+
+            // 구분 공백
+            cv::Size sp_size = cv::getTextSize("  ", FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+            info_tx += sp_size.width;
+
+            // 텍스트: 하방거리 부분
+            cv::Scalar dist_color = cv::Scalar(128, 128, 128);
+            if (show_dist_bottom_) {
+                if (dist_bottom_ > 5.0f) dist_color = cv::Scalar(0, 255, 0);
+                else if (dist_bottom_ > 2.0f) dist_color = cv::Scalar(0, 255, 255);
+                else dist_color = cv::Scalar(0, 0, 255);
+            }
+            cv::putText(frame, dist_str,
+                        cv::Point(info_tx, text_y),
+                        FONT_FACE, FONT_SCALE,
+                        dist_color, FONT_THICKNESS, cv::LINE_AA);
+
+            // 6.6. 수직/수평 속도 (고도 뱃지 옆, 라운드 배경)
+            {
+                // 수직 속도 문자열 (↑ 또는 ↓ + 값)
+                std::string vspd_arrow = show_velocity_ ? (vel_vertical_ >= 0 ? "\x18" : "\x19") : "\x18";  // ↑↓
+                std::string vspd_str = show_velocity_
+                    ? ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(1) << std::abs(vel_vertical_); return o.str(); })() + "m/s"
+                    : "--m/s";
+                // 수평 속도 문자열 (→ + 값)
+                std::string hspd_str = show_velocity_
+                    ? ([&]{ std::ostringstream o; o << std::fixed << std::setprecision(1) << vel_horizontal_; return o.str(); })() + "m/s"
+                    : "--m/s";
+
+                // OpenCV에서 유니코드 화살표가 깨질 수 있으므로 ASCII 대체
+                std::string vspd_full = (show_velocity_ && vel_vertical_ >= 0 ? "^" : "v");
+                vspd_full += " " + vspd_str;
+                std::string hspd_full = "> " + hspd_str;
+                std::string speed_str = vspd_full + "  " + hspd_full;
+
+                cv::Size spd_size = cv::getTextSize(speed_str, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+
+                int sb_x = ib_x + ib_w + ITEM_SPACING - pad;
+                int sb_y = box_y;
+                int sb_w = spd_size.width + pad * 2;
+                int sb_h = box_h;
+
+                if (sb_x + sb_w <= frame.cols && sb_y + sb_h <= frame.rows) {
+                    std::vector<cv::Point> spts;
+                    const int sstep = 15;
+                    for (int a = 180; a <= 270; a += sstep)
+                        spts.emplace_back(sb_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                          sb_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 270; a <= 360; a += sstep)
+                        spts.emplace_back(sb_x + sb_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                          sb_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 0; a <= 90; a += sstep)
+                        spts.emplace_back(sb_x + sb_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                          sb_y + sb_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 90; a <= 180; a += sstep)
+                        spts.emplace_back(sb_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                          sb_y + sb_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                    std::vector<std::vector<cv::Point>> spoly = {spts};
+                    cv::fillPoly(frame, spoly, bg_color, cv::LINE_AA);
+                }
+
+                // 수직 속도 텍스트
+                int spd_tx = sb_x + pad;
+                cv::Scalar vspd_color = show_velocity_ ? cv::Scalar(255, 255, 255) : cv::Scalar(128, 128, 128);
+                cv::Size vspd_sz = cv::getTextSize(vspd_full, FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                cv::putText(frame, vspd_full, cv::Point(spd_tx, text_y),
+                            FONT_FACE, FONT_SCALE, vspd_color, FONT_THICKNESS, cv::LINE_AA);
+                spd_tx += vspd_sz.width;
+
+                cv::Size sp2_size = cv::getTextSize("  ", FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
+                spd_tx += sp2_size.width;
+
+                // 수평 속도 텍스트
+                cv::Scalar hspd_color = show_velocity_ ? cv::Scalar(0, 255, 255) : cv::Scalar(128, 128, 128);
+                cv::putText(frame, hspd_full, cv::Point(spd_tx, text_y),
+                            FONT_FACE, FONT_SCALE, hspd_color, FONT_THICKNESS, cv::LINE_AA);
+            }
+        }
     }
-    
+
     // 7. WiFi 정보 (오른쪽 정렬) - SSID + 안테나 바 아이콘
     if (show_wifi_) {
         // 신호 강도에 따른 바 수 결정 (4단계)

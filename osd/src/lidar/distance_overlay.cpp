@@ -359,7 +359,7 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
         std::lock_guard<std::mutex> lock(distance_cache_mutex_);
         center_distance = cached_center_distance_;
     }
-    
+
     // 유효한 거리 값이 있으면 표시
     if (center_distance > 0.0f) {
         // 소수점 아래 2자리로 포맷팅
@@ -367,66 +367,47 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
         oss << std::fixed << std::setprecision(2) << center_distance;
         std::string dist_text = oss.str() + "m";
         cv::Scalar text_color = getLidarColor(center_distance);
-        
-        // 텍스트 크기 및 위치 설정
-        double font_scale = 1.2;  // 글자 크기 증가 (0.7 → 1.2)
-        int thickness = 2;
+
+        // 미니맵과 동일한 폰트 크기 (status_overlay와 동일하게)
+        double font_scale = 0.6;
+        int thickness = 1;
         int baseline = 0;
         cv::Size text_size = cv::getTextSize(dist_text, cv::FONT_HERSHEY_SIMPLEX, font_scale, thickness, &baseline);
-        
-        // 하단 중앙 위치 계산
-        int text_x = center_x - text_size.width / 2;
-        int text_y = frame.rows - 20;  // 하단 여백 20픽셀 (베이스라인 위치)
-        
-        // 텍스트 위치를 5픽셀 위로 조정
-        text_y -= 5;
-        
-        // 진회색 배경 그리기 (텍스트 주변에 패딩 추가 - 배경 크기 증가)
-        int padding = 10;  // 10 → 15로 증가
-        // 텍스트의 실제 위치: text_y는 베이스라인, 텍스트는 text_y - text_size.height부터 시작
-        // 숫자/대문자는 descent 없으므로 baseline 제외
-        int bg_x = text_x - padding;
-        int bg_y = text_y - text_size.height - padding;
+
+        // 미니맵 상단 중앙 정렬 (미니맵: 오른쪽 하단 100x100, margin 10)
+        const int MINIMAP_SIZE = 100;
+        const int MINIMAP_MARGIN = 10;
+        int minimap_center_x = frame.cols - MINIMAP_MARGIN - MINIMAP_SIZE / 2;
+        int minimap_top_y = frame.rows - MINIMAP_MARGIN - MINIMAP_SIZE;
+
+        // 배경 패딩
+        int padding = 5;
         int bg_width = text_size.width + padding * 2;
         int bg_height = text_size.height + padding * 2;
-        
-        // 배경 영역이 프레임 범위 내인지 확인 및 조정
-        if (bg_x < 0) {
-            bg_width += bg_x;  // 너비 조정
-            bg_x = 0;
-        }
-        if (bg_y < 0) {
-            bg_height += bg_y;  // 높이 조정
-            bg_y = 0;
-        }
-        if (bg_x + bg_width > frame.cols) {
-            bg_width = frame.cols - bg_x;
-        }
-        if (bg_y + bg_height > frame.rows) {
-            bg_height = frame.rows - bg_y;
-        }
-        
-        // 배경 그리기 (텍스트보다 먼저 그려야 함) - fillPoly + LINE_AA
-        if (bg_width > 0 && bg_height > 0) {
-            cv::Scalar dark_gray(34, 34, 34);
-            const int r = 8;  // 모서리 반경
-            const int step = 15;  // 원호 분할 각도
+        int bg_x = minimap_center_x - bg_width / 2;
+        int bg_y = minimap_top_y - bg_height - 4;  // 미니맵 위 4px 간격
+
+        int text_x = bg_x + padding;
+        int text_y = bg_y + padding + text_size.height;
+
+        // 배경 영역 범위 확인
+        if (bg_x >= 0 && bg_y >= 0 &&
+            bg_x + bg_width <= frame.cols && bg_y + bg_height <= frame.rows) {
+            cv::Scalar dark_gray(50, 50, 50);
+            const int r = 4;
+            const int step = 15;
             const float PI = 3.14159265358979323846f;
 
             std::vector<cv::Point> pts;
-            // 좌상단 (180°→270°)
             for (int a = 180; a <= 270; a += step)
                 pts.emplace_back(bg_x + r + (int)(r * std::cos(a * PI / 180)),
                                  bg_y + r + (int)(r * std::sin(a * PI / 180)));
-            // 우상단 (270°→360°)
             for (int a = 270; a <= 360; a += step)
                 pts.emplace_back(bg_x + bg_width - r + (int)(r * std::cos(a * PI / 180)),
                                  bg_y + r + (int)(r * std::sin(a * PI / 180)));
-            // 우하단 (0°→90°)
             for (int a = 0; a <= 90; a += step)
                 pts.emplace_back(bg_x + bg_width - r + (int)(r * std::cos(a * PI / 180)),
                                  bg_y + bg_height - r + (int)(r * std::sin(a * PI / 180)));
-            // 좌하단 (90°→180°)
             for (int a = 90; a <= 180; a += step)
                 pts.emplace_back(bg_x + r + (int)(r * std::cos(a * PI / 180)),
                                  bg_y + bg_height - r + (int)(r * std::sin(a * PI / 180)));
@@ -434,8 +415,8 @@ void DistanceOverlay::drawCenterDistanceText(cv::Mat& frame, int center_x) {
             std::vector<std::vector<cv::Point>> poly = {pts};
             cv::fillPoly(frame, poly, dark_gray, cv::LINE_AA);
         }
-        
-        // 텍스트 그리기 (배경 위에, 고딕체)
+
+        // 텍스트 그리기
         cv::putText(frame, dist_text, cv::Point(text_x, text_y),
                    cv::FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, cv::LINE_AA);
     }

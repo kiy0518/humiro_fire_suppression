@@ -163,6 +163,20 @@ void StatusROS2Subscriber::pollFCState() {
         }
     }
 
+    // ========== 고도 처리 ==========
+    // NED 좌표계: local_z는 아래가 양수, 위가 음수 → 부호 반전
+    float altitude = -state.local_z;
+    status_overlay_->setAltitude(altitude);
+
+    // ========== 속도 처리 ==========
+    status_overlay_->setVelocity(state.vx, state.vy, state.vz);
+
+    // ========== 하방 거리 처리 ==========
+    // dist_bottom_valid가 false여도 dist_bottom > 0이면 유효로 간주
+    // (PX4 EKF가 거리센서를 fusion하지 않아도 MAVLink DISTANCE_SENSOR는 정상 수신되는 경우)
+    bool dist_valid = (state.dist_bottom_valid != 0) || (state.dist_bottom > 0.0f);
+    status_overlay_->setDistBottom(state.dist_bottom, dist_valid);
+
     // ========== GPS 처리 ==========
     gps_fix_type_.store(state.gps_fix_type);
 

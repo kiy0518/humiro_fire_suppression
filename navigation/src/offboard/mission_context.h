@@ -65,6 +65,10 @@ struct MissionContext {
     std::atomic<float> actual_vz{0.0f};
     std::atomic<bool> position_received{false};
 
+    // === 하방 거리계 ===
+    std::atomic<float> dist_bottom{-1.0f};       // 지면까지 거리 (m), 무효 시 -1
+    std::atomic<bool> dist_bottom_valid{false};
+
     // === FC 상태 ===
     std::atomic<uint8_t> nav_state{0};       // 14=OFFBOARD, 5=AUTO_RTL
     std::atomic<uint8_t> arming_state{0};    // 2=ARMED, 1=DISARMED

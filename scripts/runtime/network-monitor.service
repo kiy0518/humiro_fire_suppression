@@ -1,0 +1,16 @@
+[Unit]
+Description=Humiro Network Monitor (eth0/wlan0/MAVLink/DDS)
+After=network-online.target mavlink-router.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=khadas
+ExecStart=/home/khadas/humiro_fire_suppression/scripts/runtime/network_monitor.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

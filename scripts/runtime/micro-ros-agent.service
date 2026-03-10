@@ -1,0 +1,28 @@
+[Unit]
+Description=Micro-ROS Agent for PX4 Communication
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=khadas
+Group=khadas
+WorkingDirectory=/home/khadas/humiro_fire_suppression
+Environment="HOME=/home/khadas"
+Environment="ROS_DOMAIN_ID=0"
+Environment="ROS_NAMESPACE=drone1"
+Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
+ExecStart=/home/khadas/humiro_fire_suppression/scripts/runtime/start_micro_ros_agent_wrapper.sh
+# 서비스 시작 후 root 권한으로 SCHED_FIFO 적용 (+ prefix = root 실행)
+ExecStartPost=+/bin/bash -c 'sleep 1 && /usr/bin/chrt -f -p 50 $MAINPID && /usr/bin/renice -n -15 -p $MAINPID 2>/dev/null && echo "SCHED_FIFO applied to micro_ros_agent (PID=$MAINPID)"'
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# 실시간 스케줄링 허용
+LimitRTPRIO=99
+LimitNICE=-20
+
+[Install]
+WantedBy=multi-user.target

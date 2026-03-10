@@ -53,6 +53,10 @@ struct FCState {
     uint8_t gps_satellites;
     float gps_hdop;
 
+    // 하방 거리계
+    float dist_bottom;        // 지면까지 거리 (m), 무효 시 -1
+    uint8_t dist_bottom_valid; // 0 or 1
+
     // 연결 상태
     uint8_t fc_connected;     // 0 or 1
 

@@ -158,8 +158,9 @@ public:
         }
 
         case RtlPhase::SOFT_LAND: {
-            // 착지 판정: AGL < 0.15m AND |actual_vz| < 0.1m/s (3초 이상 지속)
+            // 착지 판정: AGL < 0.15m AND |actual_vz| < 0.1m/s (거리계 1초 / 기압계 3초)
             float actual_vz = std::fabs(ctx.actual_vz.load());
+            bool has_rf = ctx.dist_bottom_valid.load();
             bool on_ground = (agl < GROUND_THRESHOLD) && (actual_vz < GROUND_VZ_THRESHOLD);
 
             if (on_ground) {
@@ -167,7 +168,9 @@ public:
                     ground_detected_ = true;
                     ground_detect_time_ = std::chrono::steady_clock::now();
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 감지 시작 (AGL=%.2fm, vz=%.2fm/s) → 3초 안정화 대기", agl, actual_vz);
+                        "[RTL] 착지 감지 시작 (AGL=%.2fm, vz=%.2fm/s, %s) → %.0fs 안정화 대기",
+                        agl, actual_vz, has_rf ? "거리계" : "기압계",
+                        has_rf ? GROUND_STABLE_SEC_RF : GROUND_STABLE_SEC);
                 }
             } else if (ground_detected_) {
                 // 조건 불충족 → 착지 감지 리셋
@@ -176,14 +179,15 @@ public:
                 ground_detected_ = false;
             }
 
-            // 착지 감지 후 3초 안정화 → DISARM
+            // 착지 감지 후 안정화 → DISARM (거리계: 1초, 기압계: 3초)
             if (ground_detected_) {
                 auto now = std::chrono::steady_clock::now();
                 double ground_sec = std::chrono::duration<double>(now - ground_detect_time_).count();
-                if (ground_sec >= GROUND_STABLE_SEC) {
+                float stable_sec = has_rf ? GROUND_STABLE_SEC_RF : GROUND_STABLE_SEC;
+                if (ground_sec >= stable_sec) {
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 안정화 완료 (%.1fs, AGL=%.2fm, vz=%.2fm/s) → DISARM 시도",
-                        ground_sec, agl, actual_vz);
+                        "[RTL] 착지 안정화 완료 (%.1fs, AGL=%.2fm, vz=%.2fm/s, %s) → DISARM 시도",
+                        ground_sec, agl, actual_vz, has_rf ? "거리계" : "기압계");
                     setPhase(RtlPhase::GROUND_DISARM);
                     break;
                 }
@@ -354,7 +358,8 @@ private:
     static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
     static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
     static constexpr float GROUND_VZ_THRESHOLD = 0.1f;   // 착지 판정 수직 속도 (m/s)
-    static constexpr float GROUND_STABLE_SEC = 3.0f;     // 착지 안정화 시간 (초)
+    static constexpr float GROUND_STABLE_SEC = 3.0f;     // 착지 안정화 시간 - 기압계 (초)
+    static constexpr float GROUND_STABLE_SEC_RF = 1.0f;  // 착지 안정화 시간 - 거리계 (초)
     static constexpr float FINAL_DECEL_ALT = 0.3f;      // 최종 감속 시작 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
@@ -386,8 +391,12 @@ private:
 
     // === 유틸리티 ===
 
-    /** AGL 계산 (NED: z 음수 = 위) */
+    /** AGL 계산: 거리계 유효 시 직접 사용, 아니면 기압계 폴백 */
     float getAGL(const MissionContext& ctx) const {
+        if (ctx.dist_bottom_valid.load()) {
+            float d = ctx.dist_bottom.load();
+            if (d >= 0.0f) return d;
+        }
         return -(ctx.current_local_z.load() - home_z_);
     }
 

@@ -68,13 +68,12 @@ graph LR
 | 충돌 회피 | 회피 경로 생성 알고리즘 |
 | Mesh 통신 | 분산 네트워크 구성 |
 
-### Level 3: 완전 자율 (미래 목표)
+### Level 3: 완전 자율 (미래 목표, 계획 제외)
 | 기능 | 설명 |
 |-----|------|
-| AI 타겟 인식 | 열화상/비전 기반 자동 인식 |
 | 자율 위치 선정 | 최적 경로 및 위치 계산 |
 | 상황 적응 | 화재 확산, 바람 등 동적 대응 |
-| 분산 합의 | 독립적 AI 의사결정 알고리즘 |
+| 분산 합의 | 독립적 의사결정 알고리즘 |
 
 ---
 
@@ -89,7 +88,7 @@ graph LR
 4. ✅ 자율 비행 (OFFBOARD 상태머신)
 5. ✅ 편대 비행 (Leader-Follower ROS2 DDS)
 6. ⚠️ GPIO 격발 (소프트웨어 완료, HW 검증 대기)
-7. ⏳ 핫스팟 트래킹 + 드론 정조준
+7. ⏳ 핫스팟 트래킹 + 드론 정조준 (Phase 6)
 
 **기술 스택**:
 - **개발 언어**: C++17 (코어) + Python (GUI)
@@ -229,7 +228,6 @@ IDLE → PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE
 | Gate 4 동기화 | 0% | SUPPRESS→RTL 편대 게이트 |
 | 자체 RTL 구현 | 0% | 감속 하강 RTL |
 | 열원 추적 | 30% | Kalman Filter + 드론 미세 조정 |
-| AI 화재 감지 | 0% | 장기 계획 (Phase 7) |
 
 ---
 
@@ -259,10 +257,6 @@ IDLE → PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE
   - [ ] 열원 자동 추적 (Kalman Filter)
   - [ ] 드론 위치 미세 조정 (상하좌우)
   - [ ] 정조준 판단 (LOCKED)
-- [ ] Phase 7: AI 화재 감지 (장기 계획)
-  - [ ] CNN/YOLO 기반 화재 감지 모델
-  - [ ] 실시간 추론 파이프라인
-  - [ ] LTE 통신 이중화
 
 ---
 
@@ -281,9 +275,7 @@ IDLE → PREPARING → OFFBOARD → ARMING → TAKEOFF → HOVER → ROTATE
 6. 목적지 오버슈트 실비행 튜닝
 
 ### 장기 계획
-7. AI 화재 감지 (CNN/YOLO)
-8. LTE 통신 이중화
-9. 분산 협조 시스템 (Level 2)
+7. 분산 협조 시스템 (Level 2)
 
 ---
 

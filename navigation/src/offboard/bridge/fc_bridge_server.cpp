@@ -162,6 +162,8 @@ void FCBridgeServer::vehicleLocalPositionCallback(const px4_msgs::msg::VehicleLo
     current_state_.vy = msg->vy;
     current_state_.vz = msg->vz;
     current_state_.yaw = msg->heading;
+    current_state_.dist_bottom = msg->dist_bottom_valid ? msg->dist_bottom : -1.0f;
+    current_state_.dist_bottom_valid = msg->dist_bottom_valid ? 1 : 0;
     position_received_.store(true);
 }
 

@@ -86,6 +86,8 @@ if [ "$CLEAN_BUILD" = true ] || [ "$CLEAN_ONLY" = true ]; then
     rm -rf "$PROJECT_ROOT/osd/src/build"
     rm -rf "$PROJECT_ROOT/targeting/src/build"
     rm -rf "$PROJECT_ROOT/streaming/src/build"
+    rm -rf "$PROJECT_ROOT/navigation/src/offboard/build"
+    rm -rf "$PROJECT_ROOT/navigation/build"
     rm -rf "$PROJECT_ROOT/application/build"
     echo "  ✓ 모든 빌드 디렉토리 삭제 완료"
     echo ""
@@ -107,7 +109,7 @@ fi
 
 # 1. thermal 라이브러리 빌드
 STEP_NUM=1
-TOTAL_STEPS=5
+TOTAL_STEPS=6
 echo "[${STEP_NUM}/${TOTAL_STEPS}] thermal 라이브러리 빌드..."
 cd "$PROJECT_ROOT/thermal/src"
 mkdir -p build
@@ -150,14 +152,7 @@ make -j$(nproc) streaming_lib
 echo "  ✓ streaming_lib 빌드 완료"
 echo ""
 
-# 5. 메인 애플리케이션 빌드
-STEP_NUM=$((STEP_NUM + 1))
-echo "[${STEP_NUM}/${TOTAL_STEPS}] 메인 애플리케이션 빌드..."
-cd "$PROJECT_ROOT/application"
-mkdir -p build
-cd build
-
-# ROS2 환경 로드 (빌드 시 ROS2 감지를 위해)
+# ROS2 환경 로드 (fc_bridge + 메인 애플리케이션 공통)
 # CMake가 ROS2 패키지를 찾을 수 있도록 환경 변수 설정
 if [ -f /opt/ros/humble/setup.bash ]; then
     source /opt/ros/humble/setup.bash > /dev/null 2>&1
@@ -167,7 +162,6 @@ if [ -f "$PROJECT_ROOT/workspaces/micro_ros_ws/install/setup.bash" ]; then
 fi
 if [ -f "$PROJECT_ROOT/workspaces/px4_ros2_ws/install/setup.bash" ]; then
     source "$PROJECT_ROOT/workspaces/px4_ros2_ws/install/setup.bash" > /dev/null 2>&1
-    # CMAKE_PREFIX_PATH에 px4_ros2_ws 추가 (CMake가 px4_msgs를 찾을 수 있도록)
     export CMAKE_PREFIX_PATH="$PROJECT_ROOT/workspaces/px4_ros2_ws/install:$CMAKE_PREFIX_PATH"
 fi
 # humiro_msgs (편대 비행 메시지)
@@ -179,14 +173,34 @@ fi
 # ROS2 자동 감지 및 활성화
 ENABLE_ROS2_FLAG=""
 if command -v ros2 > /dev/null 2>&1; then
-    # ROS2가 설치되어 있으면 자동으로 활성화
     ENABLE_ROS2_FLAG="-DENABLE_ROS2=ON"
-    echo "  → ROS2 감지됨: 자동 활성화"
+    echo "[ROS2] 감지됨: 자동 활성화"
 else
-    # ROS2가 없으면 비활성화
     ENABLE_ROS2_FLAG="-DENABLE_ROS2=OFF"
-    echo "  → ROS2 미설치: 비활성화"
+    echo "[ROS2] 미설치: 비활성화"
 fi
+echo ""
+
+# 5. fc_bridge 빌드
+STEP_NUM=$((STEP_NUM + 1))
+echo "[${STEP_NUM}/${TOTAL_STEPS}] fc_bridge 빌드..."
+cd "$PROJECT_ROOT/navigation/src/offboard"
+mkdir -p build
+cd build
+cmake .. > /dev/null
+make -j$(nproc) fc_bridge
+# wrapper가 참조하는 경로에 복사
+mkdir -p "$PROJECT_ROOT/navigation/build/offboard_control"
+cp -f fc_bridge "$PROJECT_ROOT/navigation/build/offboard_control/fc_bridge"
+echo "  ✓ fc_bridge 빌드 완료"
+echo ""
+
+# 6. 메인 애플리케이션 빌드
+STEP_NUM=$((STEP_NUM + 1))
+echo "[${STEP_NUM}/${TOTAL_STEPS}] 메인 애플리케이션 빌드..."
+cd "$PROJECT_ROOT/application"
+mkdir -p build
+cd build
 
 cmake .. $ENABLE_ROS2_FLAG > /dev/null
 

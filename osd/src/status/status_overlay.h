@@ -83,7 +83,28 @@ public:
      * @param hdop HDOP 값 (Horizontal Dilution of Precision)
      */
     void setGpsInfo(int satellites, float hdop);
-    
+
+    /**
+     * 고도 설정 (이륙 기준 상대 고도)
+     * @param altitude 고도 (m), NED local_z의 부호 반전값
+     */
+    void setAltitude(float altitude);
+
+    /**
+     * 하방 거리 설정 (FC 거리센서)
+     * @param distance 지면까지 거리 (m), 무효 시 음수
+     * @param valid 센서 유효 여부
+     */
+    void setDistBottom(float distance, bool valid);
+
+    /**
+     * 속도 설정 (NED 좌표계)
+     * @param vx 북쪽 속도 (m/s)
+     * @param vy 동쪽 속도 (m/s)
+     * @param vz 하방 속도 (m/s, 양수=하강)
+     */
+    void setVelocity(float vx, float vy, float vz);
+
     /**
      * 최대 온도 설정
      * @param temperature 최대 온도 (섭씨)
@@ -149,11 +170,19 @@ private:
     float gps_hdop_;  // GPS HDOP 값
     double max_temperature_;  // 최대 온도 (섭씨)
     double temp_threshold_;   // 기준 온도 (이하 회색 표시)
-    
+    float altitude_;          // 이륙 기준 상대 고도 (m)
+    float dist_bottom_;       // 하방 거리 (m)
+    bool dist_bottom_valid_;  // 하방 거리 유효 여부
+    float vel_horizontal_;    // 수평 속도 (m/s)
+    float vel_vertical_;      // 수직 속도 (m/s, 양수=상승)
+    bool show_velocity_;      // 속도 표시 여부
+
     // 표시 여부 플래그
     bool show_battery_;
     bool show_gps_;
     bool show_temperature_;  // 온도 표시 여부
+    bool show_altitude_;     // 고도 표시 여부
+    bool show_dist_bottom_;  // 하방 거리 표시 여부
     
     // QGC 커스텀 메시지
     std::string custom_message_;

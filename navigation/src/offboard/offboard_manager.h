@@ -252,6 +252,8 @@ private:
     std::atomic<float> actual_vx_{0.0f};    // PX4 실제 NED 속도
     std::atomic<float> actual_vy_{0.0f};
     std::atomic<float> actual_vz_{0.0f};
+    std::atomic<float> dist_bottom_{-1.0f};    // 하방 거리계 (m)
+    std::atomic<bool> dist_bottom_valid_{false};
 
     // ========== 배터리/GPS (FCBridgeClient에서 수신) ==========
     std::atomic<float> battery_remaining_{0.0f};
