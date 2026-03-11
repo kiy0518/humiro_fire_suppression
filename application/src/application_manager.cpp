@@ -1008,6 +1008,15 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
 
+        // DISTANCE_SENSOR에서 하방 거리 수신 → OSD H: 업데이트
+        custom_message_handler_->setDistanceSensorCallback(
+            [this](float distance_m) {
+                if (status_overlay_) {
+                    status_overlay_->setDistBottom(distance_m, true);
+                }
+            }
+        );
+
         // 메시지 송수신 시작
         if (custom_message_handler_->start()) {
             std::cout << "  ✓ 커스텀 메시지 송수신 시작 (수신 포트: " << app_port << ", 송신 포트: " << mavlink_port << ")" << std::endl;

@@ -164,16 +164,21 @@ void StatusROS2Subscriber::pollFCState() {
     }
 
     // ========== 고도 처리 ==========
-    // A값은 MAVLink GLOBAL_POSITION_INT.relative_alt에서 직접 설정 (application_manager)
-    // 여기서는 설정하지 않음 (이중 업데이트 방지)
+    // 우선순위: 1) AMSL - home_alt (QGC alt(rel)과 동일) 2) -local_z (NED 기준)
+    if (state.home_alt_valid && state.altitude_amsl != 0.0f) {
+        float relative_alt = state.altitude_amsl - state.home_alt;
+        status_overlay_->setAltitude(relative_alt);
+    } else {
+        // home_alt 미설정 시 local_z 사용 (NED: z 양수=아래, 부호 반전)
+        status_overlay_->setAltitude(-state.local_z);
+    }
 
     // ========== 속도 처리 ==========
     status_overlay_->setVelocity(state.vx, state.vy, state.vz);
 
-    // ========== 하방 거리 처리 ==========
-    // dist_bottom_valid가 실제 거리센서에서 유효할 때만 표시
-    bool dist_valid = (state.dist_bottom_valid != 0);
-    status_overlay_->setDistBottom(state.dist_bottom, dist_valid);
+    // 하방 거리: MAVLink DISTANCE_SENSOR 콜백에서 처리 (application_manager.cpp)
+    // FC Bridge의 dist_bottom은 vehicle_local_position 기반이라 거리센서 미장착 시 항상 invalid
+
 
     // ========== GPS 처리 ==========
     gps_fix_type_.store(state.gps_fix_type);

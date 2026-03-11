@@ -20,11 +20,11 @@
     <div class="row mb-3">
         <div class="col-12">
             <div class="btn-group" role="group">
-                <input type="radio" class="btn-check" name="viewMode" id="viewSingle" autocomplete="off">
+                <input type="radio" class="btn-check" name="viewMode" id="viewSingle" autocomplete="off" checked>
                 <label class="btn btn-outline-primary" for="viewSingle" onclick="setViewMode('single')">
                     <i class="bi bi-square"></i> 단일 뷰
                 </label>
-                <input type="radio" class="btn-check" name="viewMode" id="viewMulti" autocomplete="off" checked>
+                <input type="radio" class="btn-check" name="viewMode" id="viewMulti" autocomplete="off">
                 <label class="btn btn-outline-primary" for="viewMulti" onclick="setViewMode('multi')">
                     <i class="bi bi-grid-3x3-gap"></i> 멀티 뷰 (3대)
                 </label>
@@ -36,7 +36,7 @@
     </div>
 
     <!-- 멀티 뷰 (3대 동시 표시) -->
-    <div id="multiView" class="row">
+    <div id="multiView" class="row" style="display: none;">
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center py-2">
@@ -151,20 +151,15 @@
     </div>
 
     <!-- 단일 뷰 -->
-    <div id="singleView" class="row" style="display: none;">
+    <div id="singleView" class="row">
         <div class="col-12">
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span><i class="bi bi-camera-video"></i> 열화상 카메라 - <span id="currentCameraLabel">선택 없음</span></span>
-                    <div class="d-flex align-items-center gap-2">
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="switchCamera(1)">1번</button>
-                            <button class="btn btn-outline-primary" onclick="switchCamera(2)">2번</button>
-                            <button class="btn btn-outline-primary" onclick="switchCamera(3)">3번</button>
-                        </div>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleSingleFullscreen()">
-                            <i class="bi bi-fullscreen"></i>
-                        </button>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary" onclick="switchCamera(1)">1번</button>
+                        <button class="btn btn-outline-primary" onclick="switchCamera(2)">2번</button>
+                        <button class="btn btn-outline-primary" onclick="switchCamera(3)">3번</button>
                     </div>
                 </div>
                 <div class="card-body text-center p-0">
@@ -181,6 +176,23 @@
                             <p class="mt-3">카메라 연결 실패</p>
                         </div>
                     </div>
+                </div>
+                <!-- 영상 하단 액션 바 -->
+                <div class="card-footer py-1 text-center">
+                    <small class="text-muted" id="singleStreamInfo">-</small>
+                    <button class="btn btn-sm btn-link p-0 ms-2" onclick="refreshSingleStream()" title="새로고침">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="toggleSingleFullscreen()" title="전체화면">
+                        <i class="bi bi-fullscreen"></i>
+                    </button>
+                    <button class="btn btn-sm btn-link p-0 ms-1" onclick="toggleSingleLog()" title="터미널 모니터링">
+                        <i class="bi bi-terminal" id="singleLogIcon"></i>
+                    </button>
+                </div>
+                <!-- 단일 뷰 디버그 로그 패널 -->
+                <div id="singleLogPanel" class="debug-log-panel" style="display:none;">
+                    <div class="debug-log-output" id="singleLogOutput"></div>
                 </div>
             </div>
         </div>
@@ -255,8 +267,8 @@
         {% endfor %}
     };
 
-    let currentViewMode = 'multi';
-    let selectedDroneId = 1;
+    let currentViewMode = 'single';
+    let selectedDroneId = {{ drone_id }};
 
     function getVideoUrl(droneId) {
         const ip = droneIPs[droneId];
@@ -336,6 +348,14 @@
                 btn.classList.add('active');
             }
         });
+
+        // 스트림 정보 업데이트
+        document.getElementById('singleStreamInfo').textContent = droneIPs[droneId] + ':8080';
+
+        // 로그 스트림이 열려 있으면 새 기체로 재연결
+        if (singleLogSource) {
+            startSingleLogStream();
+        }
     }
 
     function toggleSingleFullscreen() {
@@ -351,12 +371,19 @@
     function setViewMode(mode) {
         currentViewMode = mode;
         if (mode === 'multi') {
+            // 단일뷰 → 멀티뷰 전환 시 단일뷰 로그 정리
+            stopSingleLogStream();
+            const sPanel = document.getElementById('singleLogPanel');
+            if (sPanel) sPanel.style.display = 'none';
+            const sIcon = document.getElementById('singleLogIcon');
+            if (sIcon) sIcon.classList.remove('text-success');
+
             document.getElementById('multiView').style.display = 'flex';
             document.getElementById('singleView').style.display = 'none';
             document.getElementById('viewMulti').checked = true;
             refreshAllStreams();
         } else {
-            // 멀티뷰 → 단일뷰 전환 시 로그 스트림 정리
+            // 멀티뷰 → 단일뷰 전환 시 멀티뷰 로그 스트림 정리
             [1, 2, 3].forEach(id => {
                 stopLogStream(id);
                 const panel = document.getElementById(`logPanel${id}`);
@@ -458,12 +485,87 @@
 
     window.addEventListener('beforeunload', function() {
         Object.keys(logSources).forEach(id => stopLogStream(id));
+        stopSingleLogStream();
     });
+
+    // 단일 뷰 새로고침
+    function refreshSingleStream() {
+        const video = document.getElementById('singleVideoFeed');
+        const loading = document.getElementById('singleLoading');
+        const error = document.getElementById('singleError');
+        video.style.display = 'none';
+        loading.style.display = 'block';
+        error.style.display = 'none';
+        video.src = getVideoUrl(selectedDroneId) + '?t=' + Date.now();
+    }
+
+    // 단일 뷰 로그 토글
+    let singleLogSource = null;
+
+    function toggleSingleLog() {
+        const panel = document.getElementById('singleLogPanel');
+        const icon = document.getElementById('singleLogIcon');
+        if (panel.style.display === 'none') {
+            panel.style.display = 'block';
+            icon.classList.add('text-success');
+            startSingleLogStream();
+        } else {
+            panel.style.display = 'none';
+            icon.classList.remove('text-success');
+            stopSingleLogStream();
+        }
+    }
+
+    function startSingleLogStream() {
+        stopSingleLogStream();
+        const output = document.getElementById('singleLogOutput');
+        output.innerHTML = '<div class="text-muted">연결 중...</div>';
+        try {
+            const ip = droneIPs[selectedDroneId];
+            const es = new EventSource(`http://${ip}:5000/api/service-log-stream?n=30`);
+            singleLogSource = es;
+            let firstMessage = true;
+            es.onmessage = function(event) {
+                if (firstMessage) { output.innerHTML = ''; firstMessage = false; }
+                const line = event.data;
+                const el = document.createElement('div');
+                if (line.includes('error') || line.includes('Error') || line.includes('FAIL')) {
+                    el.className = 'log-error';
+                } else if (line.includes('warn') || line.includes('Warn')) {
+                    el.className = 'log-warn';
+                } else if (line.includes('Started') || line.includes('완료')) {
+                    el.className = 'log-info';
+                }
+                el.textContent = line;
+                const atBottom = (output.scrollHeight - output.scrollTop - output.clientHeight) < 30;
+                output.appendChild(el);
+                while (output.children.length > MAX_LOG_LINES) output.removeChild(output.firstChild);
+                if (atBottom) output.scrollTop = output.scrollHeight;
+            };
+            es.onerror = function() {
+                if (es.readyState === EventSource.CLOSED) {
+                    const err = document.createElement('div');
+                    err.className = 'log-warn';
+                    err.textContent = '--- 연결 종료 ---';
+                    output.appendChild(err);
+                }
+            };
+        } catch (e) {
+            console.error('Single log stream error:', e);
+        }
+    }
+
+    function stopSingleLogStream() {
+        if (singleLogSource) {
+            singleLogSource.close();
+            singleLogSource = null;
+        }
+    }
 
     // 초기화
     document.addEventListener('DOMContentLoaded', function() {
         loadConfig();
-        setViewMode('multi');  // 기본 멀티 뷰
+        setViewMode('single');  // 기본 단일 뷰
     });
 </script>
 {% endblock %}

@@ -313,6 +313,10 @@ public:
         altitude_callback_ = callback;
     }
 
+    void setDistanceSensorCallback(DistanceSensorCallback callback) {
+        distance_sensor_callback_ = callback;
+    }
+
     bool sendFireMissionStart(const FireMissionStart& start) {
         return sendMessage(MessageType::FIRE_MISSION_START, &start, sizeof(FireMissionStart));
     }
@@ -528,20 +532,44 @@ private:
                         // ★ 수신 필터 + 즉시 처리 (큐 미사용)
                         // mavlink-router가 모든 MAVLink 트래픽을 전달하므로,
                         // 커스텀 메시지(60000~60003)와 COMMAND_LONG(76)만 즉시 파싱
+
+                        // MAVLink v1(0xFE): GLOBAL_POSITION_INT(33) 고도 추출
+                        // mavlink-router가 v1으로 전달하는 경우 처리
+                        if (buffer[0] == 0xFE) {
+                            // v1 헤더: magic(1) + len(1) + seq(1) + sysid(1) + compid(1) + msgid(1) = 6바이트
+                            constexpr size_t V1_HEADER_LEN = 6;
+                            if (static_cast<size_t>(received) >= V1_HEADER_LEN) {
+                                uint8_t msg_id_v1 = buffer[5];
+                                // GLOBAL_POSITION_INT: payload 28바이트 (최소 20바이트 필요)
+                                if (msg_id_v1 == 33 && static_cast<size_t>(received) >= V1_HEADER_LEN + 20) {
+                                    const uint8_t* payload = buffer + V1_HEADER_LEN;
+                                    // wire order: time_boot_ms(4), lat(4), lon(4), alt(4), relative_alt(4)
+                                    int32_t alt_mm, relative_alt_mm;
+                                    memcpy(&alt_mm, payload + 12, 4);
+                                    memcpy(&relative_alt_mm, payload + 16, 4);
+                                    if (altitude_callback_) {
+                                        altitude_callback_(
+                                            static_cast<float>(relative_alt_mm) / 1000.0f,
+                                            static_cast<float>(alt_mm) / 1000.0f);
+                                    }
+                                }
+                            }
+                            continue;  // v1 패킷은 커스텀 메시지(60000+) 불가, 나머지 무시
+                        }
                         if (buffer[0] != 0xFD) {
-                            continue;  // MAVLink v1(0xFE) 등 v2가 아닌 메시지 무시
+                            continue;  // v1/v2 외 패킷 무시
                         }
                         if (static_cast<size_t>(received) >= MAVLINK_HEADER_LEN) {
                             uint32_t msg_id_filter = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) |
                                                      (static_cast<uint32_t>(buffer[9]) << 16);
                             bool is_relevant = (msg_id_filter == 76) ||  // COMMAND_LONG
                                                (msg_id_filter == 33) ||  // GLOBAL_POSITION_INT (고도)
+                                               (msg_id_filter == 132) || // DISTANCE_SENSOR (하방 거리)
                                                (msg_id_filter >= 60000 && msg_id_filter <= 60003);  // 커스텀 메시지
 
-                            // GLOBAL_POSITION_INT: relative_alt 직접 추출 (파싱 불필요)
+                            // GLOBAL_POSITION_INT: relative_alt 직접 추출 (v2 경로)
                             if (msg_id_filter == 33 && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN + 20) {
                                 const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
-                                // MAVLink v2 wire order: time_boot_ms(4), lat(4), lon(4), alt(4), relative_alt(4)
                                 int32_t alt_mm, relative_alt_mm;
                                 memcpy(&alt_mm, payload + 12, 4);
                                 memcpy(&relative_alt_mm, payload + 16, 4);
@@ -550,7 +578,19 @@ private:
                                         static_cast<float>(relative_alt_mm) / 1000.0f,
                                         static_cast<float>(alt_mm) / 1000.0f);
                                 }
-                                continue;  // 전체 파싱 불필요
+                                continue;
+                            }
+
+                            // DISTANCE_SENSOR: current_distance 추출 (cm → m)
+                            // v2 payload: time_boot_ms(4), min_distance(2), max_distance(2), current_distance(2)
+                            if (msg_id_filter == 132 && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN + 10) {
+                                const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
+                                uint16_t current_distance_cm;
+                                memcpy(&current_distance_cm, payload + 8, 2);
+                                if (distance_sensor_callback_ && current_distance_cm > 0 && current_distance_cm < 65535) {
+                                    distance_sensor_callback_(static_cast<float>(current_distance_cm) / 100.0f);
+                                }
+                                continue;
                             }
 
                             if (!is_relevant) {
@@ -1110,6 +1150,7 @@ private:
     CommandLongCallback command_long_callback_;
     SetModeCallback set_mode_callback_;
     AltitudeCallback altitude_callback_;
+    DistanceSensorCallback distance_sensor_callback_;
 
     CustomMessage::Statistics stats_;
 };
@@ -1170,6 +1211,10 @@ void CustomMessage::setSetModeCallback(SetModeCallback callback) {
 
 void CustomMessage::setAltitudeCallback(AltitudeCallback callback) {
     impl_->setAltitudeCallback(callback);
+}
+
+void CustomMessage::setDistanceSensorCallback(DistanceSensorCallback callback) {
+    impl_->setDistanceSensorCallback(callback);
 }
 
 bool CustomMessage::sendFireMissionStart(const FireMissionStart& start) {

@@ -68,6 +68,12 @@ using SetModeCallback = std::function<void(uint8_t target_system, uint8_t base_m
 using AltitudeCallback = std::function<void(float relative_alt_m, float alt_amsl_m)>;
 
 /**
+ * @brief 하방 거리센서 콜백 (DISTANCE_SENSOR에서 추출)
+ * @param distance_m 거리 (m)
+ */
+using DistanceSensorCallback = std::function<void(float distance_m)>;
+
+/**
  * @brief 커스텀 MAVLink 메시지 송수신기
  */
 class CustomMessage {
@@ -103,6 +109,7 @@ public:
     void setCommandLongCallback(CommandLongCallback callback);
     void setSetModeCallback(SetModeCallback callback);
     void setAltitudeCallback(AltitudeCallback callback);
+    void setDistanceSensorCallback(DistanceSensorCallback callback);
 
     // ========== 송신 함수 ==========
     bool sendFireMissionStart(const FireMissionStart& start);
