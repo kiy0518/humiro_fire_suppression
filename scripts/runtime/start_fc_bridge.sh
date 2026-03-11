@@ -51,6 +51,14 @@ if [ -f "$PX4_ROS2_WS/install/setup.bash" ]; then
     source "$PX4_ROS2_WS/install/setup.bash"
 fi
 
+# DDS 프로파일 재설정 (source 이후 .bashrc 등에서 덮어쓸 수 있으므로)
+MAVLINK_CONF="/etc/mavlink-router/main.conf"
+if [ -f "$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "$MAVLINK_CONF"; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+else
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+fi
+
 # 라이브러리 경로 설정
 export LD_LIBRARY_PATH="/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
 
@@ -86,5 +94,12 @@ echo "  State Port: ${FC_BRIDGE_STATE_PORT}"
 echo "  Command Port: ${FC_BRIDGE_COMMAND_PORT}"
 echo "========================================"
 
-# 실행 (ROS2 노드 네임스페이스 없이 실행 — PX4 토픽 접두사는 FC_BRIDGE_PX4_NS로 제어)
+# DDS 프로파일: micro-ros-agent와 동일하게 eth0_only 사용
+# (micro-ros-agent가 실제로 eth0에서 DDS 발행하므로 fc_bridge도 eth0 필요)
+FINAL_DDS_PROFILE="$PROJECT_ROOT/config/fastdds_eth0_only.xml"
+echo "  FastDDS Profile (final): $FINAL_DDS_PROFILE"
+
+# 실행
+unset FASTRTPS_DEFAULT_PROFILES_FILE
+export FASTRTPS_DEFAULT_PROFILES_FILE="$FINAL_DDS_PROFILE"
 exec "$EXECUTABLE"

@@ -759,12 +759,13 @@ void StatusOverlay::draw(cv::Mat& frame) {
             cv::Size msg_size = cv::getTextSize(custom_message_, FONT_FACE,
                                                 MSG_FONT_SCALE, MSG_FONT_THICKNESS, &msg_baseline);
 
-            // 상단 상태바 바로 아래 중앙 배치
+            // 상단 3번째 열 중앙 배치 (1열: 상태바 내부, 2열: 비행모드/고도/속도 뱃지)
             int status_bar_h = ThermalConfig::get().status_bar_height;
+            int row2_height = msg_size.height + 10 + 4;  // 2열 뱃지 높이(pad*2) + 간격
             int msg_bg_width = msg_size.width + MSG_PADDING * 2;
             int msg_bg_height = msg_size.height + MSG_PADDING * 2;
             int msg_bg_x = (frame.cols - msg_bg_width) / 2;
-            int msg_bg_y = status_bar_h + 4;
+            int msg_bg_y = status_bar_h + 4 + row2_height;
 
             // 반투명 라운드 배경 (테두리 없음)
             {

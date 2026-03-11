@@ -61,6 +61,13 @@ using CommandLongCallback = std::function<void(uint8_t target_system, uint8_t ta
 using SetModeCallback = std::function<void(uint8_t target_system, uint8_t base_mode, uint32_t custom_mode)>;
 
 /**
+ * @brief 고도 정보 콜백 (GLOBAL_POSITION_INT에서 추출, QGC alt(rel)과 동일)
+ * @param relative_alt_m 홈 기준 상대 고도 (m)
+ * @param alt_amsl_m AMSL 절대 고도 (m)
+ */
+using AltitudeCallback = std::function<void(float relative_alt_m, float alt_amsl_m)>;
+
+/**
  * @brief 커스텀 MAVLink 메시지 송수신기
  */
 class CustomMessage {
@@ -95,6 +102,7 @@ public:
     void setFireReturnCallback(FireReturnCallback callback);
     void setCommandLongCallback(CommandLongCallback callback);
     void setSetModeCallback(SetModeCallback callback);
+    void setAltitudeCallback(AltitudeCallback callback);
 
     // ========== 송신 함수 ==========
     bool sendFireMissionStart(const FireMissionStart& start);

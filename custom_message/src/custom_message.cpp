@@ -309,6 +309,10 @@ public:
         set_mode_callback_ = callback;
     }
 
+    void setAltitudeCallback(AltitudeCallback callback) {
+        altitude_callback_ = callback;
+    }
+
     bool sendFireMissionStart(const FireMissionStart& start) {
         return sendMessage(MessageType::FIRE_MISSION_START, &start, sizeof(FireMissionStart));
     }
@@ -531,7 +535,24 @@ private:
                             uint32_t msg_id_filter = buffer[7] | (static_cast<uint32_t>(buffer[8]) << 8) |
                                                      (static_cast<uint32_t>(buffer[9]) << 16);
                             bool is_relevant = (msg_id_filter == 76) ||  // COMMAND_LONG
+                                               (msg_id_filter == 33) ||  // GLOBAL_POSITION_INT (고도)
                                                (msg_id_filter >= 60000 && msg_id_filter <= 60003);  // 커스텀 메시지
+
+                            // GLOBAL_POSITION_INT: relative_alt 직접 추출 (파싱 불필요)
+                            if (msg_id_filter == 33 && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN + 20) {
+                                const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
+                                // MAVLink v2 wire order: time_boot_ms(4), lat(4), lon(4), alt(4), relative_alt(4)
+                                int32_t alt_mm, relative_alt_mm;
+                                memcpy(&alt_mm, payload + 12, 4);
+                                memcpy(&relative_alt_mm, payload + 16, 4);
+                                if (altitude_callback_) {
+                                    altitude_callback_(
+                                        static_cast<float>(relative_alt_mm) / 1000.0f,
+                                        static_cast<float>(alt_mm) / 1000.0f);
+                                }
+                                continue;  // 전체 파싱 불필요
+                            }
+
                             if (!is_relevant) {
                                 continue;  // heartbeat, position 등 불필요한 MAVLink 즉시 버림
                             }
@@ -1088,6 +1109,7 @@ private:
     FireReturnCallback return_callback_;
     CommandLongCallback command_long_callback_;
     SetModeCallback set_mode_callback_;
+    AltitudeCallback altitude_callback_;
 
     CustomMessage::Statistics stats_;
 };
@@ -1144,6 +1166,10 @@ void CustomMessage::setCommandLongCallback(CommandLongCallback callback) {
 
 void CustomMessage::setSetModeCallback(SetModeCallback callback) {
     impl_->setSetModeCallback(callback);
+}
+
+void CustomMessage::setAltitudeCallback(AltitudeCallback callback) {
+    impl_->setAltitudeCallback(callback);
 }
 
 bool CustomMessage::sendFireMissionStart(const FireMissionStart& start) {

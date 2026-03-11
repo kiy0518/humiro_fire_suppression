@@ -61,13 +61,10 @@ public:
                            ctx.flight_speed, rtl_max_axy,
                            rtl_max_vz, RTL_MAX_AZ, 0.1f);
 
-        // 후진 비행용 yaw: 홈 방향의 반대 (기수가 홈 반대를 향함)
+        // RTL yaw: 현재 헤딩 유지 (회전 없이 복귀)
         float dx = home_x_ - cur_x;
         float dy = home_y_ - cur_y;
-        float home_yaw = std::atan2(dy, dx);
-        rtl_yaw_ = home_yaw + static_cast<float>(M_PI);  // 180° 반대
-        if (rtl_yaw_ > M_PI) rtl_yaw_ -= 2.0f * M_PI;
-        prev_yawspeed_ = 0.0f;
+        rtl_yaw_ = ctx.current_yaw.load();
 
         // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
         float home_dist = std::sqrt(dx * dx + dy * dy);
@@ -267,36 +264,9 @@ public:
             sp.position = {pos[0], pos[1], pos[2]};
             sp.velocity = {vel[0], vel[1], vel[2]};
 
-            // Yaw: 후진 정렬 (홈 반대 방향으로 사다리꼴 yawspeed 회전)
-            {
-                float current_yaw = ctx.current_yaw.load();
-                float yaw_diff = rtl_yaw_ - current_yaw;
-                while (yaw_diff > M_PI) yaw_diff -= 2.0f * M_PI;
-                while (yaw_diff < -M_PI) yaw_diff += 2.0f * M_PI;
-
-                float abs_diff = std::fabs(yaw_diff);
-                float target_yawspeed = 0.0f;
-                if (abs_diff < 0.02f) {
-                    target_yawspeed = 0.0f;
-                    prev_yawspeed_ = 0.0f;
-                } else if (abs_diff < RTL_YAW_DECEL_ANGLE) {
-                    float s = ctx.MAX_YAW_RATE * (abs_diff / RTL_YAW_DECEL_ANGLE);
-                    s = std::max(0.05f, s);
-                    target_yawspeed = (yaw_diff > 0) ? s : -s;
-                } else {
-                    target_yawspeed = (yaw_diff > 0) ? ctx.MAX_YAW_RATE : -ctx.MAX_YAW_RATE;
-                }
-
-                float max_delta = RTL_MAX_YAW_ACCEL * 0.1f;
-                float delta = target_yawspeed - prev_yawspeed_;
-                if (delta > max_delta) delta = max_delta;
-                if (delta < -max_delta) delta = -max_delta;
-                float yawspeed = prev_yawspeed_ + delta;
-                prev_yawspeed_ = yawspeed;
-
-                sp.yaw = NAN;
-                sp.yawspeed = yawspeed;
-            }
+            // Yaw: 현재 헤딩 유지 (회전 없이 복귀)
+            sp.yaw = rtl_yaw_;
+            sp.yawspeed = 0.0f;
             return true;
         }
 
@@ -365,10 +335,6 @@ private:
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
     static constexpr float SOFT_LAND_EMERGENCY_TIMEOUT = 180.0f;  // SOFT_LAND 비상 타임아웃 (초)
 
-    // yaw 제어 상수
-    static constexpr float RTL_MAX_YAW_ACCEL = 0.2f;    // rad/s²
-    static constexpr float RTL_YAW_DECEL_ANGLE = 0.5f;  // rad (~28.6°)
-
     // === 상태 ===
     RtlPhase phase_{RtlPhase::NAVIGATE_HOME};
     std::chrono::steady_clock::time_point phase_enter_time_;
@@ -379,7 +345,6 @@ private:
 
     // 3D 모션 프로파일 (NAVIGATE_HOME 페이즈)
     MotionProfile3D nav_profile_;
-    float prev_yawspeed_{0.0f};
 
     bool ground_detected_{false};
     std::chrono::steady_clock::time_point ground_detect_time_;

@@ -55,6 +55,10 @@ bool FCBridgeServer::start()
         px4_ns_ + "/fmu/out/vehicle_gps_position", qos,
         std::bind(&FCBridgeServer::gpsCallback, this, std::placeholders::_1));
 
+    home_position_sub_ = node_->create_subscription<px4_msgs::msg::HomePosition>(
+        px4_ns_ + "/fmu/out/home_position", qos,
+        std::bind(&FCBridgeServer::homePositionCallback, this, std::placeholders::_1));
+
     // ========== ROS2 Publishers (Domain 0, /droneN/fmu/in/*) ==========
     offboard_mode_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
         px4_ns_ + "/fmu/in/offboard_control_mode", qos);
@@ -146,6 +150,19 @@ void FCBridgeServer::stop()
 void FCBridgeServer::vehicleStatusCallback(const px4_msgs::msg::VehicleStatus::SharedPtr msg)
 {
     std::lock_guard<std::mutex> lock(state_mutex_);
+
+    // Arming 전환 감지: DISARMED(1) → ARMED(2) 시 현재 AMSL을 home_alt로 캡처
+    if (msg->arming_state == 2 && prev_arming_state_ != 2) {
+        if (current_state_.altitude_amsl != 0.0f) {
+            current_state_.home_alt = current_state_.altitude_amsl;
+            current_state_.home_alt_valid = 1;
+            RCLCPP_INFO(node_->get_logger(),
+                "[FCBridgeServer] Home alt captured on arming: %.2f m AMSL",
+                current_state_.home_alt);
+        }
+    }
+    prev_arming_state_ = msg->arming_state;
+
     current_state_.nav_state = msg->nav_state;
     current_state_.arming_state = msg->arming_state;
     current_state_.fc_connected = 1;
@@ -188,6 +205,14 @@ void FCBridgeServer::gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg)
     current_state_.gps_fix_type = msg->fix_type;
     current_state_.gps_satellites = msg->satellites_used;
     current_state_.gps_hdop = msg->hdop;
+}
+
+void FCBridgeServer::homePositionCallback(const px4_msgs::msg::HomePosition::SharedPtr msg)
+{
+    if (!msg->valid_alt) return;
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    current_state_.home_alt = msg->alt;
+    current_state_.home_alt_valid = 1;
 }
 
 // ========== 50Hz 타이머 ==========

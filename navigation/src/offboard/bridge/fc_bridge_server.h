@@ -19,6 +19,7 @@
 #include <px4_msgs/msg/offboard_control_mode.hpp>
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
+#include <px4_msgs/msg/home_position.hpp>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -50,6 +51,7 @@ private:
     void vehicleGlobalPositionCallback(const px4_msgs::msg::VehicleGlobalPosition::SharedPtr msg);
     void batteryCallback(const px4_msgs::msg::BatteryStatus::SharedPtr msg);
     void gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg);
+    void homePositionCallback(const px4_msgs::msg::HomePosition::SharedPtr msg);
 
     // 50Hz 타이머: FCState → UDP 전송
     void sendStateTimer();
@@ -71,6 +73,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::VehicleGlobalPosition>::SharedPtr global_position_sub_;
     rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
     rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sub_;
+    rclcpp::Subscription<px4_msgs::msg::HomePosition>::SharedPtr home_position_sub_;
 
     // ROS2 Publishers (Domain 0)
     rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_mode_pub_;
@@ -85,6 +88,7 @@ private:
     FCState current_state_{};
     std::atomic<bool> status_received_{false};
     std::atomic<bool> position_received_{false};
+    uint8_t prev_arming_state_{0};  // arming 전환 감지용
 
     // UDP 소켓
     int state_send_fd_ = -1;      // FCState 송신

@@ -733,7 +733,7 @@ void ApplicationManager::initializeCustomMessage() {
                 }
                 writeAmmoStatus();
 
-                // GPIO 제어는 별도 스레드에서 실행 (3초 대기 포함)
+                // GPIO 제어는 별도 스레드에서 실행 (3초 대기 포함)1
                 std::thread([this, gpio]() {
                     fireGpioPin(gpio);
                 }).detach();
@@ -998,7 +998,16 @@ void ApplicationManager::initializeCustomMessage() {
                 }
             }
         );
-        
+
+        // GLOBAL_POSITION_INT에서 relative_alt 수신 → OSD 고도 업데이트
+        custom_message_handler_->setAltitudeCallback(
+            [this](float relative_alt_m, float alt_amsl_m) {
+                if (status_overlay_) {
+                    status_overlay_->setAltitude(relative_alt_m);
+                }
+            }
+        );
+
         // 메시지 송수신 시작
         if (custom_message_handler_->start()) {
             std::cout << "  ✓ 커스텀 메시지 송수신 시작 (수신 포트: " << app_port << ", 송신 포트: " << mavlink_port << ")" << std::endl;

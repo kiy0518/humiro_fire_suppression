@@ -55,7 +55,11 @@ struct FCState {
 
     // 하방 거리계
     float dist_bottom;        // 지면까지 거리 (m), 무효 시 -1
-    uint8_t dist_bottom_valid; // 0 or 1
+    uint8_t dist_bottom_valid; // 0 or 1 (실제 거리센서 유효 여부)
+
+    // Home 고도 (QGC alt(rel) 기준)
+    float home_alt;           // Home AMSL 고도 (m), 미설정 시 NAN
+    uint8_t home_alt_valid;   // 0 or 1
 
     // 연결 상태
     uint8_t fc_connected;     // 0 or 1

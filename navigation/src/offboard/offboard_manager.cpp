@@ -238,8 +238,9 @@ void OffboardManager::timerCallback()
     // ★ OFFBOARD heartbeat 발행
     // RTL 중에도 heartbeat 유지 → PX4 offboard loss failsafe 방지
     // (heartbeat 중단 시 PX4가 pre-failsafe 모드=OFFBOARD를 기억하여 disarm 후 복귀함)
+    // RC override 감지 중에는 heartbeat 중단 → PX4가 OFFBOARD로 복귀하지 않도록
     auto state = current_state_.load();
-    if (mission_running_.load() && state != MissionState::LANDED) {
+    if (mission_running_.load() && state != MissionState::LANDED && !offboard_lost_tracking_) {
         publishOffboardControlMode();
     }
 

@@ -40,8 +40,19 @@ if [ -d "$MICRO_ROS_WS/install/micro_ros_agent/lib" ]; then
     export LD_LIBRARY_PATH="$MICRO_ROS_WS/install/micro_ros_agent/lib:/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH}"
 fi
 
+# DDS 프로파일 최종 확정 (exec 직전 — .bashrc 등의 환경변수 오염 방지)
+MAVLINK_CONF="/etc/mavlink-router/main.conf"
+if [ -f "$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "$MAVLINK_CONF"; then
+    FINAL_DDS_PROFILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+else
+    FINAL_DDS_PROFILE="$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+fi
+echo "  FastDDS Profile (final): $FINAL_DDS_PROFILE"
+
 # micro-ROS Agent 실행 (SCHED_FIFO는 systemd ExecStartPost에서 root 권한으로 적용)
 if [ -f "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" ]; then
+    unset FASTRTPS_DEFAULT_PROFILES_FILE
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$FINAL_DDS_PROFILE"
     exec "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" udp4 --port 8888
 else
     echo "Error: micro_ros_agent not found at $MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
