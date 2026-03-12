@@ -165,7 +165,7 @@
                 <div class="card-body text-center p-0">
                     <div id="singleVideoContainer" style="background: #000; min-height: 480px; display: flex; align-items: center; justify-content: center;">
                         <img id="singleVideoFeed" src="" alt="Video Feed"
-                             style="max-width: 100%; max-height: 720px; display: none;"
+                             style="max-width: 100%; max-height: 720px; display: none; object-fit: contain;"
                              onload="onSingleVideoLoad()" onerror="onSingleVideoError()">
                         <div id="singleLoading" class="text-white">
                             <div class="spinner-border text-light mb-3" role="status"></div>
@@ -198,8 +198,8 @@
         </div>
     </div>
 
-    <!-- 카메라 정보 -->
-    <div class="row mt-3">
+    <!-- 카메라 정보 (멀티 뷰에서만 표시) -->
+    <div class="row mt-3" id="cameraInfoSection" style="display: none;">
         <div class="col-md-6">
             <div class="card">
                 <div class="card-header py-2">
@@ -360,12 +360,27 @@
 
     function toggleSingleFullscreen() {
         const container = document.getElementById('singleVideoContainer');
+        const video = document.getElementById('singleVideoFeed');
         if (document.fullscreenElement) {
             document.exitFullscreen();
         } else {
             container.requestFullscreen();
+            // 전체화면 시 이미지 꽉 채우기
+            video.style.maxHeight = '100vh';
+            video.style.width = '100%';
+            video.style.height = '100%';
         }
     }
+
+    // 전체화면 해제 시 원래 크기로 복원
+    document.addEventListener('fullscreenchange', function() {
+        const video = document.getElementById('singleVideoFeed');
+        if (!document.fullscreenElement) {
+            video.style.maxHeight = '720px';
+            video.style.width = '';
+            video.style.height = '';
+        }
+    });
 
     // 뷰 모드 전환
     function setViewMode(mode) {
@@ -380,6 +395,7 @@
 
             document.getElementById('multiView').style.display = 'flex';
             document.getElementById('singleView').style.display = 'none';
+            document.getElementById('cameraInfoSection').style.display = '';
             document.getElementById('viewMulti').checked = true;
             refreshAllStreams();
         } else {
@@ -393,6 +409,7 @@
             });
             document.getElementById('multiView').style.display = 'none';
             document.getElementById('singleView').style.display = 'block';
+            document.getElementById('cameraInfoSection').style.display = 'none';
             document.getElementById('viewSingle').checked = true;
             switchCamera(selectedDroneId);
         }
