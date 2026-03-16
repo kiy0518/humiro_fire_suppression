@@ -455,14 +455,15 @@ void ApplicationManager::initializeComponents() {
                 [this](uint8_t old_nav_state, uint8_t new_nav_state) {
                     if (old_nav_state == 14) {  // OFFBOARD에서 다른 모드로 전환
                         // 미션 진행 중 의도적 OFFBOARD 이탈은 무시:
-                        // - RTL/LANDED: RTL 명령으로 의도적 OFFBOARD 종료 (PX4가 AUTO_RTL 또는 Position으로 전환)
                         // - PREPARING~HOVER: 시동/이륙 시퀀스 중 PX4 nav_state 일시적 변동
+                        // - LANDED: 이미 미션 종료 상태
+                        // ※ RTL 중에도 RC override 감지하여 조종기에 제어권 넘김
                         if (offboard_manager_) {
                             MissionState ms = offboard_manager_->getCurrentState();
                             if (ms == MissionState::PREPARING || ms == MissionState::OFFBOARD ||
                                 ms == MissionState::ARMING || ms == MissionState::TAKEOFF ||
                                 ms == MissionState::HOVER ||
-                                ms == MissionState::RTL || ms == MissionState::LANDED) {
+                                ms == MissionState::LANDED) {
                                 std::cout << "  ★ [모드 변경 콜백] OFFBOARD → nav_state=" << (int)new_nav_state
                                           << " (의도적 전환, 무시: state=" << OffboardManager::getStateName(ms) << ")" << std::endl;
                                 return;

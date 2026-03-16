@@ -50,11 +50,35 @@ fi
 echo "  FastDDS Profile (final): $FINAL_DDS_PROFILE"
 
 # micro-ROS Agent 실행 (SCHED_FIFO는 systemd ExecStartPost에서 root 권한으로 적용)
-if [ -f "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" ]; then
-    unset FASTRTPS_DEFAULT_PROFILES_FILE
-    export FASTRTPS_DEFAULT_PROFILES_FILE="$FINAL_DDS_PROFILE"
-    exec "$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" udp4 --port 8888
-else
-    echo "Error: micro_ros_agent not found at $MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+AGENT_BIN="$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+if [ ! -f "$AGENT_BIN" ]; then
+    echo "Error: micro_ros_agent not found at $AGENT_BIN"
     exit 1
+fi
+
+unset FASTRTPS_DEFAULT_PROFILES_FILE
+export FASTRTPS_DEFAULT_PROFILES_FILE="$FINAL_DDS_PROFILE"
+
+# device_config.env에서 uXRCE-DDS 통신 설정 로드
+source "$PROJECT_ROOT/config/device_config.env"
+
+# SITL 모드 판별 (mavlink-router 설정 기반, 위에서 이미 체크한 MAVLINK_CONF 재활용)
+IS_SITL="false"
+if [ -f "$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "$MAVLINK_CONF"; then
+    IS_SITL="true"
+fi
+
+# 통신 방식 결정: SITL=항상 UDP, FC=device_config.env 설정
+if [ "$IS_SITL" = "true" ] || [ "$XRCE_DDS_TRANSPORT" != "serial" ]; then
+    echo "  uXRCE-DDS: UDP 모드 (udp4 --port ${XRCE_DDS_PORT:-8888})"
+    exec "$AGENT_BIN" udp4 --port ${XRCE_DDS_PORT:-8888}
+else
+    SERIAL_DEV="${XRCE_DDS_SERIAL_DEV:-/dev/ttyUSB0}"
+    SERIAL_BAUD="${XRCE_DDS_SERIAL_BAUD:-921600}"
+    if [ ! -e "$SERIAL_DEV" ]; then
+        echo "Error: 시리얼 디바이스 없음: $SERIAL_DEV → UDP 폴백"
+        exec "$AGENT_BIN" udp4 --port ${XRCE_DDS_PORT:-8888}
+    fi
+    echo "  uXRCE-DDS: UART 모드 (serial --dev $SERIAL_DEV -b $SERIAL_BAUD)"
+    exec "$AGENT_BIN" serial --dev "$SERIAL_DEV" -b "$SERIAL_BAUD"
 fi

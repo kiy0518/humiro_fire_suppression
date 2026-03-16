@@ -330,7 +330,6 @@ private:
     static constexpr float GROUND_VZ_THRESHOLD = 0.1f;   // 착지 판정 수직 속도 (m/s)
     static constexpr float GROUND_STABLE_SEC = 3.0f;     // 착지 안정화 시간 - 기압계 (초)
     static constexpr float GROUND_STABLE_SEC_RF = 1.0f;  // 착지 안정화 시간 - 거리계 (초)
-    static constexpr float FINAL_DECEL_ALT = 0.3f;      // 최종 감속 시작 고도 (m AGL)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
     static constexpr float SOFT_LAND_EMERGENCY_TIMEOUT = 180.0f;  // SOFT_LAND 비상 타임아웃 (초)
@@ -366,16 +365,15 @@ private:
     }
 
     /** 감속 착륙 속도 계산
-     * 2단계 감속: soft_land_alt → FINAL_DECEL_ALT 구간은 descent_speed 유지,
-     * FINAL_DECEL_ALT 이하에서만 landing_speed_min까지 감속.
-     * PX4 land_detector가 낮은 속도를 "착지"로 오인하는 것을 방지.
+     * soft_land_alt → 0m 전체 구간에서 descent_speed → landing_speed_min 선형 감속.
+     * GUI에서 soft_land_alt 변경 시 감속 구간 길이가 실제로 반영됨.
      */
     float calcLandingSpeed(float agl) const {
-        if (agl > soft_land_alt_) return descent_speed_;
+        if (agl >= soft_land_alt_) return descent_speed_;
         if (agl <= 0.0f) return landing_speed_min_;
-        if (agl > FINAL_DECEL_ALT) return descent_speed_;
-        // FINAL_DECEL_ALT 이하: descent_speed → landing_speed_min 선형 감속
-        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * (agl / FINAL_DECEL_ALT);
+        // soft_land_alt → 0m: descent_speed → landing_speed_min 선형 감속
+        float ratio = agl / soft_land_alt_;
+        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * ratio;
     }
 
     /** 동적 SOFT_LAND 타임아웃: 현재 AGL 기반으로 매 tick 갱신 */

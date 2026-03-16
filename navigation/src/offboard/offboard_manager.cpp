@@ -235,25 +235,22 @@ void OffboardManager::timerCallback()
     // ★ FCBridgeClient에서 FC 상태 폴링 (10Hz)
     updateFromFCState();
 
-    // ★ OFFBOARD heartbeat 발행
-    // RTL 중에도 heartbeat 유지 → PX4 offboard loss failsafe 방지
-    // (heartbeat 중단 시 PX4가 pre-failsafe 모드=OFFBOARD를 기억하여 disarm 후 복귀함)
-    // RC override 감지 중에는 heartbeat 중단 → PX4가 OFFBOARD로 복귀하지 않도록
     auto state = current_state_.load();
-    if (mission_running_.load() && state != MissionState::LANDED && !offboard_lost_tracking_) {
-        publishOffboardControlMode();
-    }
 
-    // ★ RC 모드 전환 감지 (디바운스: 2초)
+    // ★ RC 모드 전환 감지 (heartbeat/setpoint 발행보다 반드시 먼저 실행!)
+    // 순서가 중요한 이유:
+    //   감지 → heartbeat 순서여야 nav_state 변경 즉시 heartbeat 중단 가능.
+    //   heartbeat → 감지 순서면 nav_state 변경 tick에도 heartbeat가 1회 발행되어
+    //   PX4가 OFFBOARD로 복귀 → 다음 tick에서 recovery → 디바운스 리셋 → 무한 루프.
     if (mission_running_.load() && arming_state_.load() == 2 &&
-        state != MissionState::RTL && state != MissionState::LANDED &&
+        state != MissionState::LANDED &&
         state != MissionState::IDLE) {
         if (nav_state_.load() != 14) {
             if (!offboard_lost_tracking_) {
                 offboard_lost_start_ = std::chrono::steady_clock::now();
                 offboard_lost_tracking_ = true;
                 RCLCPP_WARN(node_->get_logger(),
-                    "[OFFBOARD] nav_state=%d (not OFFBOARD), monitoring... (state=%s)",
+                    "[OFFBOARD] nav_state=%d (not OFFBOARD), heartbeat+setpoint 즉시 중단 (state=%s)",
                     nav_state_.load(), getStateName(state).c_str());
             } else {
                 auto elapsed = std::chrono::steady_clock::now() - offboard_lost_start_;
@@ -286,6 +283,13 @@ void OffboardManager::timerCallback()
                 offboard_recovery_count_++;
             }
         }
+    }
+
+    // ★ OFFBOARD heartbeat 발행 (RC override 감지 후!)
+    // offboard_lost_tracking_ == true → heartbeat 즉시 중단
+    // → PX4가 OFFBOARD 모드에서 이탈, 조종기 모드 유지
+    if (mission_running_.load() && state != MissionState::LANDED && !offboard_lost_tracking_) {
+        publishOffboardControlMode();
     }
 
     if (!mission_running_.load()) return;
@@ -379,7 +383,9 @@ void OffboardManager::timerCallback()
         }
 
         // setpoint 발행 (핸들러 → FCCommand 변환 → FCBridgeClient)
-        if (current_handler_) {
+        // RC override 감지 중(offboard_lost_tracking_)에는 setpoint도 중단
+        // → PX4가 OFFBOARD 모드로 잠시 복귀해도 setpoint 없어 제어 불가
+        if (current_handler_ && !offboard_lost_tracking_) {
             px4_msgs::msg::TrajectorySetpoint sp{};
             sp.timestamp = node_->get_clock()->now().nanoseconds() / 1000;
             if (current_handler_->fillSetpoint(ctx_, sp)) {

@@ -1,17 +1,17 @@
 {
-  "takeoff_max_speed": 1.5,
+  "takeoff_max_speed": 1,
   "takeoff_accel_tau": 1,
-  "updated_at": "2026-03-10 17:36:13",
+  "updated_at": "2026-03-13 10:17:05",
   "target_altitude": 2,
   "mission_mode": "solo",
-  "nav_max_accel_xy": 1.5,
+  "nav_max_accel_xy": 3,
   "nav_max_speed_z": 1.5,
   "adjust_approach_speed": 0.3,
   "adjust_target_wall_dist": 10,
   "adjust_retreat_dist": 0,
-  "rtl_descent_speed": 0.2,
-  "rtl_soft_land_alt": 1.5,
-  "rtl_landing_speed_min": 0.03,
+  "rtl_descent_speed": 0.3,
+  "rtl_soft_land_alt": 2,
+  "rtl_landing_speed_min": 0.1,
   "deadzone_h_px": 33,
-  "deadzone_v_px": 33
+  "deadzone_v_px": 50
 }

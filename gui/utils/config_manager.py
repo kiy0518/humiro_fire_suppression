@@ -240,6 +240,9 @@ class ConfigManager:
                 "QGC_UDP_PORT": str(gcs_port),
                 "FC_MAVLINK_PORT": "14540",
                 "XRCE_DDS_PORT": "8888",
+                "XRCE_DDS_TRANSPORT": "udp",
+                "XRCE_DDS_SERIAL_DEV": "/dev/ttyUSB0",
+                "XRCE_DDS_SERIAL_BAUD": "921600",
                 "ROLE": role,
                 "GCS_PORT_MODE": gcs_port_mode,
                 "LEADER_NAMESPACE": "drone1",
@@ -736,6 +739,34 @@ class ConfigManager:
         """모든 카테고리 목록 반환 (활성 프로파일)"""
         categories = self._get_active_categories()
         return {k: v.get("name", k) for k, v in categories.items()}
+
+    # === uXRCE-DDS 통신 설정 ===
+
+    def get_xrce_dds_config(self) -> Dict[str, str]:
+        """uXRCE-DDS 통신 설정 반환"""
+        return {
+            "transport": self.get("XRCE_DDS_TRANSPORT", "udp"),
+            "port": self.get("XRCE_DDS_PORT", "8888"),
+            "serial_dev": self.get("XRCE_DDS_SERIAL_DEV", "/dev/ttyUSB0"),
+            "serial_baud": self.get("XRCE_DDS_SERIAL_BAUD", "921600"),
+        }
+
+    def set_xrce_dds_config(self, transport: str, serial_dev: str = None, serial_baud: str = None) -> bool:
+        """uXRCE-DDS 통신 설정 저장
+
+        Args:
+            transport: 'udp' 또는 'serial'
+            serial_dev: UART 디바이스 경로 (serial 모드 시)
+            serial_baud: UART 보레이트 (serial 모드 시)
+        """
+        if transport not in ("udp", "serial"):
+            return False
+        self.set("XRCE_DDS_TRANSPORT", transport)
+        if serial_dev is not None:
+            self.set("XRCE_DDS_SERIAL_DEV", serial_dev)
+        if serial_baud is not None:
+            self.set("XRCE_DDS_SERIAL_BAUD", serial_baud)
+        return self.save_device_config()
 
     # === 페일세이프 설정 ===
 

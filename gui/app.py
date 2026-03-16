@@ -1999,19 +1999,20 @@ Port = {application_port}
         # ROS_NAMESPACE는 편대비행 inter-drone DDS에서만 사용되며 모드 전환과 무관.
 
         # DDS 포트(8888) iptables 규칙: SITL↔FC 데이터 소스 격리
-        # SITL 모드: eth0(FC)에서 오는 DDS 차단 → SITL PC만 연결
-        # FC 모드: wlan0(SITL)에서 오는 DDS 차단 → FC만 연결
-        subprocess.run(['sudo', 'modprobe', 'xt_udp'],
-                       capture_output=True, timeout=5)  # iptables udp 매칭 모듈 로드
+        # UART 모드 + FC: iptables 불필요 (시리얼 직접 연결, UDP 포트 미사용)
+        # UDP 모드: SITL↔FC 간 DDS 소스 격리 필요
+        xrce_transport = config_manager.get('XRCE_DDS_TRANSPORT', 'udp')
         fc_ip = config_manager.get('FC_IP', '10.0.0.12')
-        # 기존 INPUT 규칙 제거 (없어도 무시)
+
+        # 기존 iptables 규칙 항상 제거 (모드 전환 시 잔여 규칙 정리)
+        subprocess.run(['sudo', 'modprobe', 'xt_udp'],
+                       capture_output=True, timeout=5)
         subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'eth0', '-s', fc_ip,
                         '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                        capture_output=True, timeout=5)
         subprocess.run(['sudo', 'iptables', '-D', 'INPUT', '-i', 'wlan0',
                         '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                        capture_output=True, timeout=5)
-        # 기존 OUTPUT 규칙 제거 (없어도 무시)
         subprocess.run(['sudo', 'iptables', '-D', 'OUTPUT', '-o', 'eth0', '-d', fc_ip,
                         '-p', 'udp', '-j', 'DROP'],
                        capture_output=True, timeout=5)
@@ -2019,6 +2020,9 @@ Port = {application_port}
                         '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                        capture_output=True, timeout=5)
 
+        # FC 모드 + UART: iptables DDS 규칙 불필요 (시리얼 직접 연결)
+        # SITL 모드: 항상 UDP이므로 iptables 규칙 필요
+        # FC 모드 + UDP: 기존과 동일하게 iptables 규칙 적용
         if mode == 'sitl':
             # SITL 모드: FC(eth0) DDS 완전 차단 (수신 + 송신)
             subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'eth0', '-s', fc_ip,
@@ -2027,14 +2031,15 @@ Port = {application_port}
             subprocess.run(['sudo', 'iptables', '-A', 'OUTPUT', '-o', 'eth0', '-d', fc_ip,
                             '-p', 'udp', '-j', 'DROP'],
                            capture_output=True, timeout=5)
-        else:
-            # FC 모드: SITL PC(wlan0) DDS 완전 차단 (수신 + 송신)
+        elif xrce_transport != 'serial':
+            # FC 모드 + UDP: SITL PC(wlan0) DDS 완전 차단 (수신 + 송신)
             subprocess.run(['sudo', 'iptables', '-A', 'INPUT', '-i', 'wlan0',
                             '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                            capture_output=True, timeout=5)
             subprocess.run(['sudo', 'iptables', '-A', 'OUTPUT', '-o', 'wlan0',
                             '-p', 'udp', '--dport', '8888', '-j', 'DROP'],
                            capture_output=True, timeout=5)
+        # else: FC 모드 + UART → iptables 규칙 없음 (시리얼 직접 연결)
 
         # iptables 규칙 저장 (재부팅 후 자동 복원용)
         subprocess.run('sudo iptables-save | sudo tee /etc/iptables.rules > /dev/null',
@@ -2071,13 +2076,15 @@ Port = {application_port}
         import time
         time.sleep(2)  # UDP 소켓 해제 + DDS 세션 정리 대기
 
-        # 포트 8888 해제 확인 (최대 5초)
-        for _retry in range(5):
-            port_check = subprocess.run(
-                ['ss', '-uln'], capture_output=True, text=True, timeout=2)
-            if ':8888' not in port_check.stdout:
-                break
-            time.sleep(1)
+        # 포트 8888 해제 확인 (UDP 모드에서만, 최대 5초)
+        # UART 모드에서는 UDP 포트를 사용하지 않으므로 건너뜀
+        if mode == 'sitl' or xrce_transport != 'serial':
+            for _retry in range(5):
+                port_check = subprocess.run(
+                    ['ss', '-uln'], capture_output=True, text=True, timeout=2)
+                if ':8888' not in port_check.stdout:
+                    break
+                time.sleep(1)
 
         # ============================================================
         # Phase 3: 서비스 시작 (의존성 순서)
@@ -2104,15 +2111,22 @@ Port = {application_port}
                 'error': f'micro-ros-agent 시작 실패: {micro_ros_result.stderr}'
             }), 500
 
-        # 3c. micro-ros-agent 포트 8888 리스닝 확인 (최대 5초)
+        # 3c. micro-ros-agent 준비 확인 (최대 5초)
+        # SITL 모드: 항상 UDP → 포트 8888 리스닝 확인
+        # FC 모드 + UART: 포트 체크 불필요 (시리얼), 프로세스 시작 대기만
         agent_ready = False
-        for _retry in range(10):
-            port_check = subprocess.run(
-                ['ss', '-uln'], capture_output=True, text=True, timeout=2)
-            if ':8888' in port_check.stdout:
-                agent_ready = True
-                break
-            time.sleep(0.5)
+        if mode == 'sitl' or xrce_transport != 'serial':
+            for _retry in range(10):
+                port_check = subprocess.run(
+                    ['ss', '-uln'], capture_output=True, text=True, timeout=2)
+                if ':8888' in port_check.stdout:
+                    agent_ready = True
+                    break
+                time.sleep(0.5)
+        else:
+            # UART 모드: 프로세스 시작 대기
+            time.sleep(2)
+            agent_ready = system_checker.is_service_running("micro-ros-agent")
 
         # ============================================================
         # Phase 3.5: GUI 내부 전역 상태 초기화
@@ -2186,16 +2200,41 @@ def api_micro_ros_status():
     # 서비스 상태
     service_running = system_checker.is_service_running("micro-ros-agent")
 
-    # UDP 포트 8888 리슨 상태 확인
-    port_listening = False
+    # uXRCE-DDS 통신 설정 로드
+    xrce_config = config_manager.get_xrce_dds_config()
+    transport = xrce_config["transport"]
+
+    # SITL 모드 판별 (mavlink-router 설정 기반)
+    is_sitl = False
     try:
-        result = subprocess.run(
-            ['ss', '-uln'],
-            capture_output=True, text=True, timeout=2
-        )
-        port_listening = ':8888' in result.stdout
+        with open('/etc/mavlink-router/main.conf', 'r') as f:
+            mavlink_conf = f.read()
+            is_sitl = '[UdpEndpoint SITL]' in mavlink_conf or '[UdpEndpoint PC_SITL]' in mavlink_conf
     except:
         pass
+
+    # 실제 동작 모드 판별: SITL이면 항상 UDP, 아니면 설정값
+    effective_transport = "udp" if is_sitl else transport
+
+    # 연결 상태 확인 (전송 방식에 따라 다름)
+    port_listening = False
+    serial_device_exists = False
+    if effective_transport == "serial":
+        # UART 모드: 프로세스 실행 여부 + 시리얼 디바이스 존재 확인
+        serial_dev = xrce_config["serial_dev"]
+        serial_device_exists = os.path.exists(serial_dev)
+        # UART 모드에서는 port_listening 대신 프로세스 + 디바이스 존재로 판단
+        port_listening = service_running and serial_device_exists
+    else:
+        # UDP 모드: 기존 포트 8888 체크
+        try:
+            result = subprocess.run(
+                ['ss', '-uln'],
+                capture_output=True, text=True, timeout=2
+            )
+            port_listening = ':8888' in result.stdout
+        except:
+            pass
 
     # ROS2 토픽 목록
     topics = system_checker.get_ros2_topics()
@@ -2208,7 +2247,13 @@ def api_micro_ros_status():
         "port_listening": port_listening,
         "dds_connected": len(fc_topics) > 0,
         "topic_count": len(topics),
-        "fc_topic_count": len(fc_topics)
+        "fc_topic_count": len(fc_topics),
+        "transport": effective_transport,
+        "transport_config": transport,
+        "is_sitl": is_sitl,
+        "serial_dev": xrce_config["serial_dev"],
+        "serial_baud": xrce_config["serial_baud"],
+        "serial_device_exists": serial_device_exists,
     })
 
 
@@ -2422,15 +2467,32 @@ def api_micro_ros_connection_test():
         results["service"] = {"status": False, "message": "micro-ros-agent 중지됨"}
         return jsonify({"success": False, "results": results, "message": "서비스가 실행되지 않음"})
 
-    # 2. UDP 포트 확인
+    # 2. 전송 계층 확인 (UDP 포트 또는 UART 디바이스)
+    xrce_config = config_manager.get_xrce_dds_config()
+    is_sitl = False
     try:
-        ss_result = subprocess.run(['ss', '-uln'], capture_output=True, text=True, timeout=2)
-        if ':8888' in ss_result.stdout:
-            results["port"] = {"status": True, "message": "UDP 8888 포트 수신 대기 중"}
-        else:
-            results["port"] = {"status": False, "message": "UDP 8888 포트가 열리지 않음"}
+        with open('/etc/mavlink-router/main.conf', 'r') as f:
+            mavlink_conf = f.read()
+            is_sitl = '[UdpEndpoint SITL]' in mavlink_conf or '[UdpEndpoint PC_SITL]' in mavlink_conf
     except:
-        results["port"] = {"status": False, "message": "포트 확인 실패"}
+        pass
+    effective_transport = "udp" if is_sitl else xrce_config["transport"]
+
+    if effective_transport == "serial":
+        serial_dev = xrce_config["serial_dev"]
+        if os.path.exists(serial_dev):
+            results["port"] = {"status": True, "message": f"UART 디바이스 존재: {serial_dev}"}
+        else:
+            results["port"] = {"status": False, "message": f"UART 디바이스 없음: {serial_dev}"}
+    else:
+        try:
+            ss_result = subprocess.run(['ss', '-uln'], capture_output=True, text=True, timeout=2)
+            if ':8888' in ss_result.stdout:
+                results["port"] = {"status": True, "message": "UDP 8888 포트 수신 대기 중"}
+            else:
+                results["port"] = {"status": False, "message": "UDP 8888 포트가 열리지 않음"}
+        except:
+            results["port"] = {"status": False, "message": "포트 확인 실패"}
 
     # 3. ROS2 토픽 확인
     topics = system_checker.get_ros2_topics()
@@ -2453,6 +2515,99 @@ def api_micro_ros_connection_test():
         "success": all_success,
         "results": results,
         "message": "모든 연결 정상" if all_success else "일부 연결 실패"
+    })
+
+
+@app.route('/api/serial/devices')
+def api_serial_devices():
+    """시리얼 디바이스 목록 탐색 API"""
+    import glob
+    devices = []
+
+    # /dev/ttyUSB*, /dev/ttyACM* 탐색
+    for pattern in ['/dev/ttyUSB*', '/dev/ttyACM*']:
+        for path in sorted(glob.glob(pattern)):
+            info = {'path': path, 'name': os.path.basename(path), 'by_id': ''}
+            devices.append(info)
+
+    # /dev/serial/by-id/ 심볼릭 링크로 디바이스 이름 보강
+    by_id_dir = '/dev/serial/by-id'
+    if os.path.isdir(by_id_dir):
+        for link_name in os.listdir(by_id_dir):
+            link_path = os.path.join(by_id_dir, link_name)
+            try:
+                real_path = os.path.realpath(link_path)
+                for dev in devices:
+                    if dev['path'] == real_path:
+                        dev['by_id'] = link_name
+            except:
+                pass
+
+    return jsonify({'devices': devices, 'count': len(devices)})
+
+
+@app.route('/api/config/xrce-dds', methods=['GET'])
+def api_xrce_dds_config_get():
+    """uXRCE-DDS 통신 설정 조회"""
+    xrce_config = config_manager.get_xrce_dds_config()
+    # SITL 모드 여부
+    is_sitl = False
+    try:
+        with open('/etc/mavlink-router/main.conf', 'r') as f:
+            mavlink_conf = f.read()
+            is_sitl = '[UdpEndpoint SITL]' in mavlink_conf or '[UdpEndpoint PC_SITL]' in mavlink_conf
+    except:
+        pass
+    xrce_config["is_sitl"] = is_sitl
+    xrce_config["effective_transport"] = "udp" if is_sitl else xrce_config["transport"]
+    return jsonify(xrce_config)
+
+
+@app.route('/api/config/xrce-dds', methods=['POST'])
+def api_xrce_dds_config_set():
+    """uXRCE-DDS 통신 설정 저장 + micro-ros-agent 재시작
+
+    요청 JSON:
+    - transport: 'udp' 또는 'serial'
+    - serial_dev: UART 디바이스 경로 (optional)
+    - serial_baud: UART 보레이트 (optional)
+    """
+    data = request.json or {}
+    transport = data.get('transport', 'udp')
+    serial_dev = data.get('serial_dev')
+    serial_baud = data.get('serial_baud')
+
+    if transport not in ('udp', 'serial'):
+        return jsonify({'success': False, 'error': f'잘못된 transport 값: {transport}'}), 400
+
+    # 설정 저장
+    if not config_manager.set_xrce_dds_config(transport, serial_dev, serial_baud):
+        return jsonify({'success': False, 'error': '설정 저장 실패'}), 500
+
+    # micro-ros-agent 재시작 (wrapper 스크립트가 새 설정 반영)
+    try:
+        subprocess.run(['sudo', 'pkill', '-9', '-f', 'micro_ros_agent'],
+                       capture_output=True, text=True, timeout=5)
+        import time
+        time.sleep(1)
+        restart_result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'micro-ros-agent'],
+            capture_output=True, text=True, timeout=10
+        )
+        if restart_result.returncode != 0:
+            return jsonify({
+                'success': False,
+                'error': f'micro-ros-agent 재시작 실패: {restart_result.stderr}'
+            }), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'재시작 오류: {str(e)}'}), 500
+
+    return jsonify({
+        'success': True,
+        'message': f'uXRCE-DDS 설정 저장 완료 (transport={transport}). micro-ros-agent 재시작됨.',
+        'transport': transport,
+        'serial_dev': serial_dev or config_manager.get('XRCE_DDS_SERIAL_DEV', '/dev/ttyUSB0'),
+        'serial_baud': serial_baud or config_manager.get('XRCE_DDS_SERIAL_BAUD', '921600'),
     })
 
 

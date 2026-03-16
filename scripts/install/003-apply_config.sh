@@ -384,8 +384,17 @@ export HOME=$REAL_HOME
 export ROS_DOMAIN_ID=$ROS_DOMAIN_ID
 export ROS_NAMESPACE=$ROS_NAMESPACE
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-# FC DDS 토픽이 WiFi로 유출되지 않도록 eth0 전용 프로파일 사용
-export FASTRTPS_DEFAULT_PROFILES_FILE="\$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+# DDS 프로파일 자동 선택 (SITL/FC 모드)
+# - FC 모드: loopback만 사용 → eth0 멀티캐스트가 FC 이더넷에 부하주는 것 방지
+# - SITL 모드: eth0+loopback 사용 → eth0에 FC 없으므로 부하 문제 없음, DDS 정상 통신
+MAVLINK_CONF="/etc/mavlink-router/main.conf"
+if [ -f "\$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "\$MAVLINK_CONF"; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE="\$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
+    DDS_MODE="eth0+loopback (SITL)"
+else
+    export FASTRTPS_DEFAULT_PROFILES_FILE="\$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+    DDS_MODE="loopback only (FC 부하 방지)"
+fi
 
 # ROS2 환경 로드
 source /opt/ros/humble/setup.bash
@@ -404,12 +413,47 @@ if [ -d "\$MICRO_ROS_WS/install/micro_ros_agent/lib" ]; then
     export LD_LIBRARY_PATH="\$MICRO_ROS_WS/install/micro_ros_agent/lib:/opt/ros/humble/lib:/opt/ros/humble/lib/aarch64-linux-gnu:\${LD_LIBRARY_PATH}"
 fi
 
-# micro-ROS Agent 실행
-if [ -f "\$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" ]; then
-    exec "\$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent" udp4 --port $XRCE_DDS_PORT
+# DDS 프로파일 최종 확정 (exec 직전 — .bashrc 등의 환경변수 오염 방지)
+MAVLINK_CONF="/etc/mavlink-router/main.conf"
+if [ -f "\$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "\$MAVLINK_CONF"; then
+    FINAL_DDS_PROFILE="\$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
 else
-    echo "Error: micro_ros_agent not found at \$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+    FINAL_DDS_PROFILE="\$PROJECT_ROOT/config/fastdds_loopback_only.xml"
+fi
+echo "  FastDDS Profile (final): \$FINAL_DDS_PROFILE"
+
+# micro-ROS Agent 실행 (SCHED_FIFO는 systemd ExecStartPost에서 root 권한으로 적용)
+AGENT_BIN="\$MICRO_ROS_WS/install/micro_ros_agent/lib/micro_ros_agent/micro_ros_agent"
+if [ ! -f "\$AGENT_BIN" ]; then
+    echo "Error: micro_ros_agent not found at \$AGENT_BIN"
     exit 1
+fi
+
+unset FASTRTPS_DEFAULT_PROFILES_FILE
+export FASTRTPS_DEFAULT_PROFILES_FILE="\$FINAL_DDS_PROFILE"
+
+# device_config.env에서 uXRCE-DDS 통신 설정 로드
+source "\$PROJECT_ROOT/config/device_config.env"
+
+# SITL 모드 판별 (mavlink-router 설정 기반, 위에서 이미 체크한 MAVLINK_CONF 재활용)
+IS_SITL="false"
+if [ -f "\$MAVLINK_CONF" ] && grep -q '\[UdpEndpoint SITL\]\|\[UdpEndpoint PC_SITL\]' "\$MAVLINK_CONF"; then
+    IS_SITL="true"
+fi
+
+# 통신 방식 결정: SITL=항상 UDP, FC=device_config.env 설정
+if [ "\$IS_SITL" = "true" ] || [ "\$XRCE_DDS_TRANSPORT" != "serial" ]; then
+    echo "  uXRCE-DDS: UDP 모드 (udp4 --port \${XRCE_DDS_PORT:-$XRCE_DDS_PORT})"
+    exec "\$AGENT_BIN" udp4 --port \${XRCE_DDS_PORT:-$XRCE_DDS_PORT}
+else
+    SERIAL_DEV="\${XRCE_DDS_SERIAL_DEV:-/dev/ttyUSB0}"
+    SERIAL_BAUD="\${XRCE_DDS_SERIAL_BAUD:-921600}"
+    if [ ! -e "\$SERIAL_DEV" ]; then
+        echo "Error: 시리얼 디바이스 없음: \$SERIAL_DEV → UDP 폴백"
+        exec "\$AGENT_BIN" udp4 --port \${XRCE_DDS_PORT:-$XRCE_DDS_PORT}
+    fi
+    echo "  uXRCE-DDS: UART 모드 (serial --dev \$SERIAL_DEV -b \$SERIAL_BAUD)"
+    exec "\$AGENT_BIN" serial --dev "\$SERIAL_DEV" -b "\$SERIAL_BAUD"
 fi
 EOF
 

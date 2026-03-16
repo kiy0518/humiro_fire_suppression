@@ -214,7 +214,7 @@
                     <div class="diagram-node agent">
                         <i class="bi bi-hdd-network"></i>
                         <div><strong>micro-ros-agent</strong></div>
-                        <small>UDP 8888</small>
+                        <small id="agentTransport">UDP 8888</small>
                         <div class="mt-2" id="agentStatus">
                             <span class="status-indicator warning"></span>확인 중
                         </div>
@@ -238,6 +238,57 @@
                 <div id="testResults" class="mt-3" style="display: none;">
                     <h6><i class="bi bi-list-check"></i> 연결 테스트 결과</h6>
                     <div id="testResultContent"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- uXRCE-DDS 통신 설정 -->
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="bi bi-sliders"></i> uXRCE-DDS 통신 설정
+            </div>
+            <div class="card-body">
+                <div class="row align-items-end g-3">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">통신 방식</label>
+                        <select class="form-select" id="xrceTransport" onchange="toggleSerialFields()">
+                            <option value="udp">UDP (eth0)</option>
+                            <option value="serial">UART (Serial)</option>
+                        </select>
+                        <small class="text-muted" id="sitlNotice" style="display:none;">
+                            <i class="bi bi-info-circle"></i> SITL 모드에서는 항상 UDP가 사용됩니다
+                        </small>
+                    </div>
+                    <div class="col-md-3" id="serialDevGroup" style="display:none;">
+                        <label class="form-label fw-bold">시리얼 포트</label>
+                        <div class="input-group">
+                            <select class="form-select" id="xrceSerialDev">
+                                <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="scanSerialDevices()" title="디바이스 재탐색">
+                                <i class="bi bi-arrow-clockwise"></i>
+                            </button>
+                        </div>
+                        <small class="text-muted" id="serialDevInfo"></small>
+                    </div>
+                    <div class="col-md-2" id="serialBaudGroup" style="display:none;">
+                        <label class="form-label fw-bold">보레이트</label>
+                        <select class="form-select" id="xrceSerialBaud">
+                            <option value="115200">115200</option>
+                            <option value="460800">460800</option>
+                            <option value="921600" selected>921600</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button class="btn btn-primary w-100" onclick="saveXrceDdsConfig()">
+                            <i class="bi bi-save"></i> 저장 및 재시작
+                        </button>
+                    </div>
+                    <div class="col-md-2">
+                        <span class="badge bg-secondary" id="currentTransportBadge">-</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -347,13 +398,36 @@
         fetch('/api/micro-ros/status')
             .then(r => r.json())
             .then(data => {
+                // 전송 방식 표시 업데이트
+                const transportEl = document.getElementById('agentTransport');
+                const badgeEl = document.getElementById('currentTransportBadge');
+                if (data.transport === 'serial') {
+                    transportEl.textContent = `UART ${data.serial_dev}`;
+                    badgeEl.textContent = `UART ${data.serial_dev} @ ${data.serial_baud}`;
+                    badgeEl.className = 'badge bg-info';
+                } else {
+                    transportEl.textContent = 'UDP 8888';
+                    badgeEl.textContent = 'UDP 8888';
+                    badgeEl.className = 'badge bg-primary';
+                }
+                if (data.is_sitl && data.transport_config === 'serial') {
+                    badgeEl.textContent += ' (SITL: UDP 강제)';
+                }
+
+                // SITL 알림 표시
+                document.getElementById('sitlNotice').style.display = data.is_sitl ? 'block' : 'none';
+
                 // Agent 상태
                 const agentEl = document.getElementById('agentStatus');
                 if (data.service_running && data.port_listening) {
                     agentEl.innerHTML = '<span class="status-indicator success"></span>실행 중';
                     document.getElementById('arrow1').classList.add('connected');
                 } else if (data.service_running) {
-                    agentEl.innerHTML = '<span class="status-indicator warning"></span>포트 대기 중';
+                    if (data.transport === 'serial' && !data.serial_device_exists) {
+                        agentEl.innerHTML = '<span class="status-indicator danger"></span>디바이스 없음';
+                    } else {
+                        agentEl.innerHTML = '<span class="status-indicator warning"></span>대기 중';
+                    }
                 } else {
                     agentEl.innerHTML = '<span class="status-indicator danger"></span>중지됨';
                     document.getElementById('arrow1').classList.remove('connected');
@@ -380,6 +454,105 @@
                 document.getElementById('topicCount').textContent = `${data.topic_count}개`;
             })
             .catch(err => console.error('Status error:', err));
+    }
+
+    // UART/UDP 필드 토글
+    function toggleSerialFields() {
+        const transport = document.getElementById('xrceTransport').value;
+        const show = transport === 'serial';
+        document.getElementById('serialDevGroup').style.display = show ? '' : 'none';
+        document.getElementById('serialBaudGroup').style.display = show ? '' : 'none';
+    }
+
+    // 시리얼 디바이스 탐색
+    let _savedSerialDev = '/dev/ttyUSB0';
+
+    function scanSerialDevices() {
+        const select = document.getElementById('xrceSerialDev');
+        const infoEl = document.getElementById('serialDevInfo');
+        infoEl.textContent = '탐색 중...';
+
+        fetch('/api/serial/devices')
+            .then(r => r.json())
+            .then(data => {
+                const currentVal = select.value;
+                select.innerHTML = '';
+
+                if (data.devices.length === 0) {
+                    select.innerHTML = '<option value="" disabled>디바이스 없음</option>';
+                    infoEl.textContent = '연결된 시리얼 디바이스가 없습니다';
+                    return;
+                }
+
+                data.devices.forEach(dev => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.path;
+                    opt.textContent = dev.by_id ? `${dev.path} (${dev.by_id})` : dev.path;
+                    select.appendChild(opt);
+                });
+
+                // 기존 선택값 복원 (목록에 있으면)
+                const restoreVal = currentVal || _savedSerialDev;
+                if ([...select.options].some(o => o.value === restoreVal)) {
+                    select.value = restoreVal;
+                }
+
+                infoEl.textContent = `${data.count}개 디바이스 발견`;
+            })
+            .catch(err => {
+                infoEl.textContent = '탐색 실패';
+                console.error('Serial scan error:', err);
+            });
+    }
+
+    // uXRCE-DDS 설정 로드
+    function loadXrceDdsConfig() {
+        fetch('/api/config/xrce-dds')
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('xrceTransport').value = data.transport || 'udp';
+                _savedSerialDev = data.serial_dev || '/dev/ttyUSB0';
+                document.getElementById('xrceSerialBaud').value = data.serial_baud || '921600';
+                toggleSerialFields();
+                // 시리얼 디바이스 탐색 후 저장된 값 선택
+                scanSerialDevices();
+            })
+            .catch(err => console.error('Config load error:', err));
+    }
+
+    // uXRCE-DDS 설정 저장
+    function saveXrceDdsConfig() {
+        const transport = document.getElementById('xrceTransport').value;
+        const serialDev = document.getElementById('xrceSerialDev').value.trim();
+        const serialBaud = document.getElementById('xrceSerialBaud').value;
+
+        if (transport === 'serial' && !serialDev) {
+            showToast('시리얼 포트 경로를 입력하세요', 'warning');
+            return;
+        }
+
+        if (!confirm(`uXRCE-DDS 통신을 ${transport === 'serial' ? 'UART (' + serialDev + ')' : 'UDP'}로 변경하시겠습니까?\nmicro-ros-agent가 재시작됩니다.`)) return;
+
+        fetch('/api/config/xrce-dds', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                transport: transport,
+                serial_dev: serialDev,
+                serial_baud: serialBaud
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            showToast(data.message || data.error, data.success ? 'success' : 'danger');
+            if (data.success) {
+                setTimeout(() => {
+                    updateStatus();
+                    loadTopics();
+                }, 3000);
+            }
+        })
+        .catch(err => showToast('설정 저장 실패: ' + err.message, 'danger'));
     }
 
     // 토픽 목록 로드
@@ -634,6 +807,7 @@
         updateStatus();
         loadTopics();
         loadLogs();
+        loadXrceDdsConfig();
 
         // 5초마다 상태 업데이트
         setInterval(updateStatus, 5000);
