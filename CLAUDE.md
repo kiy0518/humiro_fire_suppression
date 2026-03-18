@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.25.7
+**최신 태그**: v0.26.1
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -45,6 +45,7 @@
 | `025_COLLISION_AVOIDANCE_DESIGN.md` | 충돌 방지 설계 |
 | `025_COLLISION_AVOIDANCE_VERIFICATION.md` | 충돌 방지 검증 |
 | `028_OFFBOARD_HANDLER_REFACTORING.md` | OFFBOARD 핸들러 리팩토링 계획 |
+| `033_LANDING_DETECTION_IMPROVEMENT.md` | 착지 감지 및 DISARM 시퀀스 개선 (vehicle_land_detected 활용) |
 
 #### 통신 / 메시지
 | 파일 | 내용 |

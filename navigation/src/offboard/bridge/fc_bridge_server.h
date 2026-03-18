@@ -20,6 +20,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/home_position.hpp>
+#include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -74,6 +75,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
     rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sub_;
     rclcpp::Subscription<px4_msgs::msg::HomePosition>::SharedPtr home_position_sub_;
+    rclcpp::Subscription<px4_msgs::msg::VehicleLandDetected>::SharedPtr land_detected_sub_;
 
     // ROS2 Publishers (Domain 0)
     rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr offboard_mode_pub_;

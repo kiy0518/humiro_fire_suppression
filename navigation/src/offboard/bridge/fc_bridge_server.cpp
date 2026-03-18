@@ -59,6 +59,14 @@ bool FCBridgeServer::start()
         px4_ns_ + "/fmu/out/home_position", qos,
         std::bind(&FCBridgeServer::homePositionCallback, this, std::placeholders::_1));
 
+    land_detected_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLandDetected>(
+        px4_ns_ + "/fmu/out/vehicle_land_detected", qos,
+        [this](const px4_msgs::msg::VehicleLandDetected::SharedPtr msg) {
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            current_state_.land_detected = msg->landed ? 1 : 0;
+            current_state_.maybe_landed  = msg->maybe_landed ? 1 : 0;
+        });
+
     // ========== ROS2 Publishers (Domain 0, /droneN/fmu/in/*) ==========
     offboard_mode_pub_ = node_->create_publisher<px4_msgs::msg::OffboardControlMode>(
         px4_ns_ + "/fmu/in/offboard_control_mode", qos);

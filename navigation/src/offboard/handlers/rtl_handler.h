@@ -36,8 +36,12 @@ public:
 
         // ctx에서 착륙 파라미터 로드
         descent_speed_ = ctx.rtl_descent_speed;
-        landing_speed_min_ = ctx.rtl_landing_speed_min;
         soft_land_alt_ = ctx.rtl_soft_land_alt;
+        // 최종 착륙 속도: 거리계 있으면 설정값 그대로, 없으면 VZ_STABLE_THRESHOLD*2 이상 강제
+        // (거리계 유무는 비행 중 변할 수 있으므로 안전측으로 하한 적용)
+        landing_speed_min_ = std::max(ctx.rtl_landing_speed_min, VZ_STABLE_THRESHOLD * 2.0f);
+        // 속도 역전 방지: landing_speed_min이 descent_speed보다 크면 클램프
+        landing_speed_min_ = std::min(landing_speed_min_, descent_speed_);
 
         // DESCEND 타임아웃 계산 (고도/속도 기반)
         float agl_now = -(ctx.current_local_z.load() - ctx.start_local_z);
@@ -47,9 +51,14 @@ public:
 
         // 착지 감지 초기화
         ground_detected_ = false;
+        land_detected_by_px4_ = false;
+        land_detected_by_sensor_ = false;
         disarm_sent_ = false;
         disarm_attempts_ = 0;
         last_disarm_time_ = std::chrono::steady_clock::time_point{};
+        prev_dist_bottom_ = -1.0f;
+        dist_stable_count_ = 0;
+        vz_stable_count_ = 0;
 
         // 현재 드론 위치에서 모션 프로파일 초기화
         float cur_x = ctx.current_local_x.load();
@@ -155,85 +164,163 @@ public:
         }
 
         case RtlPhase::SOFT_LAND: {
-            // 착지 판정: AGL < 0.15m AND |actual_vz| < 0.1m/s (거리계 1초 / 기압계 3초)
+            // 삼중화 착지 감지: 1순위 PX4 → 2순위 거리계+수직속도 → 3순위 기압계+수직속도
             float actual_vz = std::fabs(ctx.actual_vz.load());
             bool has_rf = ctx.dist_bottom_valid.load();
-            bool on_ground = (agl < GROUND_THRESHOLD) && (actual_vz < GROUND_VZ_THRESHOLD);
+            bool px4_landed = ctx.land_detected.load();
+            float dist_bottom = ctx.dist_bottom.load();
 
-            if (on_ground) {
+            // --- 수직 속도 안정화 카운터 (전 센서 공통) ---
+            // 10Hz tick 기준, vz < 0.05m/s 연속 카운트
+            if (actual_vz < VZ_STABLE_THRESHOLD) {
+                vz_stable_count_++;
+            } else {
+                vz_stable_count_ = 0;
+            }
+            bool vz_stable = (vz_stable_count_ >= VZ_STABLE_TICKS);  // 3초간 vz ≈ 0
+
+            // --- 거리계 안정화 카운터 (거리 변화량 기반) ---
+            if (has_rf && prev_dist_bottom_ > 0.0f) {
+                float dist_delta = std::fabs(dist_bottom - prev_dist_bottom_);
+                if (dist_delta < DIST_STABLE_DELTA) {  // 3cm 이내 변화 없음
+                    dist_stable_count_++;
+                } else {
+                    dist_stable_count_ = 0;
+                }
+            } else {
+                dist_stable_count_ = 0;
+            }
+            if (has_rf) prev_dist_bottom_ = dist_bottom;
+
+            bool dist_stable = (dist_stable_count_ >= DIST_STABLE_TICKS);  // 3초간 거리 안정
+
+            // 2순위 조건: 거리계 유효 + 거리 안정 + 수직속도 안정 (동시 충족)
+            bool rf_on_ground = has_rf && dist_stable && vz_stable
+                             && (dist_bottom < DIST_BOTTOM_LAND_THRESHOLD);
+            // 3순위 조건: 거리계 무효 + 기압계 AGL 낮음 + 수직속도 안정
+            bool baro_on_ground = !has_rf && vz_stable
+                               && (agl < GROUND_THRESHOLD);
+
+            // === 1순위: PX4 land_detected (가속도계+기압계+자이로 융합, 가장 신뢰성 높음) ===
+            if (px4_landed) {
                 if (!ground_detected_) {
                     ground_detected_ = true;
+                    land_detected_by_px4_ = true;
+                    land_detected_by_sensor_ = false;
+                    ground_detect_time_ = std::chrono::steady_clock::now();
+                    RCLCPP_INFO(ctx.logger, "[RTL] 1순위 PX4 land_detected 확인! %.1fs 안정화 대기",
+                                GROUND_STABLE_SEC_PX4);
+                } else if (!land_detected_by_px4_) {
+                    // 거리계/기압계로 이미 감지 중 → PX4 확인으로 업그레이드 (NORMAL DISARM 사용)
+                    land_detected_by_px4_ = true;
+                    land_detected_by_sensor_ = false;
+                    RCLCPP_INFO(ctx.logger,
+                        "[RTL] PX4 land_detected 확인 → 센서→PX4 업그레이드 (NORMAL DISARM)");
+                }
+            }
+            // === 2순위: 거리계 안정 + 수직속도 안정 (3초간 동시 충족) ===
+            else if (rf_on_ground && !land_detected_by_px4_) {
+                if (!ground_detected_) {
+                    ground_detected_ = true;
+                    land_detected_by_px4_ = false;
+                    land_detected_by_sensor_ = true;
                     ground_detect_time_ = std::chrono::steady_clock::now();
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 감지 시작 (AGL=%.2fm, vz=%.2fm/s, %s) → %.0fs 안정화 대기",
-                        agl, actual_vz, has_rf ? "거리계" : "기압계",
-                        has_rf ? GROUND_STABLE_SEC_RF : GROUND_STABLE_SEC);
+                        "[RTL] 2순위 거리계+vz 착지 감지 (dist=%.2fm, vz=%.3fm/s, 안정 %.1fs) → %.1fs 안정화 대기",
+                        dist_bottom, actual_vz,
+                        dist_stable_count_ / 10.0f, GROUND_STABLE_SEC_SENSOR);
                 }
-            } else if (ground_detected_) {
-                // 조건 불충족 → 착지 감지 리셋
+            }
+            // === 3순위: 기압계 AGL 낮음 + 수직속도 안정 (거리계 무효 시 폴백) ===
+            else if (baro_on_ground && !land_detected_by_px4_ && !land_detected_by_sensor_) {
+                if (!ground_detected_) {
+                    ground_detected_ = true;
+                    land_detected_by_px4_ = false;
+                    land_detected_by_sensor_ = false;
+                    ground_detect_time_ = std::chrono::steady_clock::now();
+                    RCLCPP_INFO(ctx.logger,
+                        "[RTL] 3순위 기압계+vz 착지 감지 (AGL=%.2fm, vz=%.3fm/s) → %.1fs 안정화 대기",
+                        agl, actual_vz, GROUND_STABLE_SEC_BARO);
+                }
+            }
+            // PX4 미감지 + 센서 조건 불충족 → 비PX4 감지만 리셋
+            else if (!px4_landed && ground_detected_ && !land_detected_by_px4_) {
                 RCLCPP_INFO(ctx.logger,
-                    "[RTL] 착지 감지 리셋 (AGL=%.2fm, vz=%.2fm/s)", agl, actual_vz);
+                    "[RTL] 착지 감지 리셋 (px4=%d, dist=%.2f, baro_agl=%.2f, vz=%.3f, dist_stab=%d, vz_stab=%d)",
+                    (int)px4_landed, dist_bottom, agl, actual_vz,
+                    dist_stable_count_, vz_stable_count_);
                 ground_detected_ = false;
+                land_detected_by_sensor_ = false;
             }
 
-            // 착지 감지 후 안정화 → DISARM (거리계: 1초, 기압계: 3초)
             if (ground_detected_) {
                 auto now = std::chrono::steady_clock::now();
                 double ground_sec = std::chrono::duration<double>(now - ground_detect_time_).count();
-                float stable_sec = has_rf ? GROUND_STABLE_SEC_RF : GROUND_STABLE_SEC;
+                float stable_sec = land_detected_by_px4_   ? GROUND_STABLE_SEC_PX4
+                                 : land_detected_by_sensor_ ? GROUND_STABLE_SEC_SENSOR
+                                 :                            GROUND_STABLE_SEC_BARO;
                 if (ground_sec >= stable_sec) {
+                    const char* method = land_detected_by_px4_   ? "PX4(1순위)"
+                                       : land_detected_by_sensor_ ? "거리계+vz(2순위)"
+                                       :                            "기압계+vz(3순위)";
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 안정화 완료 (%.1fs, AGL=%.2fm, vz=%.2fm/s, %s) → DISARM 시도",
-                        ground_sec, agl, actual_vz, has_rf ? "거리계" : "기압계");
+                        "[RTL] 착지 안정화 완료 (%.1fs, %s) → GROUND_DISARM", ground_sec, method);
                     setPhase(RtlPhase::GROUND_DISARM);
                     break;
                 }
             }
 
-            // 동적 타임아웃: 현재 AGL 기반으로 매 tick 갱신
-            // 기압계 오차로 AGL이 부정확할 수 있으므로, 타임아웃 시 GROUND_DISARM 강제 전환하지 않음
-            // → landing_speed_min으로 계속 하강하여 착지 감지 대기
+            // 동적 타임아웃 + 비상 타임아웃 로직
             float dynamic_timeout = calcDynamicSoftLandTimeout(agl);
             if (phase_elapsed > dynamic_timeout) {
-                // 타임아웃 초과해도 하강 계속 (착지 감지될 때까지)
                 logPeriodic(ctx, 10.0,
-                    "[RTL] SOFT_LAND 동적타임아웃 초과 (%.0fs > %.0fs) AGL=%.2fm → landing_speed_min(%.2fm/s)으로 하강 계속",
-                    phase_elapsed, dynamic_timeout, agl, landing_speed_min_);
+                    "[RTL] SOFT_LAND 동적타임아웃 초과 (%.0fs > %.0fs) AGL=%.2fm → 하강 계속",
+                    phase_elapsed, dynamic_timeout, agl);
             }
-
-            // 비상 타임아웃: 180초 → 일반 disarm 시도 (force 아님, PX4 자체 안전검사)
             if (phase_elapsed > SOFT_LAND_EMERGENCY_TIMEOUT) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] SOFT_LAND 비상 타임아웃 (%.0fs, AGL=%.2fm) → 일반 disarm 시도",
+                    "[RTL] SOFT_LAND 비상 타임아웃 (%.0fs, AGL=%.2fm) → FORCE disarm",
                     phase_elapsed, agl);
                 setPhase(RtlPhase::GROUND_DISARM);
                 break;
             }
 
-            logPeriodic(ctx, 2.0, "[RTL] SOFT_LAND AGL=%.2fm vz=%.2fm/s speed=%.2fm/s (%.0f/%.0fs)",
-                        agl, ctx.actual_vz.load(), calcLandingSpeed(agl),
-                        phase_elapsed, dynamic_timeout);
+            logPeriodic(ctx, 2.0,
+                "[RTL] SOFT_LAND AGL=%.2fm dist=%.2fm vz=%.3f speed=%.2f px4=%d ds=%d vs=%d (%.0f/%.0fs)",
+                agl, dist_bottom, ctx.actual_vz.load(), calcLandingSpeed(agl),
+                (int)px4_landed, dist_stable_count_, vz_stable_count_,
+                phase_elapsed, dynamic_timeout);
             break;
         }
 
         case RtlPhase::GROUND_DISARM: {
             auto now = std::chrono::steady_clock::now();
 
-            // DISARM 명령 전송 (3초 간격, 최대 5회)
-            // 일반 disarm (param2=0): PX4 자체 공중 안전검사가 거부 가능
-            // force disarm (param2=21196): 착지 감지 경로에서만 사용
             if (!disarm_sent_ || (disarm_attempts_ < 5 &&
                 std::chrono::duration<double>(now - last_disarm_time_).count() >= 3.0)) {
                 disarm_attempts_++;
                 disarm_sent_ = true;
                 last_disarm_time_ = now;
 
-                float force_param = ground_detected_ ? 21196.0f : 0.0f;
+                // PX4 감지(1순위): 처음 2회는 NORMAL, 3회차부터 FORCE 에스컬레이션
+                // 거리계/기압계/비상: 처음부터 FORCE
+                float force_param;
+                const char* disarm_type;
+                if (land_detected_by_px4_ && disarm_attempts_ <= 2) {
+                    force_param = 0.0f;       // NORMAL DISARM
+                    disarm_type = "NORMAL";
+                } else if (ground_detected_ || land_detected_by_sensor_) {
+                    force_param = 21196.0f;   // FORCE DISARM
+                    disarm_type = (land_detected_by_px4_ && disarm_attempts_ > 2) ? "FORCE(에스컬)" : "FORCE";
+                } else {
+                    force_param = 21196.0f;   // 비상 타임아웃 경로: FORCE (180초 이상 감지 실패)
+                    disarm_type = "FORCE(비상)";
+                }
+
                 ctx.publishCommand(400, 0.0f, force_param, 0.0f);
                 RCLCPP_INFO(ctx.logger,
                     "[RTL] DISARM 명령 전송 (%d/%d, AGL=%.2fm, %s)",
-                    disarm_attempts_, 5, agl,
-                    ground_detected_ ? "FORCE" : "NORMAL");
+                    disarm_attempts_, 5, agl, disarm_type);
             }
 
             // 타임아웃: 20초
@@ -326,13 +413,24 @@ private:
 
     // === 상수 ===
     static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
-    static constexpr float GROUND_THRESHOLD = 0.15f;     // 착지 판정 고도 (m AGL)
-    static constexpr float GROUND_VZ_THRESHOLD = 0.1f;   // 착지 판정 수직 속도 (m/s)
-    static constexpr float GROUND_STABLE_SEC = 3.0f;     // 착지 안정화 시간 - 기압계 (초)
-    static constexpr float GROUND_STABLE_SEC_RF = 1.0f;  // 착지 안정화 시간 - 거리계 (초)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
     static constexpr float SOFT_LAND_EMERGENCY_TIMEOUT = 180.0f;  // SOFT_LAND 비상 타임아웃 (초)
+
+    // --- 착지 감지 상수 ---
+    // 1순위 PX4
+    static constexpr float GROUND_STABLE_SEC_PX4 = 0.5f;   // PX4 land_detected 안정화 시간 (초)
+    // 2순위 거리계+수직속도
+    static constexpr float DIST_BOTTOM_LAND_THRESHOLD = 0.35f;  // 거리계 착지 상한 (장착높이 0.17~0.20m + 마진)
+    static constexpr float DIST_STABLE_DELTA = 0.03f;      // 거리계 안정 판정: 변화량 < 3cm
+    static constexpr int   DIST_STABLE_TICKS = 30;         // 거리계 안정 판정: 연속 30틱 (10Hz × 3초)
+    static constexpr float GROUND_STABLE_SEC_SENSOR = 0.5f; // 2순위 감지 후 추가 안정화 (초)
+    // 3순위 기압계+수직속도 (거리계 무효 시 폴백)
+    static constexpr float GROUND_THRESHOLD = 0.3f;        // 기압계 AGL 임계값 (m)
+    static constexpr float GROUND_STABLE_SEC_BARO = 1.0f;  // 3순위 감지 후 안정화 (초)
+    // 수직속도 공통
+    static constexpr float VZ_STABLE_THRESHOLD = 0.05f;    // vz 안정 판정 (m/s)
+    static constexpr int   VZ_STABLE_TICKS = 30;           // vz 안정 판정: 연속 30틱 (10Hz × 3초)
 
     // === 상태 ===
     RtlPhase phase_{RtlPhase::NAVIGATE_HOME};
@@ -346,10 +444,17 @@ private:
     MotionProfile3D nav_profile_;
 
     bool ground_detected_{false};
+    bool land_detected_by_px4_{false};     // 1순위 PX4로 감지됨 → NORMAL DISARM
+    bool land_detected_by_sensor_{false};  // 2순위 거리계+vz로 감지됨 → FORCE DISARM
     std::chrono::steady_clock::time_point ground_detect_time_;
     bool disarm_sent_{false};
     int disarm_attempts_{0};
     std::chrono::steady_clock::time_point last_disarm_time_;
+
+    // 거리계 안정화 추적
+    float prev_dist_bottom_{-1.0f};   // 이전 tick 거리계 값
+    int dist_stable_count_{0};        // 거리 변화 < 3cm 연속 카운트
+    int vz_stable_count_{0};          // vz < 0.05m/s 연속 카운트
 
     int last_log_tick_{-1};
 
@@ -369,6 +474,7 @@ private:
      * GUI에서 soft_land_alt 변경 시 감속 구간 길이가 실제로 반영됨.
      */
     float calcLandingSpeed(float agl) const {
+        if (soft_land_alt_ <= 0.0f) return landing_speed_min_;
         if (agl >= soft_land_alt_) return descent_speed_;
         if (agl <= 0.0f) return landing_speed_min_;
         // soft_land_alt → 0m: descent_speed → landing_speed_min 선형 감속

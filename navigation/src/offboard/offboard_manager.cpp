@@ -451,6 +451,8 @@ void OffboardManager::updateFromFCState()
     actual_vz_.store(state.vz);
     dist_bottom_.store(state.dist_bottom);
     dist_bottom_valid_.store(state.dist_bottom_valid != 0);
+    land_detected_.store(state.land_detected != 0);
+    maybe_landed_.store(state.maybe_landed != 0);
     position_received_.store(true);
 
     // GPS
@@ -899,6 +901,8 @@ void OffboardManager::syncContextFromMembers()
     ctx_.position_received.store(position_received_.load());
     ctx_.nav_state.store(nav_state_.load());
     ctx_.arming_state.store(arming_state_.load());
+    ctx_.land_detected.store(land_detected_.load());
+    ctx_.maybe_landed.store(maybe_landed_.load());
     ctx_.formation_ready_to_rotate.store(formation_ready_to_rotate_.load());
     ctx_.formation_ready_to_navigate.store(formation_ready_to_navigate_.load());
     ctx_.continuous_update_mode.store(continuous_update_mode_.load());

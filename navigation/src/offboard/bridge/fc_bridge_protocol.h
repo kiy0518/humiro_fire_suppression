@@ -61,6 +61,10 @@ struct FCState {
     float home_alt;           // Home AMSL 고도 (m), 미설정 시 NAN
     uint8_t home_alt_valid;   // 0 or 1
 
+    // PX4 착지 감지 (vehicle_land_detected)
+    uint8_t land_detected;    // 1 = PX4가 착지 확인 (msg->landed)
+    uint8_t maybe_landed;     // 1 = 착지 가능성 있음 (msg->maybe_landed)
+
     // 연결 상태
     uint8_t fc_connected;     // 0 or 1
 

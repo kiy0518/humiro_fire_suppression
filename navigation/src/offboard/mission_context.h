@@ -72,6 +72,8 @@ struct MissionContext {
     // === FC 상태 ===
     std::atomic<uint8_t> nav_state{0};       // 14=OFFBOARD, 5=AUTO_RTL
     std::atomic<uint8_t> arming_state{0};    // 2=ARMED, 1=DISARMED
+    std::atomic<bool> land_detected{false};  // PX4 vehicle_land_detected.landed
+    std::atomic<bool> maybe_landed{false};   // PX4 vehicle_land_detected.maybe_landed
 
     // === 미션 파라미터 ===
     float takeoff_altitude{5.0f};

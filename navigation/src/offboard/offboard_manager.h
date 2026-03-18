@@ -239,6 +239,8 @@ private:
     // ========== FC 상태 ==========
     std::atomic<uint8_t> nav_state_{0};
     std::atomic<uint8_t> arming_state_{0};
+    std::atomic<bool> land_detected_{false};
+    std::atomic<bool> maybe_landed_{false};
 
     // ========== 위치 데이터 (atomic) ==========
     std::atomic<float> current_local_x_{0.0f};

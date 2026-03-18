@@ -164,14 +164,8 @@ void StatusROS2Subscriber::pollFCState() {
     }
 
     // ========== 고도 처리 ==========
-    // 우선순위: 1) AMSL - home_alt (QGC alt(rel)과 동일) 2) -local_z (NED 기준)
-    if (state.home_alt_valid && state.altitude_amsl != 0.0f) {
-        float relative_alt = state.altitude_amsl - state.home_alt;
-        status_overlay_->setAltitude(relative_alt);
-    } else {
-        // home_alt 미설정 시 local_z 사용 (NED: z 양수=아래, 부호 반전)
-        status_overlay_->setAltitude(-state.local_z);
-    }
+    // MAVLink GLOBAL_POSITION_INT.relative_alt 사용 (QGC alt(rel)과 동일)
+    // application_manager.cpp의 altitude_callback_에서 처리 (DDS 덮어쓰기 제거)
 
     // ========== 속도 처리 ==========
     status_overlay_->setVelocity(state.vx, state.vy, state.vz);
