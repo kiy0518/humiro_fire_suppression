@@ -271,8 +271,14 @@ void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::S
         status = StatusOverlay::DroneStatus::AUTO_FIRING;
     } else if (status_str == "MISSION_COMPLETE") {
         status = StatusOverlay::DroneStatus::MISSION_COMPLETE;
-    } else if (status_str == "RETURNING") {
+    } else if (status_str == "RETURNING" || status_str.rfind("RETURNING:", 0) == 0) {
         status = StatusOverlay::DroneStatus::RETURNING;
+        // 서브페이즈 파싱: "RETURNING:DESCEND" → "DESCEND"
+        if (status_str.size() > 10 && status_str[9] == ':') {
+            status_overlay_->setRtlSubPhase(status_str.substr(10));
+        } else {
+            status_overlay_->setRtlSubPhase("");
+        }
     } else if (status_str == "LANDING") {
         status = StatusOverlay::DroneStatus::LANDING;
     } else if (status_str == "DISARMED") {

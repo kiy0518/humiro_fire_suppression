@@ -382,6 +382,12 @@ void OffboardManager::timerCallback()
                 return;
         }
 
+        // RTL 서브페이즈 OSD 업데이트 (tick에서 ctx_.rtl_sub_phase 갱신)
+        if (current_state_.load() == MissionState::RTL && !ctx_.rtl_sub_phase.empty()) {
+            std::string rtl_status = "RETURNING:" + ctx_.rtl_sub_phase;
+            publishOffboardStatus(rtl_status);
+        }
+
         // setpoint 발행 (핸들러 → FCCommand 변환 → FCBridgeClient)
         // RC override 감지 중(offboard_lost_tracking_)에는 setpoint도 중단
         // → PX4가 OFFBOARD 모드로 잠시 복귀해도 setpoint 없어 제어 불가

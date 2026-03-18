@@ -98,6 +98,9 @@ public:
     }
 
     TransitionResult tick(MissionContext& ctx) override {
+        // OSD 서브페이즈 업데이트
+        ctx.rtl_sub_phase = phaseToString(phase_);
+
         // Disarm 감지 = 착륙 완료 (전 페이즈 공통)
         if (ctx.arming_state.load() == 1) {
             RCLCPP_INFO(ctx.logger, "[RTL] Disarm 감지! 미션 완료 (%.1fs)", ctx.elapsedSec());
@@ -489,6 +492,17 @@ private:
         if (avg_speed < 0.01f) avg_speed = 0.01f;
         // 예상 착륙 시간 × 2배 마진 + 15초 여유
         return std::max(30.0f, safe_agl / avg_speed * 2.0f + 15.0f);
+    }
+
+    /** 페이즈 문자열 (OSD 표시용) */
+    static const char* phaseToString(RtlPhase p) {
+        switch (p) {
+            case RtlPhase::NAVIGATE_HOME: return "NAV_HOME";
+            case RtlPhase::DESCEND:       return "DESCEND";
+            case RtlPhase::SOFT_LAND:     return "SOFT_LAND";
+            case RtlPhase::GROUND_DISARM: return "DISARMING";
+            default:                      return "";
+        }
     }
 
     /** 페이즈 전환 */

@@ -86,6 +86,11 @@ void StatusOverlay::updatePx4State(const std::string& px4_mode, bool is_armed) {
     }
 }
 
+void StatusOverlay::setRtlSubPhase(const std::string& sub_phase) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    rtl_sub_phase_ = sub_phase;
+}
+
 void StatusOverlay::updateOffboardStatus(DroneStatus status) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     
@@ -97,6 +102,10 @@ void StatusOverlay::updateOffboardStatus(DroneStatus status) {
         // VIM4 커스텀 상태로 처리 (PX4 상태보다 우선)
         current_status_ = status;
         is_offboard_custom_status_ = true;  // VIM4 커스텀 상태 사용 중
+        // RETURNING이 아닌 상태에서는 서브페이즈 클리어
+        if (status != DroneStatus::RETURNING) {
+            rtl_sub_phase_.clear();
+        }
     }
     // OFFBOARD 모드가 아닐 때는 무시 (PX4 상태가 우선)
 }
@@ -521,6 +530,45 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     cv::Point(mode_x_start, text_y),
                     FONT_FACE, FONT_SCALE,
                     status_text_color, FONT_THICKNESS, cv::LINE_AA);
+
+        // 6.1. RTL 서브페이즈 (RETURNING 뱃지 바로 아래)
+        if (current_status_ == DroneStatus::RETURNING && !rtl_sub_phase_.empty()) {
+            const float SUB_FONT_SCALE = FONT_SCALE * 0.85f;
+            const int sub_step = 15;
+            int sub_baseline = 0;
+            cv::Size sub_size = cv::getTextSize(rtl_sub_phase_, FONT_FACE,
+                                                SUB_FONT_SCALE, FONT_THICKNESS, &sub_baseline);
+            int sub_box_y = box_y + box_h + 2;
+            int sub_box_w = sub_size.width + pad * 2;
+            int sub_box_h = sub_size.height + pad * 2;
+
+            if (box_x >= 0 && sub_box_y >= 0 &&
+                box_x + sub_box_w <= frame.cols && sub_box_y + sub_box_h <= frame.rows) {
+                // 라운드 배경
+                std::vector<cv::Point> sub_pts;
+                for (int a = 180; a <= 270; a += sub_step)
+                    sub_pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                         sub_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 270; a <= 360; a += sub_step)
+                    sub_pts.emplace_back(box_x + sub_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                         sub_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 0; a <= 90; a += sub_step)
+                    sub_pts.emplace_back(box_x + sub_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                         sub_box_y + sub_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                for (int a = 90; a <= 180; a += sub_step)
+                    sub_pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                         sub_box_y + sub_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                std::vector<std::vector<cv::Point>> sub_poly = {sub_pts};
+                cv::fillPoly(frame, sub_poly, bg_color, cv::LINE_AA);
+
+                // 서브페이즈 텍스트 (노란색)
+                int sub_text_y = sub_box_y + pad + sub_size.height;
+                cv::putText(frame, rtl_sub_phase_,
+                            cv::Point(mode_x_start, sub_text_y),
+                            FONT_FACE, SUB_FONT_SCALE,
+                            cv::Scalar(0, 255, 255), FONT_THICKNESS, cv::LINE_AA);
+            }
+        }
 
         // 6.5. 고도 + 하방거리 (상태 뱃지 옆, 라운드 배경)
         {

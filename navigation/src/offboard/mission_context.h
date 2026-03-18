@@ -75,6 +75,9 @@ struct MissionContext {
     std::atomic<bool> land_detected{false};  // PX4 vehicle_land_detected.landed
     std::atomic<bool> maybe_landed{false};   // PX4 vehicle_land_detected.maybe_landed
 
+    // === RTL 서브페이즈 (OSD 표시용) ===
+    std::string rtl_sub_phase;               // "DESCEND", "SOFT_LAND", "GROUND_DISARM", "" (빈 문자열=표시 안함)
+
     // === 미션 파라미터 ===
     float takeoff_altitude{5.0f};
     float target_altitude{-1.0f};

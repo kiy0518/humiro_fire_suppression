@@ -118,6 +118,12 @@ public:
     void setTempThreshold(double threshold);
     
     /**
+     * RTL 서브페이즈 설정 (OSD 표시용)
+     * @param sub_phase "DESCEND", "SOFT_LAND", "DISARMING", "" (빈 문자열=표시 안함)
+     */
+    void setRtlSubPhase(const std::string& sub_phase);
+
+    /**
      * QGC 커스텀 메시지 설정
      * @param message 메시지 텍스트
      * @param timeout_seconds 메시지 표시 시간 (초, 0이면 무제한)
@@ -184,6 +190,9 @@ private:
     bool show_altitude_;     // 고도 표시 여부
     bool show_dist_bottom_;  // 하방 거리 표시 여부
     
+    // RTL 서브페이즈
+    std::string rtl_sub_phase_;
+
     // QGC 커스텀 메시지
     std::string custom_message_;
     double custom_message_timeout_;  // 메시지 만료 시간 (초)
