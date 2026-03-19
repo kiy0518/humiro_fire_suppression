@@ -696,12 +696,20 @@ void StatusOverlay::draw(cv::Mat& frame) {
                         FONT_FACE, FONT_SCALE,
                         dist_color, FONT_THICKNESS, cv::LINE_AA);
 
-            // 6.55. Roll/Pitch 표시 (고도/하방거리 뱃지 아래)
+            // 6.55. Roll/Pitch 표시 (고도/하방거리 뱃지 아래, ±1° 이내 녹색/초과 빨간색)
             if (show_attitude_) {
-                std::ostringstream rp_oss;
-                rp_oss << "R:" << std::fixed << std::setprecision(1) << roll_deg_
-                       << "  P:" << std::fixed << std::setprecision(1) << pitch_deg_;
-                std::string rp_str = rp_oss.str();
+                const float ATTITUDE_TOLERANCE = 1.0f;  // ±1°
+                std::ostringstream r_oss, p_oss;
+                r_oss << "R:" << std::fixed << std::setprecision(1) << roll_deg_;
+                p_oss << "  P:" << std::fixed << std::setprecision(1) << pitch_deg_;
+                std::string r_str = r_oss.str();
+                std::string p_str = p_oss.str();
+                std::string rp_str = r_str + p_str;
+
+                cv::Scalar roll_color = (std::abs(roll_deg_) <= ATTITUDE_TOLERANCE)
+                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+                cv::Scalar pitch_color = (std::abs(pitch_deg_) <= ATTITUDE_TOLERANCE)
+                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
 
                 const float RP_FONT_SCALE = FONT_SCALE * 0.85f;
                 int rp_baseline = 0;
@@ -732,12 +740,20 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     std::vector<std::vector<cv::Point>> rp_poly = {rp_pts};
                     cv::fillPoly(frame, rp_poly, bg_color, cv::LINE_AA);
 
-                    // 텍스트 (흰색)
+                    // Roll 텍스트 (개별 색상)
+                    int rp_text_x = rp_box_x + pad;
                     int rp_text_y = rp_box_y + pad + rp_size.height;
-                    cv::putText(frame, rp_str,
-                                cv::Point(rp_box_x + pad, rp_text_y),
+                    cv::putText(frame, r_str,
+                                cv::Point(rp_text_x, rp_text_y),
                                 FONT_FACE, RP_FONT_SCALE,
-                                cv::Scalar(255, 255, 255), FONT_THICKNESS, cv::LINE_AA);
+                                roll_color, FONT_THICKNESS, cv::LINE_AA);
+                    // Pitch 텍스트 (개별 색상)
+                    cv::Size r_size = cv::getTextSize(r_str, FONT_FACE,
+                                                       RP_FONT_SCALE, FONT_THICKNESS, &rp_baseline);
+                    cv::putText(frame, p_str,
+                                cv::Point(rp_text_x + r_size.width, rp_text_y),
+                                FONT_FACE, RP_FONT_SCALE,
+                                pitch_color, FONT_THICKNESS, cv::LINE_AA);
                     osd_badges_bottom = std::max(osd_badges_bottom, rp_box_y + rp_box_h);
                 }
             }

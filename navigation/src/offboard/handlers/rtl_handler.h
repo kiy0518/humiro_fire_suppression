@@ -38,7 +38,7 @@ public:
         descent_speed_ = ctx.rtl_descent_speed;
         soft_land_alt_ = ctx.rtl_soft_land_alt;
         // 거리계 설치 높이 (기체마다 다름, GUI 설정)
-        rf_mount_height_ = ctx.rangefinder_mount_height;
+        rng_mount_height_ = ctx.rangefinder_mount_height;
         // 최종 착륙 속도: 거리계 있으면 설정값 그대로, 없으면 VZ_STABLE_THRESHOLD*2 이상 강제
         // (거리계 유무는 비행 중 변할 수 있으므로 안전측으로 하한 적용)
         landing_speed_min_ = std::max(ctx.rtl_landing_speed_min, VZ_STABLE_THRESHOLD * 2.0f);
@@ -63,6 +63,7 @@ public:
         dist_stable_count_ = 0;
         vz_stable_count_ = 0;
         baro_agl_stable_count_ = 0;
+        rng_land_bounce_count_ = 0;
 
         // 현재 드론 위치에서 모션 프로파일 초기화
         float cur_x = ctx.current_local_x.load();
@@ -212,6 +213,22 @@ public:
 
             bool dist_stable = (dist_stable_count_ >= DIST_STABLE_TICKS);  // 3초간 거리 안정
 
+            // === 거리계 설치높이 착지 감지 (TOUCHDOWN_IDLE 전환) ===
+            // 거리계 raw 값이 rng_mount_height ± 2cm → 센서~지면 = 설치높이 = 착지 확정
+            if (has_rf && std::abs(dist_bottom - rng_mount_height_) <= RNG_LAND_TOLERANCE) {
+                rng_land_bounce_count_++;
+            } else {
+                rng_land_bounce_count_ = 0;
+            }
+            if (rng_land_bounce_count_ >= RNG_LAND_BOUNCE_TICKS) {
+                RCLCPP_INFO(ctx.logger,
+                    "[RTL] 거리계 착지 확정 (dist=%.3fm, mount=%.3fm, delta=%.3fm, %d틱) → TOUCHDOWN_IDLE",
+                    dist_bottom, rng_mount_height_, dist_bottom - rng_mount_height_, rng_land_bounce_count_);
+                soft_land_snapshot_ = buildSoftLandDebugString(ctx);
+                setPhase(RtlPhase::TOUCHDOWN_IDLE);
+                break;
+            }
+
             // --- 기압계 AGL 안정화 카운터 (기압 드리프트 오판 방지) ---
             if (!has_rf && agl < GROUND_THRESHOLD && agl >= -0.5f) {
                 baro_agl_stable_count_++;
@@ -221,7 +238,7 @@ public:
             bool baro_agl_stable = (baro_agl_stable_count_ >= BARO_AGL_STABLE_TICKS);  // 5초간 AGL 낮음
 
             // 2순위 조건: 거리계 유효 + 거리 안정 + AGL 낮음 (지면효과로 vz 불안정해도 감지)
-            bool rf_on_ground = has_rf && dist_stable
+            bool rng_on_ground = has_rf && dist_stable
                              && (agl < RNG_AGL_LAND_THRESHOLD);
             // 3순위 조건: 거리계 무효 + 기압계 AGL 연속 5초 낮음 + 수직속도 안정
             bool baro_on_ground = !has_rf && vz_stable && baro_agl_stable;
@@ -244,7 +261,7 @@ public:
                 }
             }
             // === 2순위: 거리계 안정 + AGL 낮음 (3초간 거리 변화 없음, 지면효과 대응) ===
-            else if (rf_on_ground && !land_detected_by_px4_) {
+            else if (rng_on_ground && !land_detected_by_px4_) {
                 if (!ground_detected_) {
                     ground_detected_ = true;
                     land_detected_by_px4_ = false;
@@ -317,6 +334,38 @@ public:
                 agl, dist_bottom, ctx.actual_vz.load(), calcLandingSpeed(agl),
                 (int)px4_landed, dist_stable_count_, vz_stable_count_, baro_agl_stable_count_,
                 phase_elapsed, dynamic_timeout);
+            break;
+        }
+
+        case RtlPhase::TOUCHDOWN_IDLE: {
+            // 착지 확정 — 추력 점진적 감소 중, DISARM 대기
+            if (ctx.arming_state.load() == 1) {
+                RCLCPP_INFO(ctx.logger, "[RTL] TOUCHDOWN_IDLE 중 DISARM 감지 → 미션 완료");
+                return TransitionResult::COMPLETE;
+            }
+
+            // 3초 후 velocity=0 도달 → GROUND_DISARM 전환
+            if (phase_elapsed > TOUCHDOWN_VZ_RAMP_SEC && !disarm_sent_) {
+                RCLCPP_INFO(ctx.logger,
+                    "[RTL] TOUCHDOWN_IDLE 추력 감소 완료 (%.1fs) → GROUND_DISARM", phase_elapsed);
+                ground_detected_ = true;
+                land_detected_by_sensor_ = true;
+                soft_land_snapshot_ = buildSoftLandDebugString(ctx);
+                setPhase(RtlPhase::GROUND_DISARM);
+                break;
+            }
+
+            // 타임아웃 (10초): GROUND_DISARM 폴백
+            if (phase_elapsed > 10.0) {
+                RCLCPP_WARN(ctx.logger, "[RTL] TOUCHDOWN_IDLE 타임아웃 → GROUND_DISARM 폴백");
+                ground_detected_ = true;
+                land_detected_by_sensor_ = true;
+                setPhase(RtlPhase::GROUND_DISARM);
+                break;
+            }
+
+            logPeriodic(ctx, 1.0, "[RTL] TOUCHDOWN_IDLE vz_sp=%.3f (%.1f/%.1fs)",
+                        calcTouchdownSpeed(phase_elapsed), phase_elapsed, TOUCHDOWN_VZ_RAMP_SEC);
             break;
         }
 
@@ -407,6 +456,17 @@ public:
             return true;
         }
 
+        case RtlPhase::TOUCHDOWN_IDLE: {
+            // 착지 확정 — 수직 속도 0으로 점진적 감소 (3초 램프)
+            // PX4가 자연스럽게 추력 감소 → 자세 보정 시 영향 최소화
+            float speed = calcTouchdownSpeed(phaseSec());
+            sp.position = {home_x_, home_y_, NAN};
+            sp.velocity = {NAN, NAN, speed};
+            sp.yaw = rtl_yaw_;
+            sp.yawspeed = 0.0f;
+            return true;
+        }
+
         case RtlPhase::GROUND_DISARM: {
             // 지면에 눌리도록 최소 하강 속도 유지 (호버링 방지)
             // 지면효과 최소 속도 사용 → 모터 출력 최소화하면서 착지 유지
@@ -429,6 +489,7 @@ private:
         NAVIGATE_HOME,   // 홈으로 수평 이동
         DESCEND,         // 0.7m/s 하강 (→ 1.5m AGL)
         SOFT_LAND,       // 감속 착륙 (0.7→0.1 m/s)
+        TOUCHDOWN_IDLE,  // 착지 확정, 추력 점진적 감소 (거리계 설치높이 기반)
         GROUND_DISARM    // 착지 감지 + disarm
     };
 
@@ -438,7 +499,7 @@ private:
     float soft_land_alt_{2.0f};        // 감속 시작 고도 (m AGL)
     float descend_timeout_{60.0f};     // DESCEND 페이즈 타임아웃 (동적)
     float nav_home_timeout_{120.0f};   // NAVIGATE_HOME 타임아웃 (동적)
-    float rf_mount_height_{0.18f};     // 거리계 설치 높이 (m, GUI 설정)
+    float rng_mount_height_{0.18f};     // 거리계 설치 높이 (m, GUI 설정)
 
     // === 상수 ===
     static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
@@ -466,6 +527,12 @@ private:
     // 지면효과 대응 (20cm 이하 모터 출력 점진적 감소)
     static constexpr float GROUND_EFFECT_ALT = 0.20f;      // 지면효과 감속 시작 고도 (m)
     static constexpr float GROUND_EFFECT_MIN_SPEED = 0.02f; // 지면효과 최소 하강 속도 (m/s)
+    // 거리계 설치높이 착지 감지 (TOUCHDOWN_IDLE)
+    static constexpr float RNG_LAND_TOLERANCE = 0.02f;       // ±2cm
+    static constexpr int   RNG_LAND_BOUNCE_TICKS = 10;       // 1초간 연속 (10Hz)
+    // TOUCHDOWN_IDLE 추력 감소
+    static constexpr float TOUCHDOWN_VZ_INITIAL = 0.02f;    // 초기 하강 속도 (m/s)
+    static constexpr float TOUCHDOWN_VZ_RAMP_SEC = 3.0f;    // 0으로 감소하는 시간 (초)
 
     // === 상태 ===
     RtlPhase phase_{RtlPhase::NAVIGATE_HOME};
@@ -491,6 +558,7 @@ private:
     int dist_stable_count_{0};        // 거리 변화 < 3cm 연속 카운트
     int vz_stable_count_{0};          // vz < 0.05m/s 연속 카운트
     int baro_agl_stable_count_{0};    // 기압계 AGL < threshold 연속 카운트
+    int rng_land_bounce_count_{0};     // 거리계 설치높이 범위 연속 카운트
     std::string soft_land_snapshot_;  // SOFT_LAND 최종 디버그 스냅샷 (GROUND_DISARM에서 표시)
 
     int last_log_tick_{-1};
@@ -502,12 +570,12 @@ private:
         // MAVLink DISTANCE_SENSOR 우선 (PX4 EKF 우회)
         if (ctx.mavlink_dist_bottom_valid.load()) {
             float d = ctx.mavlink_dist_bottom.load();
-            if (d >= 0.0f) return std::max(0.0f, d - rf_mount_height_);
+            if (d >= 0.0f) return std::max(0.0f, d - rng_mount_height_);
         }
         // EKF dist_bottom 폴백
         if (ctx.dist_bottom_valid.load()) {
             float d = ctx.dist_bottom.load();
-            if (d >= 0.0f) return std::max(0.0f, d - rf_mount_height_);
+            if (d >= 0.0f) return std::max(0.0f, d - rng_mount_height_);
         }
         // 기압계 폴백
         return -(ctx.current_local_z.load() - home_z_);
@@ -531,6 +599,13 @@ private:
             base_speed = GROUND_EFFECT_MIN_SPEED + (base_speed - GROUND_EFFECT_MIN_SPEED) * ge_ratio;
         }
         return base_speed;
+    }
+
+    /** TOUCHDOWN_IDLE 하강 속도: 3초에 걸쳐 0.02→0.0 m/s 선형 감소 */
+    float calcTouchdownSpeed(double elapsed_sec) const {
+        if (elapsed_sec >= TOUCHDOWN_VZ_RAMP_SEC) return 0.0f;
+        float ratio = 1.0f - static_cast<float>(elapsed_sec / TOUCHDOWN_VZ_RAMP_SEC);
+        return TOUCHDOWN_VZ_INITIAL * ratio;
     }
 
     /** 동적 SOFT_LAND 타임아웃: 현재 AGL 기반으로 매 tick 갱신 */
@@ -565,6 +640,15 @@ private:
             return buildSoftLandDebugString(ctx) +
                    " " + std::to_string((int)elapsed) + "/" + std::to_string((int)dyn_to) + "s";
         }
+        case RtlPhase::TOUCHDOWN_IDLE: {
+            char buf[80];
+            std::snprintf(buf, sizeof(buf), "vz=%.3f %.0f/%.0fs",
+                          calcTouchdownSpeed(elapsed), elapsed, TOUCHDOWN_VZ_RAMP_SEC);
+            if (!soft_land_snapshot_.empty()) {
+                return soft_land_snapshot_ + " > " + buf;
+            }
+            return buf;
+        }
         case RtlPhase::GROUND_DISARM: {
             const char* method = land_detected_by_px4_   ? "PX4"
                                : land_detected_by_sensor_ ? "RNG+VZ"
@@ -588,11 +672,12 @@ private:
     /** 페이즈 문자열 (OSD 표시용) */
     static const char* phaseToString(RtlPhase p) {
         switch (p) {
-            case RtlPhase::NAVIGATE_HOME: return "NAV_HOME";
-            case RtlPhase::DESCEND:       return "DESCEND";
-            case RtlPhase::SOFT_LAND:     return "SOFT_LAND";
-            case RtlPhase::GROUND_DISARM: return "DISARMING";
-            default:                      return "";
+            case RtlPhase::NAVIGATE_HOME:  return "NAV_HOME";
+            case RtlPhase::DESCEND:        return "DESCEND";
+            case RtlPhase::SOFT_LAND:      return "SOFT_LAND";
+            case RtlPhase::TOUCHDOWN_IDLE: return "TOUCHDOWN";
+            case RtlPhase::GROUND_DISARM:  return "DISARMING";
+            default:                       return "";
         }
     }
 
