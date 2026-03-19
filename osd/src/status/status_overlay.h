@@ -124,6 +124,12 @@ public:
     void setRtlSubPhase(const std::string& sub_phase);
 
     /**
+     * RTL 착지 감지 디버그 정보 설정 (OSD 표시용)
+     * @param debug "PX4:N RF:5/30 VZ:12/30 d=0.42" 등
+     */
+    void setRtlLandDebug(const std::string& debug);
+
+    /**
      * QGC 커스텀 메시지 설정
      * @param message 메시지 텍스트
      * @param timeout_seconds 메시지 표시 시간 (초, 0이면 무제한)
@@ -192,6 +198,7 @@ private:
     
     // RTL 서브페이즈
     std::string rtl_sub_phase_;
+    std::string rtl_land_debug_;   // 착지 감지 디버그 정보
 
     // QGC 커스텀 메시지
     std::string custom_message_;

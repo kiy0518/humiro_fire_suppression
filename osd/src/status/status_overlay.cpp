@@ -91,6 +91,11 @@ void StatusOverlay::setRtlSubPhase(const std::string& sub_phase) {
     rtl_sub_phase_ = sub_phase;
 }
 
+void StatusOverlay::setRtlLandDebug(const std::string& debug) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    rtl_land_debug_ = debug;
+}
+
 void StatusOverlay::updateOffboardStatus(DroneStatus status) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     
@@ -102,9 +107,10 @@ void StatusOverlay::updateOffboardStatus(DroneStatus status) {
         // VIM4 커스텀 상태로 처리 (PX4 상태보다 우선)
         current_status_ = status;
         is_offboard_custom_status_ = true;  // VIM4 커스텀 상태 사용 중
-        // RETURNING이 아닌 상태에서는 서브페이즈 클리어
+        // RETURNING이 아닌 상태에서는 서브페이즈/디버그 클리어
         if (status != DroneStatus::RETURNING) {
             rtl_sub_phase_.clear();
+            rtl_land_debug_.clear();
         }
     }
     // OFFBOARD 모드가 아닐 때는 무시 (PX4 상태가 우선)
@@ -567,6 +573,44 @@ void StatusOverlay::draw(cv::Mat& frame) {
                             cv::Point(mode_x_start, sub_text_y),
                             FONT_FACE, SUB_FONT_SCALE,
                             cv::Scalar(0, 255, 255), FONT_THICKNESS, cv::LINE_AA);
+
+                // 6.1.1. 착지 감지 디버그 (서브페이즈 뱃지 아래)
+                if (!rtl_land_debug_.empty()) {
+                    const float DBG_FONT_SCALE = FONT_SCALE * 0.7f;
+                    int dbg_baseline = 0;
+                    cv::Size dbg_size = cv::getTextSize(rtl_land_debug_, FONT_FACE,
+                                                        DBG_FONT_SCALE, FONT_THICKNESS, &dbg_baseline);
+                    int dbg_box_y = sub_box_y + sub_box_h + 2;
+                    int dbg_box_w = dbg_size.width + pad * 2;
+                    int dbg_box_h = dbg_size.height + pad * 2;
+
+                    if (box_x >= 0 && dbg_box_y >= 0 &&
+                        box_x + dbg_box_w <= frame.cols && dbg_box_y + dbg_box_h <= frame.rows) {
+                        // 라운드 배경
+                        std::vector<cv::Point> dbg_pts;
+                        for (int a = 180; a <= 270; a += sub_step)
+                            dbg_pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                                 dbg_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                        for (int a = 270; a <= 360; a += sub_step)
+                            dbg_pts.emplace_back(box_x + dbg_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                                 dbg_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                        for (int a = 0; a <= 90; a += sub_step)
+                            dbg_pts.emplace_back(box_x + dbg_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                                 dbg_box_y + dbg_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                        for (int a = 90; a <= 180; a += sub_step)
+                            dbg_pts.emplace_back(box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                                 dbg_box_y + dbg_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                        std::vector<std::vector<cv::Point>> dbg_poly = {dbg_pts};
+                        cv::fillPoly(frame, dbg_poly, bg_color, cv::LINE_AA);
+
+                        // 디버그 텍스트 (연두색)
+                        int dbg_text_y = dbg_box_y + pad + dbg_size.height;
+                        cv::putText(frame, rtl_land_debug_,
+                                    cv::Point(mode_x_start, dbg_text_y),
+                                    FONT_FACE, DBG_FONT_SCALE,
+                                    cv::Scalar(0, 200, 0), FONT_THICKNESS, cv::LINE_AA);
+                    }
+                }
             }
         }
 

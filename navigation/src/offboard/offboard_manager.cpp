@@ -382,9 +382,12 @@ void OffboardManager::timerCallback()
                 return;
         }
 
-        // RTL 서브페이즈 OSD 업데이트 (tick에서 ctx_.rtl_sub_phase 갱신)
+        // RTL 서브페이즈 + 착지 디버그 OSD 업데이트
         if (current_state_.load() == MissionState::RTL && !ctx_.rtl_sub_phase.empty()) {
             std::string rtl_status = "RETURNING:" + ctx_.rtl_sub_phase;
+            if (!ctx_.rtl_land_debug.empty()) {
+                rtl_status += "|" + ctx_.rtl_land_debug;
+            }
             publishOffboardStatus(rtl_status);
         }
 

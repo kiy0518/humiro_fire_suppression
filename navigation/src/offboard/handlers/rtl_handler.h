@@ -59,6 +59,7 @@ public:
         prev_dist_bottom_ = -1.0f;
         dist_stable_count_ = 0;
         vz_stable_count_ = 0;
+        baro_agl_stable_count_ = 0;
 
         // 현재 드론 위치에서 모션 프로파일 초기화
         float cur_x = ctx.current_local_x.load();
@@ -98,8 +99,9 @@ public:
     }
 
     TransitionResult tick(MissionContext& ctx) override {
-        // OSD 서브페이즈 업데이트
+        // OSD 서브페이즈 + 착지 디버그 업데이트
         ctx.rtl_sub_phase = phaseToString(phase_);
+        ctx.rtl_land_debug = buildLandDebugString(ctx);
 
         // Disarm 감지 = 착륙 완료 (전 페이즈 공통)
         if (ctx.arming_state.load() == 1) {
@@ -197,12 +199,19 @@ public:
 
             bool dist_stable = (dist_stable_count_ >= DIST_STABLE_TICKS);  // 3초간 거리 안정
 
+            // --- 기압계 AGL 안정화 카운터 (기압 드리프트 오판 방지) ---
+            if (!has_rf && agl < GROUND_THRESHOLD && agl >= -0.5f) {
+                baro_agl_stable_count_++;
+            } else {
+                baro_agl_stable_count_ = 0;
+            }
+            bool baro_agl_stable = (baro_agl_stable_count_ >= BARO_AGL_STABLE_TICKS);  // 5초간 AGL 낮음
+
             // 2순위 조건: 거리계 유효 + 거리 안정 + 수직속도 안정 (동시 충족)
             bool rf_on_ground = has_rf && dist_stable && vz_stable
                              && (dist_bottom < DIST_BOTTOM_LAND_THRESHOLD);
-            // 3순위 조건: 거리계 무효 + 기압계 AGL 낮음 + 수직속도 안정
-            bool baro_on_ground = !has_rf && vz_stable
-                               && (agl < GROUND_THRESHOLD);
+            // 3순위 조건: 거리계 무효 + 기압계 AGL 연속 5초 낮음 + 수직속도 안정
+            bool baro_on_ground = !has_rf && vz_stable && baro_agl_stable;
 
             // === 1순위: PX4 land_detected (가속도계+기압계+자이로 융합, 가장 신뢰성 높음) ===
             if (px4_landed) {
@@ -249,9 +258,9 @@ public:
             // PX4 미감지 + 센서 조건 불충족 → 비PX4 감지만 리셋
             else if (!px4_landed && ground_detected_ && !land_detected_by_px4_) {
                 RCLCPP_INFO(ctx.logger,
-                    "[RTL] 착지 감지 리셋 (px4=%d, dist=%.2f, baro_agl=%.2f, vz=%.3f, dist_stab=%d, vz_stab=%d)",
+                    "[RTL] 착지 감지 리셋 (px4=%d, dist=%.2f, baro_agl=%.2f, vz=%.3f, ds=%d, vs=%d, bs=%d)",
                     (int)px4_landed, dist_bottom, agl, actual_vz,
-                    dist_stable_count_, vz_stable_count_);
+                    dist_stable_count_, vz_stable_count_, baro_agl_stable_count_);
                 ground_detected_ = false;
                 land_detected_by_sensor_ = false;
             }
@@ -289,9 +298,9 @@ public:
             }
 
             logPeriodic(ctx, 2.0,
-                "[RTL] SOFT_LAND AGL=%.2fm dist=%.2fm vz=%.3f speed=%.2f px4=%d ds=%d vs=%d (%.0f/%.0fs)",
+                "[RTL] SOFT_LAND AGL=%.2fm dist=%.2fm vz=%.3f speed=%.2f px4=%d ds=%d vs=%d bs=%d (%.0f/%.0fs)",
                 agl, dist_bottom, ctx.actual_vz.load(), calcLandingSpeed(agl),
-                (int)px4_landed, dist_stable_count_, vz_stable_count_,
+                (int)px4_landed, dist_stable_count_, vz_stable_count_, baro_agl_stable_count_,
                 phase_elapsed, dynamic_timeout);
             break;
         }
@@ -430,6 +439,7 @@ private:
     static constexpr float GROUND_STABLE_SEC_SENSOR = 0.5f; // 2순위 감지 후 추가 안정화 (초)
     // 3순위 기압계+수직속도 (거리계 무효 시 폴백)
     static constexpr float GROUND_THRESHOLD = 0.3f;        // 기압계 AGL 임계값 (m)
+    static constexpr int   BARO_AGL_STABLE_TICKS = 50;     // 기압계 AGL < threshold 연속 50틱 (10Hz × 5초)
     static constexpr float GROUND_STABLE_SEC_BARO = 1.0f;  // 3순위 감지 후 안정화 (초)
     // 수직속도 공통
     static constexpr float VZ_STABLE_THRESHOLD = 0.05f;    // vz 안정 판정 (m/s)
@@ -458,6 +468,7 @@ private:
     float prev_dist_bottom_{-1.0f};   // 이전 tick 거리계 값
     int dist_stable_count_{0};        // 거리 변화 < 3cm 연속 카운트
     int vz_stable_count_{0};          // vz < 0.05m/s 연속 카운트
+    int baro_agl_stable_count_{0};    // 기압계 AGL < threshold 연속 카운트
 
     int last_log_tick_{-1};
 
@@ -492,6 +503,58 @@ private:
         if (avg_speed < 0.01f) avg_speed = 0.01f;
         // 예상 착륙 시간 × 2배 마진 + 15초 여유
         return std::max(30.0f, safe_agl / avg_speed * 2.0f + 15.0f);
+    }
+
+    /** 착지 감지 디버그 문자열 (OSD 표시용) */
+    std::string buildLandDebugString(const MissionContext& ctx) const {
+        switch (phase_) {
+        case RtlPhase::NAVIGATE_HOME: {
+            float dx = home_x_ - ctx.current_local_x.load();
+            float dy = home_y_ - ctx.current_local_y.load();
+            float dist = std::sqrt(dx * dx + dy * dy);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "HOME:%.0fm", dist);
+            return buf;
+        }
+        case RtlPhase::DESCEND: {
+            float agl = getAGL(ctx);
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "AGL:%.1fm spd:%.2f", agl, descent_speed_);
+            return buf;
+        }
+        case RtlPhase::SOFT_LAND: {
+            float dist_bottom = ctx.dist_bottom.load();
+            bool px4 = ctx.land_detected.load();
+            bool maybe = ctx.maybe_landed.load();
+            bool has_rf = ctx.dist_bottom_valid.load();
+            float agl = getAGL(ctx);
+            char buf[128];
+            if (has_rf) {
+                std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c RNG:%d/%d VZ:%d/%d d=%.2f",
+                    px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
+                    dist_stable_count_, DIST_STABLE_TICKS,
+                    vz_stable_count_, VZ_STABLE_TICKS, dist_bottom);
+            } else {
+                std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c BA:%d/%d VZ:%d/%d a=%.2f",
+                    px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
+                    baro_agl_stable_count_, BARO_AGL_STABLE_TICKS,
+                    vz_stable_count_, VZ_STABLE_TICKS, agl);
+            }
+            return buf;
+        }
+        case RtlPhase::GROUND_DISARM: {
+            const char* method = land_detected_by_px4_   ? "PX4"
+                               : land_detected_by_sensor_ ? "RNG+VZ"
+                               : ground_detected_          ? "BARO"
+                               :                            "EMRG";
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s #%d/%d %s",
+                method, disarm_attempts_, 5,
+                (land_detected_by_px4_ && disarm_attempts_ <= 2) ? "NORM" : "FORCE");
+            return buf;
+        }
+        }
+        return "";
     }
 
     /** 페이즈 문자열 (OSD 표시용) */

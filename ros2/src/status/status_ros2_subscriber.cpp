@@ -273,11 +273,20 @@ void StatusROS2Subscriber::offboardStatusCallback(const std_msgs::msg::String::S
         status = StatusOverlay::DroneStatus::MISSION_COMPLETE;
     } else if (status_str == "RETURNING" || status_str.rfind("RETURNING:", 0) == 0) {
         status = StatusOverlay::DroneStatus::RETURNING;
-        // 서브페이즈 파싱: "RETURNING:DESCEND" → "DESCEND"
+        // 서브페이즈+디버그 파싱: "RETURNING:SOFT_LAND|PX4:N RF:5/30 VZ:12/30 d=0.42"
         if (status_str.size() > 10 && status_str[9] == ':') {
-            status_overlay_->setRtlSubPhase(status_str.substr(10));
+            std::string after_colon = status_str.substr(10);  // "SOFT_LAND|PX4:N ..."
+            auto pipe_pos = after_colon.find('|');
+            if (pipe_pos != std::string::npos) {
+                status_overlay_->setRtlSubPhase(after_colon.substr(0, pipe_pos));
+                status_overlay_->setRtlLandDebug(after_colon.substr(pipe_pos + 1));
+            } else {
+                status_overlay_->setRtlSubPhase(after_colon);
+                status_overlay_->setRtlLandDebug("");
+            }
         } else {
             status_overlay_->setRtlSubPhase("");
+            status_overlay_->setRtlLandDebug("");
         }
     } else if (status_str == "LANDING") {
         status = StatusOverlay::DroneStatus::LANDING;

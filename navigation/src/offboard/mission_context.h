@@ -77,6 +77,7 @@ struct MissionContext {
 
     // === RTL 서브페이즈 (OSD 표시용) ===
     std::string rtl_sub_phase;               // "DESCEND", "SOFT_LAND", "GROUND_DISARM", "" (빈 문자열=표시 안함)
+    std::string rtl_land_debug;              // 착지 감지 디버그 (OSD 표시용, 예: "PX4:N RF:5/30 VZ:12/30 d=0.42")
 
     // === 미션 파라미터 ===
     float takeoff_altitude{5.0f};
