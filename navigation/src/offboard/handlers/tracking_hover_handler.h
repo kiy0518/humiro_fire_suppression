@@ -140,9 +140,11 @@ public:
             if (thermal_valid) {
                 bool aimed = (std::abs(data.rel_x) <= ctx.deadzone_h_px)
                           && (std::abs(data.rel_y) <= ctx.deadzone_v_px);
+                float pitch_deg = ctx.current_pitch.load() * 180.0f / M_PI;
+                bool pitch_stable = (std::abs(pitch_deg) <= FIRE_PITCH_TOLERANCE_DEG);
                 int remaining = getRemaining(ctx);
 
-                if (aimed && remaining > 0) {
+                if (aimed && pitch_stable && remaining > 0) {
                     auto now = std::chrono::steady_clock::now();
                     double since_last = std::chrono::duration<double>(
                         now - last_auto_fire_time_).count();
@@ -151,9 +153,9 @@ public:
                         ctx.auto_fire_request.store(true);
                         last_auto_fire_time_ = now;
                         RCLCPP_INFO(ctx.logger,
-                            "[AUTO_FIRE] 정조준 확인 → 격발 요청 (잔탄 %d/%d, rel=(%d,%d) %.1f°C)",
+                            "[AUTO_FIRE] 정조준+수평 확인 → 격발 요청 (잔탄 %d/%d, rel=(%d,%d) %.1f°C, pitch=%.1f°)",
                             remaining, ctx.fire_gpio_count,
-                            data.rel_x, data.rel_y, data.max_temp_celsius);
+                            data.rel_x, data.rel_y, data.max_temp_celsius, pitch_deg);
                     } else {
                         int tick_af = static_cast<int>(elapsed / 5.0);
                         if (tick_af != auto_fire_log_tick_) {
@@ -411,6 +413,7 @@ private:
 
     // ========== 자동 격발 ==========
     static constexpr float AUTO_FIRE_INTERVAL_SEC = 3.0f;   // 격발 간격 (초)
+    static constexpr float FIRE_PITCH_TOLERANCE_DEG = 1.0f;  // 격발 허용 피치 범위 (±1°)
 
     // ========== PD 제어 상태 ==========
     float prev_error_yaw_{0.0f};

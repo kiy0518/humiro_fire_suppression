@@ -26,6 +26,9 @@ StatusOverlay::StatusOverlay()
     , altitude_(0.0f)
     , dist_bottom_(-1.0f)
     , dist_bottom_valid_(false)
+    , roll_deg_(0.0f)
+    , pitch_deg_(0.0f)
+    , show_attitude_(false)
     , vel_horizontal_(0.0f)
     , vel_vertical_(0.0f)
     , show_velocity_(false)
@@ -167,6 +170,13 @@ void StatusOverlay::setVelocity(float vx, float vy, float vz) {
     vel_horizontal_ = std::sqrt(vx * vx + vy * vy);
     vel_vertical_ = -vz;  // NED: vz 양수=하강, 부호 반전하여 양수=상승
     show_velocity_ = true;
+}
+
+void StatusOverlay::setAttitude(float roll_deg, float pitch_deg) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    roll_deg_ = roll_deg;
+    pitch_deg_ = pitch_deg;
+    show_attitude_ = true;
 }
 
 void StatusOverlay::setMaxTemperature(double temperature) {
@@ -487,6 +497,8 @@ void StatusOverlay::draw(cv::Mat& frame) {
 
     // 5.5. 온도 → 상태바에서 제거 (핫스팟 마커 옆에 표시)
 
+    int osd_badges_bottom = status_bar_height;  // 모든 뱃지의 최대 하단 Y 추적
+
     // 6. 상태 표시 (비행모드 아래, 라운드 진회색 배경)
     std::string status_text = getStatusText(current_status_);
     // 텍스트 색상: OFFBOARD 모드 = 초록색, 표준 모드 = 연회색
@@ -538,6 +550,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
                     cv::Point(mode_x_start, text_y),
                     FONT_FACE, FONT_SCALE,
                     status_text_color, FONT_THICKNESS, cv::LINE_AA);
+        osd_badges_bottom = std::max(osd_badges_bottom, box_y + box_h);
 
         // 6.1. RTL 서브페이즈 (RETURNING 뱃지 바로 아래)
         if (current_status_ == DroneStatus::RETURNING && !rtl_sub_phase_.empty()) {
@@ -611,7 +624,10 @@ void StatusOverlay::draw(cv::Mat& frame) {
                                     cv::Point(mode_x_start, dbg_text_y),
                                     FONT_FACE, DBG_FONT_SCALE,
                                     cv::Scalar(0, 200, 0), FONT_THICKNESS, cv::LINE_AA);
+                        osd_badges_bottom = std::max(osd_badges_bottom, dbg_box_y + dbg_box_h);
                     }
+                } else {
+                    osd_badges_bottom = std::max(osd_badges_bottom, sub_box_y + sub_box_h);
                 }
             }
         }
@@ -651,6 +667,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
                                       ib_y + ib_h - r + (int)(r * std::sin(a * M_PI / 180)));
                 std::vector<std::vector<cv::Point>> ipoly = {ipts};
                 cv::fillPoly(frame, ipoly, bg_color, cv::LINE_AA);
+                osd_badges_bottom = std::max(osd_badges_bottom, ib_y + ib_h);
             }
 
             // 텍스트: 고도 부분
@@ -678,6 +695,52 @@ void StatusOverlay::draw(cv::Mat& frame) {
                         cv::Point(info_tx, text_y),
                         FONT_FACE, FONT_SCALE,
                         dist_color, FONT_THICKNESS, cv::LINE_AA);
+
+            // 6.55. Roll/Pitch 표시 (고도/하방거리 뱃지 아래)
+            if (show_attitude_) {
+                std::ostringstream rp_oss;
+                rp_oss << "R:" << std::fixed << std::setprecision(1) << roll_deg_
+                       << "  P:" << std::fixed << std::setprecision(1) << pitch_deg_;
+                std::string rp_str = rp_oss.str();
+
+                const float RP_FONT_SCALE = FONT_SCALE * 0.85f;
+                int rp_baseline = 0;
+                cv::Size rp_size = cv::getTextSize(rp_str, FONT_FACE,
+                                                    RP_FONT_SCALE, FONT_THICKNESS, &rp_baseline);
+                int rp_box_x = ib_x;
+                int rp_box_y = ib_y + ib_h + 2;
+                int rp_box_w = rp_size.width + pad * 2;
+                int rp_box_h = rp_size.height + pad * 2;
+
+                if (rp_box_x >= 0 && rp_box_y >= 0 &&
+                    rp_box_x + rp_box_w <= frame.cols && rp_box_y + rp_box_h <= frame.rows) {
+                    // 라운드 배경
+                    std::vector<cv::Point> rp_pts;
+                    const int rp_step = 15;
+                    for (int a = 180; a <= 270; a += rp_step)
+                        rp_pts.emplace_back(rp_box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                            rp_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 270; a <= 360; a += rp_step)
+                        rp_pts.emplace_back(rp_box_x + rp_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                            rp_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 0; a <= 90; a += rp_step)
+                        rp_pts.emplace_back(rp_box_x + rp_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                            rp_box_y + rp_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                    for (int a = 90; a <= 180; a += rp_step)
+                        rp_pts.emplace_back(rp_box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                            rp_box_y + rp_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+                    std::vector<std::vector<cv::Point>> rp_poly = {rp_pts};
+                    cv::fillPoly(frame, rp_poly, bg_color, cv::LINE_AA);
+
+                    // 텍스트 (흰색)
+                    int rp_text_y = rp_box_y + pad + rp_size.height;
+                    cv::putText(frame, rp_str,
+                                cv::Point(rp_box_x + pad, rp_text_y),
+                                FONT_FACE, RP_FONT_SCALE,
+                                cv::Scalar(255, 255, 255), FONT_THICKNESS, cv::LINE_AA);
+                    osd_badges_bottom = std::max(osd_badges_bottom, rp_box_y + rp_box_h);
+                }
+            }
 
             // 6.6. 수직/수평 속도 (고도 뱃지 옆, 라운드 배경, arrowedLine 화살표)
             {
@@ -722,6 +785,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
                                           sb_y + sb_h - r + (int)(r * std::sin(a * M_PI / 180)));
                     std::vector<std::vector<cv::Point>> spoly = {spts};
                     cv::fillPoly(frame, spoly, bg_color, cv::LINE_AA);
+                    osd_badges_bottom = std::max(osd_badges_bottom, sb_y + sb_h);
                 }
 
                 int spd_tx = sb_x + pad;
@@ -853,13 +917,11 @@ void StatusOverlay::draw(cv::Mat& frame) {
             cv::Size msg_size = cv::getTextSize(custom_message_, FONT_FACE,
                                                 MSG_FONT_SCALE, MSG_FONT_THICKNESS, &msg_baseline);
 
-            // 상단 3번째 열 중앙 배치 (1열: 상태바 내부, 2열: 비행모드/고도/속도 뱃지)
-            int status_bar_h = ThermalConfig::get().status_bar_height;
-            int row2_height = msg_size.height + 10 + 4;  // 2열 뱃지 높이(pad*2) + 간격
+            // 4열 고정 위치 (Row1=상태바, Row2=뱃지, Row3=R:P:/RTL서브, Row3.5=RTL디버그)
             int msg_bg_width = msg_size.width + MSG_PADDING * 2;
             int msg_bg_height = msg_size.height + MSG_PADDING * 2;
             int msg_bg_x = (frame.cols - msg_bg_width) / 2;
-            int msg_bg_y = status_bar_h + 4 + row2_height;
+            int msg_bg_y = status_bar_height + 80;
 
             // 반투명 라운드 배경 (테두리 없음)
             {

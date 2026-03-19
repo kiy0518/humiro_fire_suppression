@@ -4,6 +4,7 @@
 #include "../../../navigation/src/offboard/bridge/fc_bridge_client.h"
 #include <iostream>
 #include <chrono>
+#include <cmath>
 #include <map>
 
 using namespace std::chrono_literals;
@@ -166,6 +167,9 @@ void StatusROS2Subscriber::pollFCState() {
     // ========== 고도 처리 ==========
     // MAVLink VFR_HUD.alt 사용 (QGC alt(rel)과 동일)
     // application_manager.cpp의 altitude_callback_에서 처리
+
+    // ========== 자세 처리 (Roll/Pitch) ==========
+    status_overlay_->setAttitude(state.roll * 180.0f / M_PI, state.pitch * 180.0f / M_PI);
 
     // ========== 속도 처리 ==========
     status_overlay_->setVelocity(state.vx, state.vy, state.vz);

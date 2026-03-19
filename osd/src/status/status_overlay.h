@@ -98,6 +98,13 @@ public:
     void setDistBottom(float distance, bool valid);
 
     /**
+     * 자세 설정 (roll, pitch)
+     * @param roll_deg 롤 각도 (도)
+     * @param pitch_deg 피치 각도 (도)
+     */
+    void setAttitude(float roll_deg, float pitch_deg);
+
+    /**
      * 속도 설정 (NED 좌표계)
      * @param vx 북쪽 속도 (m/s)
      * @param vy 동쪽 속도 (m/s)
@@ -185,6 +192,9 @@ private:
     float altitude_;          // 이륙 기준 상대 고도 (m)
     float dist_bottom_;       // 하방 거리 (m)
     bool dist_bottom_valid_;  // 하방 거리 유효 여부
+    float roll_deg_;          // 롤 각도 (도)
+    float pitch_deg_;         // 피치 각도 (도)
+    bool show_attitude_;      // 자세 표시 여부
     float vel_horizontal_;    // 수평 속도 (m/s)
     float vel_vertical_;      // 수직 속도 (m/s, 양수=상승)
     bool show_velocity_;      // 속도 표시 여부

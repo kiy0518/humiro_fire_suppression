@@ -64,6 +64,7 @@ struct MissionContext {
     std::atomic<float> actual_vx{0.0f};
     std::atomic<float> actual_vy{0.0f};
     std::atomic<float> actual_vz{0.0f};
+    std::atomic<float> current_pitch{0.0f};  // radians, FC Bridge에서 수신
     std::atomic<bool> position_received{false};
 
     // === 하방 거리계 ===

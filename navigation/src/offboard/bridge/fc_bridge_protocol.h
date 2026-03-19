@@ -37,8 +37,10 @@ struct FCState {
     float vy;
     float vz;
 
-    // 헤딩
-    float yaw;  // radians
+    // 자세 (radians)
+    float roll;
+    float pitch;
+    float yaw;
 
     // FC 상태
     uint8_t nav_state;

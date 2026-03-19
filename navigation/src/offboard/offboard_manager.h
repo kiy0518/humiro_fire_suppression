@@ -260,6 +260,7 @@ private:
     std::atomic<float> actual_vx_{0.0f};    // PX4 실제 NED 속도
     std::atomic<float> actual_vy_{0.0f};
     std::atomic<float> actual_vz_{0.0f};
+    std::atomic<float> current_pitch_{0.0f};  // radians
     std::atomic<float> dist_bottom_{-1.0f};    // 하방 거리계 (m) (PX4 EKF 경유)
     std::atomic<bool> dist_bottom_valid_{false};
     std::atomic<float> mavlink_dist_bottom_{-1.0f};    // MAVLink DISTANCE_SENSOR 직접값

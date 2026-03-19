@@ -458,6 +458,7 @@ void OffboardManager::updateFromFCState()
     actual_vx_.store(state.vx);
     actual_vy_.store(state.vy);
     actual_vz_.store(state.vz);
+    current_pitch_.store(state.pitch);
     dist_bottom_.store(state.dist_bottom);
     dist_bottom_valid_.store(state.dist_bottom_valid != 0);
     land_detected_.store(state.land_detected != 0);
@@ -905,6 +906,7 @@ void OffboardManager::syncContextFromMembers()
     ctx_.actual_vx.store(actual_vx_.load());
     ctx_.actual_vy.store(actual_vy_.load());
     ctx_.actual_vz.store(actual_vz_.load());
+    ctx_.current_pitch.store(current_pitch_.load());
     ctx_.dist_bottom.store(dist_bottom_.load());
     ctx_.dist_bottom_valid.store(dist_bottom_valid_.load());
     ctx_.mavlink_dist_bottom.store(mavlink_dist_bottom_.load());

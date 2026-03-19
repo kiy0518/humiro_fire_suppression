@@ -59,6 +59,10 @@ bool FCBridgeServer::start()
         px4_ns_ + "/fmu/out/home_position", qos,
         std::bind(&FCBridgeServer::homePositionCallback, this, std::placeholders::_1));
 
+    attitude_sub_ = node_->create_subscription<px4_msgs::msg::VehicleAttitude>(
+        px4_ns_ + "/fmu/out/vehicle_attitude", qos,
+        std::bind(&FCBridgeServer::vehicleAttitudeCallback, this, std::placeholders::_1));
+
     land_detected_sub_ = node_->create_subscription<px4_msgs::msg::VehicleLandDetected>(
         px4_ns_ + "/fmu/out/vehicle_land_detected", qos,
         [this](const px4_msgs::msg::VehicleLandDetected::SharedPtr msg) {
@@ -221,6 +225,26 @@ void FCBridgeServer::homePositionCallback(const px4_msgs::msg::HomePosition::Sha
     std::lock_guard<std::mutex> lock(state_mutex_);
     current_state_.home_alt = msg->alt;
     current_state_.home_alt_valid = 1;
+}
+
+void FCBridgeServer::vehicleAttitudeCallback(const px4_msgs::msg::VehicleAttitude::SharedPtr msg)
+{
+    // Quaternion → Euler (roll, pitch)
+    float q0 = msg->q[0], q1 = msg->q[1], q2 = msg->q[2], q3 = msg->q[3];
+    float sinr_cosp = 2.0f * (q0 * q1 + q2 * q3);
+    float cosr_cosp = 1.0f - 2.0f * (q1 * q1 + q2 * q2);
+    float roll = std::atan2(sinr_cosp, cosr_cosp);
+
+    float sinp = 2.0f * (q0 * q2 - q3 * q1);
+    float pitch;
+    if (std::abs(sinp) >= 1.0f)
+        pitch = std::copysign(M_PI / 2.0f, sinp);
+    else
+        pitch = std::asin(sinp);
+
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    current_state_.roll = roll;
+    current_state_.pitch = pitch;
 }
 
 // ========== 50Hz 타이머 ==========

@@ -20,6 +20,7 @@
 #include <px4_msgs/msg/trajectory_setpoint.hpp>
 #include <px4_msgs/msg/vehicle_command.hpp>
 #include <px4_msgs/msg/home_position.hpp>
+#include <px4_msgs/msg/vehicle_attitude.hpp>
 #include <px4_msgs/msg/vehicle_land_detected.hpp>
 #include <atomic>
 #include <mutex>
@@ -53,6 +54,7 @@ private:
     void batteryCallback(const px4_msgs::msg::BatteryStatus::SharedPtr msg);
     void gpsCallback(const px4_msgs::msg::SensorGps::SharedPtr msg);
     void homePositionCallback(const px4_msgs::msg::HomePosition::SharedPtr msg);
+    void vehicleAttitudeCallback(const px4_msgs::msg::VehicleAttitude::SharedPtr msg);
 
     // 50Hz 타이머: FCState → UDP 전송
     void sendStateTimer();
@@ -75,6 +77,7 @@ private:
     rclcpp::Subscription<px4_msgs::msg::BatteryStatus>::SharedPtr battery_sub_;
     rclcpp::Subscription<px4_msgs::msg::SensorGps>::SharedPtr gps_sub_;
     rclcpp::Subscription<px4_msgs::msg::HomePosition>::SharedPtr home_position_sub_;
+    rclcpp::Subscription<px4_msgs::msg::VehicleAttitude>::SharedPtr attitude_sub_;
     rclcpp::Subscription<px4_msgs::msg::VehicleLandDetected>::SharedPtr land_detected_sub_;
 
     // ROS2 Publishers (Domain 0)
