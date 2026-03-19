@@ -1021,11 +1021,15 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
 
-        // DISTANCE_SENSOR에서 하방 거리 수신 → OSD H: 업데이트
+        // DISTANCE_SENSOR에서 하방 거리 수신 → OSD H: + RTL 착지감지용
         custom_message_handler_->setDistanceSensorCallback(
             [this](float distance_m) {
                 if (status_overlay_) {
                     status_overlay_->setDistBottom(distance_m, true);
+                }
+                // RTL 착지감지에도 MAVLink 원시값 전달 (PX4 EKF 우회)
+                if (offboard_manager_) {
+                    offboard_manager_->setMavlinkDistBottom(distance_m);
                 }
             }
         );

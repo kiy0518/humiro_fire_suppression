@@ -184,6 +184,12 @@ public:
     bool isCollisionActive() const { return collision_action_.load() != 0; }
     int getCollisionAction() const { return collision_action_.load(); }
 
+    // ========== MAVLink DISTANCE_SENSOR (PX4 EKF 우회, 거리계 원시값) ==========
+    void setMavlinkDistBottom(float distance_m) {
+        mavlink_dist_bottom_.store(distance_m);
+        mavlink_dist_bottom_valid_.store(distance_m > 0.0f);
+    }
+
     // ========== FC Bridge 접근 (StatusROS2Subscriber 등에서 사용) ==========
     FCBridgeClient* getFCBridge() const { return fc_bridge_.get(); }
 
@@ -254,8 +260,10 @@ private:
     std::atomic<float> actual_vx_{0.0f};    // PX4 실제 NED 속도
     std::atomic<float> actual_vy_{0.0f};
     std::atomic<float> actual_vz_{0.0f};
-    std::atomic<float> dist_bottom_{-1.0f};    // 하방 거리계 (m)
+    std::atomic<float> dist_bottom_{-1.0f};    // 하방 거리계 (m) (PX4 EKF 경유)
     std::atomic<bool> dist_bottom_valid_{false};
+    std::atomic<float> mavlink_dist_bottom_{-1.0f};    // MAVLink DISTANCE_SENSOR 직접값
+    std::atomic<bool> mavlink_dist_bottom_valid_{false};
 
     // ========== 배터리/GPS (FCBridgeClient에서 수신) ==========
     std::atomic<float> battery_remaining_{0.0f};

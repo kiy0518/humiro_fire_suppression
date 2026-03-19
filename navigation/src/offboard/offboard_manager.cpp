@@ -907,6 +907,8 @@ void OffboardManager::syncContextFromMembers()
     ctx_.actual_vz.store(actual_vz_.load());
     ctx_.dist_bottom.store(dist_bottom_.load());
     ctx_.dist_bottom_valid.store(dist_bottom_valid_.load());
+    ctx_.mavlink_dist_bottom.store(mavlink_dist_bottom_.load());
+    ctx_.mavlink_dist_bottom_valid.store(mavlink_dist_bottom_valid_.load());
     ctx_.position_received.store(position_received_.load());
     ctx_.nav_state.store(nav_state_.load());
     ctx_.arming_state.store(arming_state_.load());

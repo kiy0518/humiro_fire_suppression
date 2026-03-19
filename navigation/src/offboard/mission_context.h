@@ -67,8 +67,11 @@ struct MissionContext {
     std::atomic<bool> position_received{false};
 
     // === 하방 거리계 ===
-    std::atomic<float> dist_bottom{-1.0f};       // 지면까지 거리 (m), 무효 시 -1
+    std::atomic<float> dist_bottom{-1.0f};       // 지면까지 거리 (m), 무효 시 -1 (PX4 EKF 경유)
     std::atomic<bool> dist_bottom_valid{false};
+    // MAVLink DISTANCE_SENSOR 직접 값 (PX4 EKF 우회, OSD H값과 동일 소스)
+    std::atomic<float> mavlink_dist_bottom{-1.0f};
+    std::atomic<bool> mavlink_dist_bottom_valid{false};
 
     // === FC 상태 ===
     std::atomic<uint8_t> nav_state{0};       // 14=OFFBOARD, 5=AUTO_RTL

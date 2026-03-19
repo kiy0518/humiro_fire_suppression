@@ -178,9 +178,15 @@ public:
         case RtlPhase::SOFT_LAND: {
             // 삼중화 착지 감지: 1순위 PX4 → 2순위 거리계+수직속도 → 3순위 기압계+수직속도
             float actual_vz = std::fabs(ctx.actual_vz.load());
-            bool has_rf = ctx.dist_bottom_valid.load();
             bool px4_landed = ctx.land_detected.load();
-            float dist_bottom = ctx.dist_bottom.load();
+            // 거리계: MAVLink DISTANCE_SENSOR 우선 (PX4 EKF가 저고도에서 무효화하는 문제 우회)
+            bool has_mavlink_rf = ctx.mavlink_dist_bottom_valid.load();
+            float mavlink_dist = ctx.mavlink_dist_bottom.load();
+            bool has_ekf_rf = ctx.dist_bottom_valid.load();
+            float ekf_dist = ctx.dist_bottom.load();
+            // MAVLink 원시값 우선, 없으면 EKF 폴백
+            bool has_rf = has_mavlink_rf || has_ekf_rf;
+            float dist_bottom = has_mavlink_rf ? mavlink_dist : ekf_dist;
 
             // --- 수직 속도 안정화 카운터 (전 센서 공통) ---
             // 10Hz tick 기준, vz < 0.05m/s 연속 카운트
@@ -214,8 +220,8 @@ public:
             }
             bool baro_agl_stable = (baro_agl_stable_count_ >= BARO_AGL_STABLE_TICKS);  // 5초간 AGL 낮음
 
-            // 2순위 조건: 거리계 유효 + 거리 안정 + 수직속도 안정 (동시 충족)
-            bool rf_on_ground = has_rf && dist_stable && vz_stable
+            // 2순위 조건: 거리계 유효 + 거리 안정 + AGL 낮음 (지면효과로 vz 불안정해도 감지)
+            bool rf_on_ground = has_rf && dist_stable
                              && (agl < RNG_AGL_LAND_THRESHOLD);
             // 3순위 조건: 거리계 무효 + 기압계 AGL 연속 5초 낮음 + 수직속도 안정
             bool baro_on_ground = !has_rf && vz_stable && baro_agl_stable;
@@ -237,7 +243,7 @@ public:
                         "[RTL] PX4 land_detected 확인 → 센서→PX4 업그레이드 (NORMAL DISARM)");
                 }
             }
-            // === 2순위: 거리계 안정 + 수직속도 안정 (3초간 동시 충족) ===
+            // === 2순위: 거리계 안정 + AGL 낮음 (3초간 거리 변화 없음, 지면효과 대응) ===
             else if (rf_on_ground && !land_detected_by_px4_) {
                 if (!ground_detected_) {
                     ground_detected_ = true;
@@ -245,8 +251,8 @@ public:
                     land_detected_by_sensor_ = true;
                     ground_detect_time_ = std::chrono::steady_clock::now();
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 2순위 거리계+vz 착지 감지 (dist=%.2fm, vz=%.3fm/s, 안정 %.1fs) → %.1fs 안정화 대기",
-                        dist_bottom, actual_vz,
+                        "[RTL] 2순위 거리계 착지 감지 (dist=%.2fm, agl=%.2fm, vz=%.3fm/s, 안정 %.1fs) → %.1fs 안정화 대기",
+                        dist_bottom, agl, actual_vz,
                         dist_stable_count_ / 10.0f, GROUND_STABLE_SEC_SENSOR);
                 }
             }
@@ -403,9 +409,9 @@ public:
 
         case RtlPhase::GROUND_DISARM: {
             // 지면에 눌리도록 최소 하강 속도 유지 (호버링 방지)
-            // position hold(home_z)로 하면 10cm 위에서 호버링 → disarm 시 추락
+            // 지면효과 최소 속도 사용 → 모터 출력 최소화하면서 착지 유지
             sp.position = {home_x_, home_y_, NAN};
-            sp.velocity = {NAN, NAN, landing_speed_min_};  // NED +z = 하강 계속
+            sp.velocity = {NAN, NAN, GROUND_EFFECT_MIN_SPEED};  // NED +z = 하강 계속 (최소 출력)
             sp.yaw = rtl_yaw_;
             sp.yawspeed = 0.0f;
             return true;
@@ -446,7 +452,7 @@ private:
     // 1순위 PX4
     static constexpr float GROUND_STABLE_SEC_PX4 = 0.5f;   // PX4 land_detected 안정화 시간 (초)
     // 2순위 거리계+수직속도
-    static constexpr float RNG_AGL_LAND_THRESHOLD = 0.15f;      // 거리계 AGL 착지 상한 (설치높이 보정 후)
+    static constexpr float RNG_AGL_LAND_THRESHOLD = 0.20f;      // 거리계 AGL 착지 상한 (설치높이 보정 후, 지면효과 22cm 대응)
     static constexpr float DIST_STABLE_DELTA = 0.03f;      // 거리계 안정 판정: 변화량 < 3cm
     static constexpr int   DIST_STABLE_TICKS = 30;         // 거리계 안정 판정: 연속 30틱 (10Hz × 3초)
     static constexpr float GROUND_STABLE_SEC_SENSOR = 0.5f; // 2순위 감지 후 추가 안정화 (초)
@@ -457,6 +463,9 @@ private:
     // 수직속도 공통
     static constexpr float VZ_STABLE_THRESHOLD = 0.05f;    // vz 안정 판정 (m/s)
     static constexpr int   VZ_STABLE_TICKS = 30;           // vz 안정 판정: 연속 30틱 (10Hz × 3초)
+    // 지면효과 대응 (20cm 이하 모터 출력 점진적 감소)
+    static constexpr float GROUND_EFFECT_ALT = 0.20f;      // 지면효과 감속 시작 고도 (m)
+    static constexpr float GROUND_EFFECT_MIN_SPEED = 0.02f; // 지면효과 최소 하강 속도 (m/s)
 
     // === 상태 ===
     RtlPhase phase_{RtlPhase::NAVIGATE_HOME};
@@ -488,12 +497,19 @@ private:
 
     // === 유틸리티 ===
 
-    /** AGL 계산: 거리계 유효 시 설치 높이 보정 후 사용, 아니면 기압계 폴백 */
+    /** AGL 계산: MAVLink 거리계 우선 → EKF 거리계 → 기압계 폴백 */
     float getAGL(const MissionContext& ctx) const {
+        // MAVLink DISTANCE_SENSOR 우선 (PX4 EKF 우회)
+        if (ctx.mavlink_dist_bottom_valid.load()) {
+            float d = ctx.mavlink_dist_bottom.load();
+            if (d >= 0.0f) return std::max(0.0f, d - rf_mount_height_);
+        }
+        // EKF dist_bottom 폴백
         if (ctx.dist_bottom_valid.load()) {
             float d = ctx.dist_bottom.load();
             if (d >= 0.0f) return std::max(0.0f, d - rf_mount_height_);
         }
+        // 기압계 폴백
         return -(ctx.current_local_z.load() - home_z_);
     }
 
@@ -502,12 +518,19 @@ private:
      * GUI에서 soft_land_alt 변경 시 감속 구간 길이가 실제로 반영됨.
      */
     float calcLandingSpeed(float agl) const {
-        if (soft_land_alt_ <= 0.0f) return landing_speed_min_;
+        if (soft_land_alt_ <= 0.0f) return GROUND_EFFECT_MIN_SPEED;
         if (agl >= soft_land_alt_) return descent_speed_;
-        if (agl <= 0.0f) return landing_speed_min_;
+        if (agl <= 0.0f) return GROUND_EFFECT_MIN_SPEED;
         // soft_land_alt → 0m: descent_speed → landing_speed_min 선형 감속
         float ratio = agl / soft_land_alt_;
-        return landing_speed_min_ + (descent_speed_ - landing_speed_min_) * ratio;
+        float base_speed = landing_speed_min_ + (descent_speed_ - landing_speed_min_) * ratio;
+        // 20cm 이하: 지면효과 대응 — 모터 출력 점진적 감소
+        // AGL 20cm→0cm: base_speed → 0.02m/s 선형 감속
+        if (agl < GROUND_EFFECT_ALT) {
+            float ge_ratio = agl / GROUND_EFFECT_ALT;  // 0.0 ~ 1.0
+            base_speed = GROUND_EFFECT_MIN_SPEED + (base_speed - GROUND_EFFECT_MIN_SPEED) * ge_ratio;
+        }
+        return base_speed;
     }
 
     /** 동적 SOFT_LAND 타임아웃: 현재 AGL 기반으로 매 tick 갱신 */
