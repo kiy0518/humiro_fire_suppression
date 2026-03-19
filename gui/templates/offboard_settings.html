@@ -253,6 +253,14 @@
                                     <span class="input-group-text">m/s</span>
                                 </div>
                             </div>
+                            <div class="col-auto">
+                                <label class="form-label">거리계 설치 높이</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="rangefinder_mount_height"
+                                           step="0.01" min="0" max="0.5" placeholder="0.18">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -534,7 +542,7 @@ const configFields = ['target_altitude',
     'takeoff_max_speed', 'takeoff_accel_tau',
     'nav_max_accel_xy', 'nav_max_speed_z',
     'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min',
+    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height',
     'deadzone_h_px', 'deadzone_v_px'
 ];
 
@@ -659,7 +667,7 @@ document.getElementById('saveFlightParams').addEventListener('click', function()
         'takeoff_max_speed', 'takeoff_accel_tau',
         'nav_max_accel_xy', 'nav_max_speed_z',
         'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min',
+        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height',
         'deadzone_h_px', 'deadzone_v_px'
     ];
     const data = {};

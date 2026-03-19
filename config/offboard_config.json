@@ -12,6 +12,7 @@
   "rtl_descent_speed": 0.3,
   "rtl_soft_land_alt": 2,
   "rtl_landing_speed_min": 0.1,
+  "rangefinder_mount_height": 0.18,
   "deadzone_h_px": 33,
   "deadzone_v_px": 50
 }

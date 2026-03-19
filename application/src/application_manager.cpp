@@ -1630,6 +1630,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
             config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
             config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+            config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
             config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
             config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
 
@@ -1701,6 +1702,7 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
     config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
     config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+    config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
     config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
     config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
 
@@ -2152,6 +2154,7 @@ void ApplicationManager::executeSwarmMission(const custom_message::FireMissionSt
     config.rtl_descent_speed     = readFloatFromOffboardConfig("rtl_descent_speed",      0.4f,  0.1f,  2.0f);
     config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
     config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
+    config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
     config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
     config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
 

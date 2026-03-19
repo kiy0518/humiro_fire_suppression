@@ -37,16 +37,19 @@ public:
         // ctx에서 착륙 파라미터 로드
         descent_speed_ = ctx.rtl_descent_speed;
         soft_land_alt_ = ctx.rtl_soft_land_alt;
+        // 거리계 설치 높이 (기체마다 다름, GUI 설정)
+        rf_mount_height_ = ctx.rangefinder_mount_height;
         // 최종 착륙 속도: 거리계 있으면 설정값 그대로, 없으면 VZ_STABLE_THRESHOLD*2 이상 강제
         // (거리계 유무는 비행 중 변할 수 있으므로 안전측으로 하한 적용)
         landing_speed_min_ = std::max(ctx.rtl_landing_speed_min, VZ_STABLE_THRESHOLD * 2.0f);
         // 속도 역전 방지: landing_speed_min이 descent_speed보다 크면 클램프
         landing_speed_min_ = std::min(landing_speed_min_, descent_speed_);
 
-        // DESCEND 타임아웃 계산 (고도/속도 기반)
+        // DESCEND 타임아웃 계산 (고도/속도 기반, 150m/0.2m/s 최악 시나리오 대응)
         float agl_now = -(ctx.current_local_z.load() - ctx.start_local_z);
         float descend_alt = std::max(0.0f, agl_now - soft_land_alt_);
-        descend_timeout_ = std::max(60.0f, std::min(descend_alt / descent_speed_ * 2.0f + 30.0f, 300.0f));
+        float safe_speed = std::max(descent_speed_, 0.1f);
+        descend_timeout_ = std::max(DESCEND_MIN_TIMEOUT, descend_alt / safe_speed * 2.0f + 60.0f);
         // SOFT_LAND 타임아웃: 동적 (매 tick AGL 기반으로 갱신), 비상 180초
 
         // 착지 감지 초기화
@@ -79,6 +82,10 @@ public:
         // 초기 페이즈 결정: 이미 홈 근처면 바로 하강
         float home_dist = std::sqrt(dx * dx + dy * dy);
 
+        // NAVIGATE_HOME 타임아웃 (거리/속도 기반, 최소 120초)
+        float flight_speed = std::max(ctx.flight_speed, 1.0f);
+        nav_home_timeout_ = std::max(NAV_HOME_MIN_TIMEOUT, home_dist / flight_speed * 2.0f + 60.0f);
+
         if (home_dist < HOME_ARRIVAL_DIST) {
             phase_ = RtlPhase::DESCEND;
             phase_enter_time_ = std::chrono::steady_clock::now();
@@ -89,8 +96,8 @@ public:
             phase_ = RtlPhase::NAVIGATE_HOME;
             phase_enter_time_ = std::chrono::steady_clock::now();
             RCLCPP_INFO(ctx.logger,
-                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, speed=%.1f, descent=%.2fm/s, descend_timeout=%.0fs",
-                home_dist, getAGL(ctx), ctx.flight_speed, descent_speed_, descend_timeout_);
+                "[RTL] 귀환 시작: 홈까지 %.1fm, AGL=%.1fm, speed=%.1f, nav_home_timeout=%.0fs, descend_timeout=%.0fs",
+                home_dist, getAGL(ctx), ctx.flight_speed, nav_home_timeout_, descend_timeout_);
         }
     }
 
@@ -127,11 +134,11 @@ public:
                 break;
             }
 
-            // 타임아웃: 120초
-            if (phase_elapsed > 120.0) {
+            // 동적 타임아웃 (거리/속도 기반)
+            if (phase_elapsed > nav_home_timeout_) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] NAVIGATE_HOME 타임아웃 (120초, 거리 %.1fm) → 현재 위치에서 하강",
-                    dist);
+                    "[RTL] NAVIGATE_HOME 타임아웃 (%.0f초, 거리 %.1fm) → 현재 위치에서 하강",
+                    nav_home_timeout_, dist);
                 // 현재 위치를 홈으로 대체
                 home_x_ = ctx.current_local_x.load();
                 home_y_ = ctx.current_local_y.load();
@@ -209,7 +216,7 @@ public:
 
             // 2순위 조건: 거리계 유효 + 거리 안정 + 수직속도 안정 (동시 충족)
             bool rf_on_ground = has_rf && dist_stable && vz_stable
-                             && (dist_bottom < DIST_BOTTOM_LAND_THRESHOLD);
+                             && (agl < RNG_AGL_LAND_THRESHOLD);
             // 3순위 조건: 거리계 무효 + 기압계 AGL 연속 5초 낮음 + 수직속도 안정
             bool baro_on_ground = !has_rf && vz_stable && baro_agl_stable;
 
@@ -424,18 +431,22 @@ private:
     float landing_speed_min_{0.05f};   // 최종 착륙 속도 (m/s)
     float soft_land_alt_{2.0f};        // 감속 시작 고도 (m AGL)
     float descend_timeout_{60.0f};     // DESCEND 페이즈 타임아웃 (동적)
+    float nav_home_timeout_{120.0f};   // NAVIGATE_HOME 타임아웃 (동적)
+    float rf_mount_height_{0.18f};     // 거리계 설치 높이 (m, GUI 설정)
 
     // === 상수 ===
     static constexpr float RTL_ALTITUDE = 5.0f;          // RTL 귀환 고도 (m AGL, 이륙 기준)
     static constexpr float HOME_ARRIVAL_DIST = 2.0f;     // 홈 도착 거리 (m)
     static constexpr float RTL_MAX_AZ  = 1.0f;           // m/s²
+    static constexpr float NAV_HOME_MIN_TIMEOUT = 120.0f;         // NAVIGATE_HOME 최소 타임아웃 (초)
+    static constexpr float DESCEND_MIN_TIMEOUT  = 60.0f;          // DESCEND 최소 타임아웃 (초)
     static constexpr float SOFT_LAND_EMERGENCY_TIMEOUT = 180.0f;  // SOFT_LAND 비상 타임아웃 (초)
 
     // --- 착지 감지 상수 ---
     // 1순위 PX4
     static constexpr float GROUND_STABLE_SEC_PX4 = 0.5f;   // PX4 land_detected 안정화 시간 (초)
     // 2순위 거리계+수직속도
-    static constexpr float DIST_BOTTOM_LAND_THRESHOLD = 0.35f;  // 거리계 착지 상한 (장착높이 0.17~0.20m + 마진)
+    static constexpr float RNG_AGL_LAND_THRESHOLD = 0.15f;      // 거리계 AGL 착지 상한 (설치높이 보정 후)
     static constexpr float DIST_STABLE_DELTA = 0.03f;      // 거리계 안정 판정: 변화량 < 3cm
     static constexpr int   DIST_STABLE_TICKS = 30;         // 거리계 안정 판정: 연속 30틱 (10Hz × 3초)
     static constexpr float GROUND_STABLE_SEC_SENSOR = 0.5f; // 2순위 감지 후 추가 안정화 (초)
@@ -477,11 +488,11 @@ private:
 
     // === 유틸리티 ===
 
-    /** AGL 계산: 거리계 유효 시 직접 사용, 아니면 기압계 폴백 */
+    /** AGL 계산: 거리계 유효 시 설치 높이 보정 후 사용, 아니면 기압계 폴백 */
     float getAGL(const MissionContext& ctx) const {
         if (ctx.dist_bottom_valid.load()) {
             float d = ctx.dist_bottom.load();
-            if (d >= 0.0f) return d;
+            if (d >= 0.0f) return std::max(0.0f, d - rf_mount_height_);
         }
         return -(ctx.current_local_z.load() - home_z_);
     }
@@ -566,10 +577,10 @@ private:
         float agl = getAGL(ctx);
         char buf[128];
         if (has_rf) {
-            std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c RNG:%d/%d VZ:%d/%d d=%.2f",
+            std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c RNG:%d/%d VZ:%d/%d d=%.2f(%.2f)",
                 px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
                 dist_stable_count_, DIST_STABLE_TICKS,
-                vz_stable_count_, VZ_STABLE_TICKS, dist_bottom);
+                vz_stable_count_, VZ_STABLE_TICKS, agl, dist_bottom);
         } else {
             std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c BA:%d/%d VZ:%d/%d a=%.2f",
                 px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',

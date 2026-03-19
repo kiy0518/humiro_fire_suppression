@@ -46,6 +46,7 @@ struct MissionConfig {
     float rtl_descent_speed = 0.4f;          // 하강 속도 (m/s)
     float rtl_soft_land_alt = 2.0f;          // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min = 0.05f;     // 최종 착지 속도 (m/s)
+    float rangefinder_mount_height = 0.18f;  // 거리계 설치 높이 (m, 지면~센서)
     // 조준 데드존 (Aiming)
     int deadzone_h_px = 33;                  // 수평 데드존 (px, 10m 기준 ~69cm)
     int deadzone_v_px = 33;                  // 수직 데드존 (px, 10m 기준 ~71cm)
@@ -94,6 +95,7 @@ struct MissionContext {
     float rtl_descent_speed{0.4f};           // 하강 속도 (m/s)
     float rtl_soft_land_alt{2.0f};           // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min{0.05f};      // 최종 착지 속도 (m/s)
+    float rangefinder_mount_height{0.18f};   // 거리계 설치 높이 (m)
     int deadzone_h_px{33};                   // 조준 데드존 수평 (px)
     int deadzone_v_px{33};                   // 조준 데드존 수직 (px)
     double target_lat{0.0};
@@ -217,6 +219,7 @@ struct MissionContext {
         rtl_descent_speed = config.rtl_descent_speed;
         rtl_soft_land_alt = config.rtl_soft_land_alt;
         rtl_landing_speed_min = config.rtl_landing_speed_min;
+        rangefinder_mount_height = config.rangefinder_mount_height;
         deadzone_h_px = config.deadzone_h_px;
         deadzone_v_px = config.deadzone_v_px;
     }
