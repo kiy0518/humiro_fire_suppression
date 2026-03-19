@@ -118,6 +118,12 @@ private:
     std::atomic<bool> rgb_init_done_;
     std::atomic<bool> thermal_init_done_;
     std::atomic<bool> mission_running_;  // 미션 실행 중 플래그 (중복 실행 방지)
+
+    // OSD 고도 ARM 리셋 (QGC alt(rel) 동일 동작)
+    float alt_baseline_ = 0.0f;       // ARM 시점의 VFR_HUD.alt 기준값
+    uint8_t prev_arming_state_ = 0;   // 이전 arming_state (전환 감지용)
+    float last_vfr_alt_ = 0.0f;       // 최신 VFR_HUD.alt (ARM 전환 시 캡처용)
+
     uint8_t drone_id_ = 1;  // DRONE_ID 환경 변수에서 로드 (멀티 드론 식별용)
     bool is_follower_ = false;  // ROLE 환경변수 기반 (Follower: 60000 미션시작 차단)
     

@@ -533,24 +533,21 @@ private:
                         // mavlink-router가 모든 MAVLink 트래픽을 전달하므로,
                         // 커스텀 메시지(60000~60003)와 COMMAND_LONG(76)만 즉시 파싱
 
-                        // MAVLink v1(0xFE): GLOBAL_POSITION_INT(33) 고도 추출
+                        // MAVLink v1(0xFE): VFR_HUD(74) 고도 추출
                         // mavlink-router가 v1으로 전달하는 경우 처리
                         if (buffer[0] == 0xFE) {
                             // v1 헤더: magic(1) + len(1) + seq(1) + sysid(1) + compid(1) + msgid(1) = 6바이트
                             constexpr size_t V1_HEADER_LEN = 6;
                             if (static_cast<size_t>(received) >= V1_HEADER_LEN) {
                                 uint8_t msg_id_v1 = buffer[5];
-                                // GLOBAL_POSITION_INT: payload 28바이트 (최소 20바이트 필요)
-                                if (msg_id_v1 == 33 && static_cast<size_t>(received) >= V1_HEADER_LEN + 20) {
+                                // VFR_HUD: alt(QGC alt(rel)과 동일)
+                                // v1 wire order: airspeed(4), groundspeed(4), alt(4), climb(4), heading(2), throttle(2)
+                                if (msg_id_v1 == 74 && static_cast<size_t>(received) >= V1_HEADER_LEN + 12) {
                                     const uint8_t* payload = buffer + V1_HEADER_LEN;
-                                    // wire order: time_boot_ms(4), lat(4), lon(4), alt(4), relative_alt(4)
-                                    int32_t alt_mm, relative_alt_mm;
-                                    memcpy(&alt_mm, payload + 12, 4);
-                                    memcpy(&relative_alt_mm, payload + 16, 4);
+                                    float vfr_alt;
+                                    memcpy(&vfr_alt, payload + 8, 4);
                                     if (altitude_callback_) {
-                                        altitude_callback_(
-                                            static_cast<float>(relative_alt_mm) / 1000.0f,
-                                            static_cast<float>(alt_mm) / 1000.0f);
+                                        altitude_callback_(vfr_alt, 0.0f);
                                     }
                                 }
                             }
@@ -564,19 +561,23 @@ private:
                                                      (static_cast<uint32_t>(buffer[9]) << 16);
                             bool is_relevant = (msg_id_filter == 76) ||  // COMMAND_LONG
                                                (msg_id_filter == 33) ||  // GLOBAL_POSITION_INT (고도)
+                                               (msg_id_filter == 74) ||  // VFR_HUD (QGC alt(rel))
                                                (msg_id_filter == 132) || // DISTANCE_SENSOR (하방 거리)
                                                (msg_id_filter >= 60000 && msg_id_filter <= 60003);  // 커스텀 메시지
 
-                            // GLOBAL_POSITION_INT: relative_alt 직접 추출 (v2 경로)
-                            if (msg_id_filter == 33 && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN + 20) {
+                            // GLOBAL_POSITION_INT: 스킵 (고도는 VFR_HUD.alt 사용)
+                            if (msg_id_filter == 33) {
+                                continue;
+                            }
+
+                            // VFR_HUD: alt 추출 (QGC alt(rel)과 동일한 값)
+                            // v2 wire order: airspeed(4), groundspeed(4), alt(4), climb(4), heading(2), throttle(2)
+                            if (msg_id_filter == 74 && static_cast<size_t>(received) >= MAVLINK_HEADER_LEN + 12) {
                                 const uint8_t* payload = buffer + MAVLINK_HEADER_LEN;
-                                int32_t alt_mm, relative_alt_mm;
-                                memcpy(&alt_mm, payload + 12, 4);
-                                memcpy(&relative_alt_mm, payload + 16, 4);
+                                float vfr_alt;
+                                memcpy(&vfr_alt, payload + 8, 4);
                                 if (altitude_callback_) {
-                                    altitude_callback_(
-                                        static_cast<float>(relative_alt_mm) / 1000.0f,
-                                        static_cast<float>(alt_mm) / 1000.0f);
+                                    altitude_callback_(vfr_alt, 0.0f);
                                 }
                                 continue;
                             }

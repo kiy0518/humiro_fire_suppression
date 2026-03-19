@@ -1000,11 +1000,23 @@ void ApplicationManager::initializeCustomMessage() {
             }
         );
 
-        // GLOBAL_POSITION_INT에서 relative_alt 수신 → OSD 고도 업데이트
+        // OSD 고도: MAVLink VFR_HUD.alt 사용, ARM 시점 기준 리셋 (QGC alt(rel) 동일)
         custom_message_handler_->setAltitudeCallback(
-            [this](float relative_alt_m, float alt_amsl_m) {
+            [this](float vfr_alt, float /*unused*/) {
+                last_vfr_alt_ = vfr_alt;
+
+#ifdef ENABLE_ROS2
+                if (status_ros2_subscriber_) {
+                    uint8_t arm = status_ros2_subscriber_->getArmingState();
+                    if (arm == 2 && prev_arming_state_ != 2) {
+                        // DISARM → ARM 전환: 현재 고도를 기준점으로 저장
+                        alt_baseline_ = vfr_alt;
+                    }
+                    prev_arming_state_ = arm;
+                }
+#endif
                 if (status_overlay_) {
-                    status_overlay_->setAltitude(relative_alt_m);
+                    status_overlay_->setAltitude(vfr_alt - alt_baseline_);
                 }
             }
         );

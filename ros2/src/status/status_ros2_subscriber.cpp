@@ -164,8 +164,8 @@ void StatusROS2Subscriber::pollFCState() {
     }
 
     // ========== 고도 처리 ==========
-    // MAVLink GLOBAL_POSITION_INT.relative_alt 사용 (QGC alt(rel)과 동일)
-    // application_manager.cpp의 altitude_callback_에서 처리 (DDS 덮어쓰기 제거)
+    // MAVLink VFR_HUD.alt 사용 (QGC alt(rel)과 동일)
+    // application_manager.cpp의 altitude_callback_에서 처리
 
     // ========== 속도 처리 ==========
     status_overlay_->setVelocity(state.vx, state.vy, state.vz);
