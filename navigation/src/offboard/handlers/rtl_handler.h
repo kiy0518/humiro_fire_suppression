@@ -277,6 +277,8 @@ public:
                                        :                            "기압계+vz(3순위)";
                     RCLCPP_INFO(ctx.logger,
                         "[RTL] 착지 안정화 완료 (%.1fs, %s) → GROUND_DISARM", ground_sec, method);
+                    // SOFT_LAND 최종 디버그 스냅샷 저장 (OSD에 GROUND_DISARM과 함께 표시)
+                    soft_land_snapshot_ = buildSoftLandDebugString(ctx);
                     setPhase(RtlPhase::GROUND_DISARM);
                     break;
                 }
@@ -469,6 +471,7 @@ private:
     int dist_stable_count_{0};        // 거리 변화 < 3cm 연속 카운트
     int vz_stable_count_{0};          // vz < 0.05m/s 연속 카운트
     int baro_agl_stable_count_{0};    // 기압계 AGL < threshold 연속 카운트
+    std::string soft_land_snapshot_;  // SOFT_LAND 최종 디버그 스냅샷 (GROUND_DISARM에서 표시)
 
     int last_log_tick_{-1};
 
@@ -522,35 +525,21 @@ private:
             std::snprintf(buf, sizeof(buf), "AGL:%.1fm spd:%.2f", agl, descent_speed_);
             return buf;
         }
-        case RtlPhase::SOFT_LAND: {
-            float dist_bottom = ctx.dist_bottom.load();
-            bool px4 = ctx.land_detected.load();
-            bool maybe = ctx.maybe_landed.load();
-            bool has_rf = ctx.dist_bottom_valid.load();
-            float agl = getAGL(ctx);
-            char buf[128];
-            if (has_rf) {
-                std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c RNG:%d/%d VZ:%d/%d d=%.2f",
-                    px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
-                    dist_stable_count_, DIST_STABLE_TICKS,
-                    vz_stable_count_, VZ_STABLE_TICKS, dist_bottom);
-            } else {
-                std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c BA:%d/%d VZ:%d/%d a=%.2f",
-                    px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
-                    baro_agl_stable_count_, BARO_AGL_STABLE_TICKS,
-                    vz_stable_count_, VZ_STABLE_TICKS, agl);
-            }
-            return buf;
-        }
+        case RtlPhase::SOFT_LAND:
+            return buildSoftLandDebugString(ctx);
         case RtlPhase::GROUND_DISARM: {
             const char* method = land_detected_by_px4_   ? "PX4"
                                : land_detected_by_sensor_ ? "RNG+VZ"
                                : ground_detected_          ? "BARO"
                                :                            "EMRG";
-            char buf[64];
+            char buf[128];
             std::snprintf(buf, sizeof(buf), "%s #%d/%d %s",
                 method, disarm_attempts_, 5,
                 (land_detected_by_px4_ && disarm_attempts_ <= 2) ? "NORM" : "FORCE");
+            // SOFT_LAND 스냅샷 + GROUND_DISARM 결합 (OSD에서 확인 가능)
+            if (!soft_land_snapshot_.empty()) {
+                return soft_land_snapshot_ + " > " + buf;
+            }
             return buf;
         }
         }
@@ -566,6 +555,28 @@ private:
             case RtlPhase::GROUND_DISARM: return "DISARMING";
             default:                      return "";
         }
+    }
+
+    /** SOFT_LAND 디버그 문자열 (스냅샷 저장용으로도 사용) */
+    std::string buildSoftLandDebugString(const MissionContext& ctx) const {
+        float dist_bottom = ctx.dist_bottom.load();
+        bool px4 = ctx.land_detected.load();
+        bool maybe = ctx.maybe_landed.load();
+        bool has_rf = ctx.dist_bottom_valid.load();
+        float agl = getAGL(ctx);
+        char buf[128];
+        if (has_rf) {
+            std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c RNG:%d/%d VZ:%d/%d d=%.2f",
+                px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
+                dist_stable_count_, DIST_STABLE_TICKS,
+                vz_stable_count_, VZ_STABLE_TICKS, dist_bottom);
+        } else {
+            std::snprintf(buf, sizeof(buf), "PX4:%c ML:%c BA:%d/%d VZ:%d/%d a=%.2f",
+                px4 ? 'Y' : 'N', maybe ? 'Y' : 'N',
+                baro_agl_stable_count_, BARO_AGL_STABLE_TICKS,
+                vz_stable_count_, VZ_STABLE_TICKS, agl);
+        }
+        return buf;
     }
 
     /** 페이즈 전환 */

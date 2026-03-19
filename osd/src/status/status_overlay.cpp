@@ -107,8 +107,10 @@ void StatusOverlay::updateOffboardStatus(DroneStatus status) {
         // VIM4 커스텀 상태로 처리 (PX4 상태보다 우선)
         current_status_ = status;
         is_offboard_custom_status_ = true;  // VIM4 커스텀 상태 사용 중
-        // RETURNING이 아닌 상태에서는 서브페이즈/디버그 클리어
-        if (status != DroneStatus::RETURNING) {
+        // RTL 디버그 정보: RETURNING/DISARMED/LANDING에서는 유지, 새 미션 시작 시 클리어
+        if (status != DroneStatus::RETURNING &&
+            status != DroneStatus::DISARMED &&
+            status != DroneStatus::LANDING) {
             rtl_sub_phase_.clear();
             rtl_land_debug_.clear();
         }
