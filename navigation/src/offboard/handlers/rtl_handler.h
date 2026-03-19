@@ -521,32 +521,37 @@ private:
 
     /** 착지 감지 디버그 문자열 (OSD 표시용) */
     std::string buildLandDebugString(const MissionContext& ctx) const {
+        double elapsed = phaseSec();
         switch (phase_) {
         case RtlPhase::NAVIGATE_HOME: {
             float dx = home_x_ - ctx.current_local_x.load();
             float dy = home_y_ - ctx.current_local_y.load();
             float dist = std::sqrt(dx * dx + dy * dy);
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "HOME:%.0fm", dist);
+            char buf[80];
+            std::snprintf(buf, sizeof(buf), "HOME:%.0fm %.0f/%.0fs", dist, elapsed, nav_home_timeout_);
             return buf;
         }
         case RtlPhase::DESCEND: {
             float agl = getAGL(ctx);
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "AGL:%.1fm spd:%.2f", agl, descent_speed_);
+            char buf[80];
+            std::snprintf(buf, sizeof(buf), "AGL:%.1fm spd:%.2f %.0f/%.0fs", agl, descent_speed_, elapsed, descend_timeout_);
             return buf;
         }
-        case RtlPhase::SOFT_LAND:
-            return buildSoftLandDebugString(ctx);
+        case RtlPhase::SOFT_LAND: {
+            float dyn_to = calcDynamicSoftLandTimeout(getAGL(ctx));
+            return buildSoftLandDebugString(ctx) +
+                   " " + std::to_string((int)elapsed) + "/" + std::to_string((int)dyn_to) + "s";
+        }
         case RtlPhase::GROUND_DISARM: {
             const char* method = land_detected_by_px4_   ? "PX4"
                                : land_detected_by_sensor_ ? "RNG+VZ"
                                : ground_detected_          ? "BARO"
                                :                            "EMRG";
             char buf[128];
-            std::snprintf(buf, sizeof(buf), "%s #%d/%d %s",
+            std::snprintf(buf, sizeof(buf), "%s #%d/%d %s %.0f/20s",
                 method, disarm_attempts_, 5,
-                (land_detected_by_px4_ && disarm_attempts_ <= 2) ? "NORM" : "FORCE");
+                (land_detected_by_px4_ && disarm_attempts_ <= 2) ? "NORM" : "FORCE",
+                elapsed);
             // SOFT_LAND 스냅샷 + GROUND_DISARM 결합 (OSD에서 확인 가능)
             if (!soft_land_snapshot_.empty()) {
                 return soft_land_snapshot_ + " > " + buf;
