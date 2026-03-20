@@ -47,9 +47,11 @@ struct MissionConfig {
     float rtl_soft_land_alt = 2.0f;          // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min = 0.05f;     // 최종 착지 속도 (m/s)
     float rangefinder_mount_height = 0.18f;  // 거리계 설치 높이 (m, 지면~센서)
+    float rangefinder_gps_switch_margin = 0.03f; // GPS전환 마진 (설치높이 + 이 값에서 전환)
     // 조준 데드존 (Aiming)
     int deadzone_h_px = 33;                  // 수평 데드존 (px, 10m 기준 ~69cm)
     int deadzone_v_px = 33;                  // 수직 데드존 (px, 10m 기준 ~71cm)
+    float fire_pitch_tolerance_deg = 1.0f;   // 자동 격발 허용 피치 범위 (±도)
 };
 
 struct MissionContext {
@@ -100,8 +102,10 @@ struct MissionContext {
     float rtl_soft_land_alt{2.0f};           // 소프트랜딩 시작 고도 (m AGL)
     float rtl_landing_speed_min{0.05f};      // 최종 착지 속도 (m/s)
     float rangefinder_mount_height{0.18f};   // 거리계 설치 높이 (m)
+    float rangefinder_gps_switch_margin{0.03f}; // GPS전환 마진 (m)
     int deadzone_h_px{33};                   // 조준 데드존 수평 (px)
     int deadzone_v_px{33};                   // 조준 데드존 수직 (px)
+    float fire_pitch_tolerance_deg{1.0f};    // 자동 격발 허용 피치 (±도)
     double target_lat{0.0};
     double target_lon{0.0};
 
@@ -224,8 +228,10 @@ struct MissionContext {
         rtl_soft_land_alt = config.rtl_soft_land_alt;
         rtl_landing_speed_min = config.rtl_landing_speed_min;
         rangefinder_mount_height = config.rangefinder_mount_height;
+        rangefinder_gps_switch_margin = config.rangefinder_gps_switch_margin;
         deadzone_h_px = config.deadzone_h_px;
         deadzone_v_px = config.deadzone_v_px;
+        fire_pitch_tolerance_deg = config.fire_pitch_tolerance_deg;
     }
 
     /** 컨텍스트 초기화 (새 미션 시작 시) */

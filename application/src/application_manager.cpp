@@ -1647,8 +1647,10 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
             config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
             config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
             config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
+            config.rangefinder_gps_switch_margin = readFloatFromOffboardConfig("rangefinder_gps_switch_margin", 0.03f, 0.01f, 0.10f);
             config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
             config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
+            config.fire_pitch_tolerance_deg = readFloatFromOffboardConfig("fire_pitch_tolerance_deg", 1.0f, 0.5f, 10.0f);
 
             // 비행 모드 결정
             bool use_formation = formation_controller_ && readMissionModeFromConfig();
@@ -1719,8 +1721,10 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
     config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
     config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
+    config.rangefinder_gps_switch_margin = readFloatFromOffboardConfig("rangefinder_gps_switch_margin", 0.03f, 0.01f, 0.10f);
     config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
     config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
+    config.fire_pitch_tolerance_deg = readFloatFromOffboardConfig("fire_pitch_tolerance_deg", 1.0f, 0.5f, 10.0f);
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
@@ -2171,8 +2175,10 @@ void ApplicationManager::executeSwarmMission(const custom_message::FireMissionSt
     config.rtl_soft_land_alt     = readFloatFromOffboardConfig("rtl_soft_land_alt",      2.0f,  0.5f,  5.0f);
     config.rtl_landing_speed_min = readFloatFromOffboardConfig("rtl_landing_speed_min",  0.05f, 0.02f, 0.3f);
     config.rangefinder_mount_height = readFloatFromOffboardConfig("rangefinder_mount_height", 0.18f, 0.0f, 0.5f);
+    config.rangefinder_gps_switch_margin = readFloatFromOffboardConfig("rangefinder_gps_switch_margin", 0.03f, 0.01f, 0.10f);
     config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
     config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
+    config.fire_pitch_tolerance_deg = readFloatFromOffboardConfig("fire_pitch_tolerance_deg", 1.0f, 0.5f, 10.0f);
 
     // 입력 검증
     if (config.target_waypoint.latitude < -90.0 || config.target_waypoint.latitude > 90.0 ||

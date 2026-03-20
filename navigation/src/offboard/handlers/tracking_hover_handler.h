@@ -141,7 +141,7 @@ public:
                 bool aimed = (std::abs(data.rel_x) <= ctx.deadzone_h_px)
                           && (std::abs(data.rel_y) <= ctx.deadzone_v_px);
                 float pitch_deg = ctx.current_pitch.load() * 180.0f / M_PI;
-                bool pitch_stable = (std::abs(pitch_deg) <= FIRE_PITCH_TOLERANCE_DEG);
+                bool pitch_stable = (std::abs(pitch_deg) <= ctx.fire_pitch_tolerance_deg);
                 int remaining = getRemaining(ctx);
 
                 if (aimed && pitch_stable && remaining > 0) {
@@ -413,7 +413,7 @@ private:
 
     // ========== 자동 격발 ==========
     static constexpr float AUTO_FIRE_INTERVAL_SEC = 3.0f;   // 격발 간격 (초)
-    static constexpr float FIRE_PITCH_TOLERANCE_DEG = 1.0f;  // 격발 허용 피치 범위 (±1°)
+    // FIRE_PITCH_TOLERANCE_DEG → ctx.fire_pitch_tolerance_deg (GUI 설정)
 
     // ========== PD 제어 상태 ==========
     float prev_error_yaw_{0.0f};

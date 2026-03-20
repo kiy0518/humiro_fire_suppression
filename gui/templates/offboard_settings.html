@@ -261,6 +261,14 @@
                                     <span class="input-group-text">m</span>
                                 </div>
                             </div>
+                            <div class="col-auto">
+                                <label class="form-label">포지션 모드 전환 마진</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="rangefinder_gps_switch_margin"
+                                           step="0.01" min="0.01" max="0.10" placeholder="0.03">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -292,6 +300,15 @@
                                     <span class="input-group-text">px</span>
                                 </div>
                                 <div class="form-text" id="deadzone_v_radius">10m 거리: 약 ±71cm</div>
+                            </div>
+                        </div>
+                            <div class="col-auto">
+                                <label class="form-label">격발 허용 피치</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="fire_pitch_tolerance_deg"
+                                           step="0.5" min="0.5" max="10" placeholder="1.0">
+                                    <span class="input-group-text">±°</span>
+                                </div>
                             </div>
                         </div>
                         <div class="form-text mt-1">정조준 판정 범위. 열원이 이 범위 안에 들어오면 자동 격발 (10m 기준 약 2.1cm/px)</div>
@@ -542,8 +559,8 @@ const configFields = ['target_altitude',
     'takeoff_max_speed', 'takeoff_accel_tau',
     'nav_max_accel_xy', 'nav_max_speed_z',
     'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height',
-    'deadzone_h_px', 'deadzone_v_px'
+    'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height', 'rangefinder_gps_switch_margin',
+    'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg'
 ];
 
 function loadConfig() {
@@ -667,8 +684,8 @@ document.getElementById('saveFlightParams').addEventListener('click', function()
         'takeoff_max_speed', 'takeoff_accel_tau',
         'nav_max_accel_xy', 'nav_max_speed_z',
         'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
-        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height',
-        'deadzone_h_px', 'deadzone_v_px'
+        'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height', 'rangefinder_gps_switch_margin',
+        'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg'
     ];
     const data = {};
     flightFields.forEach(f => {
