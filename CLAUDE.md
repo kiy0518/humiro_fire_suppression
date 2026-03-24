@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.26.12
+**최신 태그**: v0.26.13
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -60,6 +60,7 @@
 | `022_COMMUNICATION_ARCHITECTURE_STATUS.md` | 통신 아키텍처 상태 |
 | `029_PX4_NAMESPACE_FORMATION.md` | PX4 네임스페이스 편대 (030으로 대체됨) |
 | `030_DDS_DOMAIN_SEPARATION.md` | DDS 도메인 분리 (FC/편대 격리) |
+| `035_DDS_CROSS_CONTAMINATION_FIX.md` | DDS 교차오염 수정 (fc_bridge WiFi 격리) |
 
 #### 화재 진압 시나리오
 | 파일 | 내용 |

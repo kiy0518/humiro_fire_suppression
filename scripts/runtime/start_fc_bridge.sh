@@ -94,9 +94,11 @@ echo "  State Port: ${FC_BRIDGE_STATE_PORT}"
 echo "  Command Port: ${FC_BRIDGE_COMMAND_PORT}"
 echo "========================================"
 
-# DDS 프로파일: micro-ros-agent와 동일하게 eth0_only 사용
-# (micro-ros-agent가 실제로 eth0에서 DDS 발행하므로 fc_bridge도 eth0 필요)
-FINAL_DDS_PROFILE="$PROJECT_ROOT/config/fastdds_eth0_only.xml"
+# DDS 프로파일: eth0+loopback 사용 (WiFi 제외)
+# - FC 모드: eth0는 FC에만 직결 → 다른 드론과 교차 없음, DDS 발견에 필요
+# - SITL 모드: eth0로 PC SITL과 통신
+# - WiFi는 반드시 제외: 다른 드론의 /fmu/* 토픽과 교차오염 방지
+FINAL_DDS_PROFILE="$PROJECT_ROOT/config/fastdds_agent_eth0.xml"
 echo "  FastDDS Profile (final): $FINAL_DDS_PROFILE"
 
 # 실행
