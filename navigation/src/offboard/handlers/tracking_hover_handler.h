@@ -388,13 +388,13 @@ private:
     static constexpr float M_PER_PIXEL_V = 0.02145f;
 
     // ========== PD 제어 게인 (10m 정밀 조준용) ==========
-    static constexpr float KP_YAW = 0.35f;   // 비례 (45kg 기체 관성 고려, 부드러운 응답)
-    static constexpr float KD_YAW = 0.25f;   // 미분 (오버슈트 방지 강화)
+    static constexpr float KP_YAW = 0.385f;  // 비례 (45kg 기체 관성 고려, +10%)
+    static constexpr float KD_YAW = 0.275f;  // 미분 (오버슈트 방지 강화, +10%)
     static constexpr float KP_ALT = 0.3f;    // 고도 비례
     static constexpr float KD_ALT = 0.15f;   // 고도 미분
 
     // ========== 제어 한계 (10m 정밀 조준) ==========
-    static constexpr float MAX_TRACKING_YAW_RATE = 0.1f;   // rad/s (~5.7°/s, 10m: ~1m/s)
+    static constexpr float MAX_TRACKING_YAW_RATE = 0.11f;  // rad/s (~6.3°/s, 10m: ~1.1m/s, +10%)
     static constexpr float MAX_TRACKING_VZ = 0.2f;          // m/s
     static constexpr float MIN_ALTITUDE = 3.0f;            // 최소 고도 (m)
     static constexpr float MAX_ALTITUDE = 30.0f;           // 최대 고도 (m)

@@ -1,7 +1,7 @@
 {
   "takeoff_max_speed": 1,
   "takeoff_accel_tau": 1,
-  "updated_at": "2026-03-20 10:51:14",
+  "updated_at": "2026-03-20 14:11:15",
   "target_altitude": 2,
   "mission_mode": "solo",
   "nav_max_accel_xy": 3,
@@ -12,9 +12,9 @@
   "rtl_descent_speed": 0.4,
   "rtl_soft_land_alt": 2,
   "rtl_landing_speed_min": 0.15,
-  "rangefinder_mount_height": 0.19,
-  "rangefinder_gps_switch_margin": 0.03,
+  "rangefinder_mount_height": 0.18,
+  "rangefinder_gps_switch_margin": 0.1,
   "deadzone_h_px": 33,
   "deadzone_v_px": 50,
-  "fire_pitch_tolerance_deg": 1.5
+  "fire_pitch_tolerance_deg": 2.5
 }

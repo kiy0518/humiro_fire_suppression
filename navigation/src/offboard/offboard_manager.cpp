@@ -255,17 +255,27 @@ void OffboardManager::timerCallback()
             } else {
                 auto elapsed = std::chrono::steady_clock::now() - offboard_lost_start_;
                 if (elapsed > std::chrono::seconds(2)) {
-                    RCLCPP_WARN(node_->get_logger(),
-                        "[RC OVERRIDE] nav_state=%d for %.1fs → mission abort (state=%s)",
-                        nav_state_.load(),
-                        std::chrono::duration<float>(elapsed).count(),
-                        getStateName(state).c_str());
                     offboard_lost_tracking_ = false;
                     if (current_handler_) {
                         current_handler_->onExit(ctx_);
                         current_handler_ = nullptr;
                     }
-                    current_state_.store(MissionState::IDLE);
+                    // RTL 중 OFFBOARD 이탈은 GPS모드 전환 착지 → 미션 성공(LANDED)
+                    if (state == MissionState::RTL) {
+                        RCLCPP_INFO(node_->get_logger(),
+                            "[RTL GPS SWITCH] nav_state=%d for %.1fs → LANDED (GPS모드 착지, state=%s)",
+                            nav_state_.load(),
+                            std::chrono::duration<float>(elapsed).count(),
+                            getStateName(state).c_str());
+                        current_state_.store(MissionState::LANDED);
+                    } else {
+                        RCLCPP_WARN(node_->get_logger(),
+                            "[RC OVERRIDE] nav_state=%d for %.1fs → mission abort (state=%s)",
+                            nav_state_.load(),
+                            std::chrono::duration<float>(elapsed).count(),
+                            getStateName(state).c_str());
+                        current_state_.store(MissionState::IDLE);
+                    }
                     mission_running_.store(false);
                     abort_requested_.store(false);
                     if (timer_) timer_->cancel();

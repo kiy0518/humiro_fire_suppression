@@ -278,7 +278,7 @@ cv::Scalar StatusOverlay::getStatusColor(DroneStatus status) {
         case DroneStatus::FIRING:
         case DroneStatus::FIRING_AUTO_TARGETING:
         case DroneStatus::AUTO_FIRING:
-            return cv::Scalar(0, 0, 255);  // 빨간색
+            return cv::Scalar(0, 128, 255);  // 주황색 (격발 동작 중)
         case DroneStatus::MISSION_COMPLETE:
             return cv::Scalar(255, 255, 0);  // 하늘색
         default:
@@ -464,7 +464,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
         } else if (gps_satellites_ >= 3 && gps_hdop_ < 5.0f) {
             gps_color = cv::Scalar(0, 255, 255);  // 노란색 (보통)
         } else {
-            gps_color = cv::Scalar(0, 0, 255);  // 빨간색 (나쁨)
+            gps_color = cv::Scalar(0, 128, 255);  // 주황색 (나쁨)
         }
         cv::Size gps_size = cv::getTextSize(gps_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
         cv::putText(frame, gps_oss.str(),
@@ -485,7 +485,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
         } else if (battery_percentage_ > 20) {
             battery_color = cv::Scalar(0, 255, 255);  // 노란색
         } else {
-            battery_color = cv::Scalar(0, 0, 255);  // 빨간색
+            battery_color = cv::Scalar(0, 128, 255);  // 주황색
         }
         cv::Size battery_size = cv::getTextSize(battery_oss.str(), FONT_FACE, FONT_SCALE, FONT_THICKNESS, &baseline);
         cv::putText(frame, battery_oss.str(),
@@ -689,7 +689,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
             if (show_dist_bottom_) {
                 if (dist_bottom_ > 5.0f) dist_color = cv::Scalar(0, 255, 0);
                 else if (dist_bottom_ > 2.0f) dist_color = cv::Scalar(0, 255, 255);
-                else dist_color = cv::Scalar(0, 0, 255);
+                else dist_color = cv::Scalar(0, 255, 128);  // 연두색 (2m 이하, 착륙 중)
             }
             cv::putText(frame, dist_str,
                         cv::Point(info_tx, text_y),
@@ -707,9 +707,9 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 std::string rp_str = r_str + p_str;
 
                 cv::Scalar roll_color = (std::abs(roll_deg_) <= ATTITUDE_TOLERANCE)
-                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 128, 255);  // 주황색
                 cv::Scalar pitch_color = (std::abs(pitch_deg_) <= ATTITUDE_TOLERANCE)
-                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+                    ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 128, 255);  // 주황색
 
                 const float RP_FONT_SCALE = FONT_SCALE * 0.85f;
                 int rp_baseline = 0;
@@ -859,9 +859,9 @@ void StatusOverlay::draw(cv::Mat& frame) {
         } else if (wifi_rssi_ >= -70) {
             bars = 2; bar_color = cv::Scalar(0, 255, 255);   // 노랑 (보통)
         } else if (wifi_rssi_ >= -80) {
-            bars = 1; bar_color = cv::Scalar(0, 0, 255);     // 빨강 (약함)
+            bars = 1; bar_color = cv::Scalar(0, 128, 255);   // 주황 (약함)
         } else {
-            bars = 0; bar_color = cv::Scalar(0, 0, 255);     // 빨강 (매우 약함)
+            bars = 0; bar_color = cv::Scalar(0, 128, 255);   // 주황 (매우 약함)
         }
 
         // 바 아이콘 크기
