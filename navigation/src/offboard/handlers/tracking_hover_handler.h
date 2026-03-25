@@ -15,7 +15,7 @@
  *
  * 전환 조건:
  *   - 소화탄 모두 소진 (6발) → 2초 대기 후 COMPLETE → RTL
- *   - 열원 미감지 (80°C 이상 2분간 없음) → RTL (화재 없음 판정)
+ *   - 열원 미감지 (temp_threshold 이상 2분간 없음) → RTL (화재 없음 판정)
  */
 
 #ifndef TRACKING_HOVER_HANDLER_H
@@ -135,7 +135,7 @@ public:
         if (ctx.auto_fire_enabled.load() && tracking_started_ && ctx.thermal_data_ptr) {
             ThermalData data = ctx.thermal_data_ptr->copy();
             bool thermal_valid = data.valid
-                && data.max_temp_celsius >= MIN_TEMP_THRESHOLD;
+                && data.max_temp_celsius >= ctx.temp_threshold;
 
             if (thermal_valid) {
                 bool aimed = (std::abs(data.rel_x) <= ctx.deadzone_h_px)
@@ -204,7 +204,7 @@ public:
                 }
             }
             // 열원 감지 → 타이머 리셋
-            if (data.valid && data.max_temp_celsius >= FIRE_TEMP_THRESHOLD) {
+            if (data.valid && data.max_temp_celsius >= ctx.temp_threshold) {
                 last_fire_detected_time_ = std::chrono::steady_clock::now();
                 no_fire_warned_ = false;
             }
@@ -214,7 +214,7 @@ public:
             if (no_fire_sec >= NO_FIRE_TIMEOUT_SEC) {
                 RCLCPP_WARN(ctx.logger,
                     "[TRACKING_HOVER] %.0f°C 이상 열원 %.0f초간 미감지 → RTL",
-                    FIRE_TEMP_THRESHOLD, NO_FIRE_TIMEOUT_SEC);
+                    ctx.temp_threshold, NO_FIRE_TIMEOUT_SEC);
                 return TransitionResult::COMPLETE;
             }
             if (!no_fire_warned_ && no_fire_sec >= NO_FIRE_TIMEOUT_SEC * 0.5) {
@@ -269,7 +269,7 @@ public:
 
             // 유효성 검사: valid + 온도 임계값 + 데이터 경과 시간
             bool thermal_valid = data.valid
-                && data.max_temp_celsius >= MIN_TEMP_THRESHOLD;
+                && data.max_temp_celsius >= ctx.temp_threshold;
 
             // 타임스탬프 검사 (데이터가 너무 오래되면 무효)
             if (thermal_valid && data.timestamp > 0.0) {
@@ -400,7 +400,7 @@ private:
     static constexpr float MAX_ALTITUDE = 30.0f;           // 최대 고도 (m)
 
     // ========== 유효성 검사 ==========
-    static constexpr float MIN_TEMP_THRESHOLD = 50.0f;     // °C (화재 판정 온도)
+    // MIN_TEMP_THRESHOLD → ctx.temp_threshold (GUI settings.json 연동)
     static constexpr float DT = 0.1f;                       // 10Hz 제어 주기
 
     // ========== 타이밍 ==========
@@ -408,7 +408,7 @@ private:
     static constexpr float AMMO_DEPLETED_DELAY_SEC = 2.0f;
 
     // ========== 열원 미감지 RTL ==========
-    static constexpr float FIRE_TEMP_THRESHOLD = 80.0f;     // °C (화재 판정 온도)
+    // FIRE_TEMP_THRESHOLD → ctx.temp_threshold (GUI settings.json 연동)
     static constexpr float NO_FIRE_TIMEOUT_SEC = 120.0f;    // 2분간 미감지 시 RTL
 
     // ========== 자동 격발 ==========

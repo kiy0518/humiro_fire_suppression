@@ -101,6 +101,11 @@ public:
     bool isMissionRunning() const { return mission_running_.load(); }
 
     /**
+     * @brief 편대 RTL 오프셋 설정 (abortMission 호출 전에 설정)
+     */
+    void setFormationRtlOffset(float heading_rad, float cross_offset_m);
+
+    /**
      * @brief 미션 중단 요청
      */
     void abortMission();

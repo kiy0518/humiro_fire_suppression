@@ -3,13 +3,14 @@
  * @brief RTL (Return To Launch) 핸들러 — OFFBOARD 커스텀 착륙
  *
  * OFFBOARD 위치/속도 제어로 RTL을 직접 수행.
- * PX4 AUTO_RTL을 사용하지 않고, 4단계 페이즈로 귀환+착륙.
+ * PX4 AUTO_RTL을 사용하지 않고, 5단계 페이즈로 귀환+착륙.
  *
  * 페이즈:
- *   NAVIGATE_HOME → 홈 위치로 수평 이동 (비행고도 유지)
- *   DESCEND       → soft_land_alt AGL까지 descent_speed 하강
- *   SOFT_LAND     → soft_land_alt→0m, descent_speed→landing_speed_min 선형 감속
- *   GROUND_DISARM → 착지 감지 후 disarm 명령
+ *   NAVIGATE_HOME  → 홈 위치로 수평 이동 (비행고도 유지)
+ *   DESCEND        → soft_land_alt AGL까지 descent_speed 하강
+ *   SOFT_LAND      → soft_land_alt→0m, descent_speed→landing_speed_min 선형 감속
+ *   TOUCHDOWN_IDLE → POSCTL(Position) 모드 전환, 조종기 제어권 이양
+ *   GROUND_DISARM  → 착지 감지 후 disarm 명령
  *
  * 전환 조건: arming_state == 1 (DISARMED) → COMPLETE
  */
@@ -27,9 +28,29 @@ public:
         ctx.state_enter_time = std::chrono::steady_clock::now();
 
         // 홈 위치 = ARM 시점 시작 위치
-        home_x_ = ctx.start_local_x;
-        home_y_ = ctx.start_local_y;
+        actual_home_x_ = ctx.start_local_x;
+        actual_home_y_ = ctx.start_local_y;
         home_z_ = ctx.start_local_z;  // 지상 NED z
+        formation_rtl_ = false;
+        phase_a_complete_ = false;
+
+        if (ctx.formation_rtl_offset_valid &&
+            std::fabs(ctx.formation_rtl_cross_offset_m) > 0.1f) {
+            // 편대 RTL: Phase A 목적지 = 오프셋 홈 (평행 레인)
+            float theta = ctx.formation_rtl_heading_rad;
+            float cross = ctx.formation_rtl_cross_offset_m;
+            float offset_n = -std::sin(theta) * cross;  // NED North
+            float offset_e =  std::cos(theta) * cross;  // NED East
+            home_x_ = actual_home_x_ + offset_n;
+            home_y_ = actual_home_y_ + offset_e;
+            formation_rtl_ = true;
+            RCLCPP_INFO(ctx.logger,
+                "[RTL] 편대 복귀: Phase A 오프셋 홈 (%.1f, %.1f) → Phase B 이륙지점 (%.1f, %.1f)",
+                home_x_, home_y_, actual_home_x_, actual_home_y_);
+        } else {
+            home_x_ = actual_home_x_;
+            home_y_ = actual_home_y_;
+        }
 
         // RTL 고도: 5m AGL 고정 (NED: 지상 z - 5m)
         flight_z_ = ctx.start_local_z - RTL_ALTITUDE;
@@ -85,8 +106,15 @@ public:
         float home_dist = std::sqrt(dx * dx + dy * dy);
 
         // NAVIGATE_HOME 타임아웃 (거리/속도 기반, 최소 120초)
+        float total_dist = home_dist;  // Phase A 거리
+        if (formation_rtl_) {
+            // Phase B 거리 추가 (오프셋 홈 → 실제 이륙 위치)
+            float ab_dx = home_x_ - actual_home_x_;
+            float ab_dy = home_y_ - actual_home_y_;
+            total_dist += std::sqrt(ab_dx * ab_dx + ab_dy * ab_dy);
+        }
         float flight_speed = std::max(ctx.flight_speed, 1.0f);
-        nav_home_timeout_ = std::max(NAV_HOME_MIN_TIMEOUT, home_dist / flight_speed * 2.0f + 60.0f);
+        nav_home_timeout_ = std::max(NAV_HOME_MIN_TIMEOUT, total_dist / flight_speed * 2.0f + 60.0f);
 
         if (home_dist < HOME_ARRIVAL_DIST) {
             phase_ = RtlPhase::DESCEND;
@@ -129,6 +157,23 @@ public:
 
             // 도착 판정
             if (dist < HOME_ARRIVAL_DIST) {
+                if (formation_rtl_ && !phase_a_complete_) {
+                    // Phase A 완료 → Phase B: 실제 이륙 위치로 전환
+                    phase_a_complete_ = true;
+                    home_x_ = actual_home_x_;
+                    home_y_ = actual_home_y_;
+                    // MotionProfile 리셋 (새 목적지)
+                    float cur_x = ctx.current_local_x.load();
+                    float cur_y = ctx.current_local_y.load();
+                    float cur_z = ctx.current_local_z.load();
+                    nav_profile_.reset(cur_x, cur_y, cur_z,
+                                       ctx.flight_speed, ctx.nav_max_accel_xy,
+                                       ctx.nav_max_speed_z, RTL_MAX_AZ, 0.1f);
+                    RCLCPP_INFO(ctx.logger,
+                        "[RTL] Phase A 완료 → Phase B: 이륙지점으로 이동 (%.1f, %.1f)",
+                        actual_home_x_, actual_home_y_);
+                    break;
+                }
                 RCLCPP_INFO(ctx.logger,
                     "[RTL] 홈 도착 (%.1fm) → 하강 시작, AGL=%.1fm",
                     dist, agl);
@@ -293,10 +338,9 @@ public:
                                        : land_detected_by_sensor_ ? "거리계+vz(2순위)"
                                        :                            "기압계+vz(3순위)";
                     RCLCPP_INFO(ctx.logger,
-                        "[RTL] 착지 안정화 완료 (%.1fs, %s) → GROUND_DISARM", ground_sec, method);
-                    // SOFT_LAND 최종 디버그 스냅샷 저장 (OSD에 GROUND_DISARM과 함께 표시)
+                        "[RTL] 착지 안정화 완료 (%.1fs, %s) → TOUCHDOWN_IDLE (Position 모드 전환)", ground_sec, method);
                     soft_land_snapshot_ = buildSoftLandDebugString(ctx);
-                    setPhase(RtlPhase::GROUND_DISARM);
+                    setPhase(RtlPhase::TOUCHDOWN_IDLE);
                     break;
                 }
             }
@@ -310,9 +354,10 @@ public:
             }
             if (phase_elapsed > SOFT_LAND_EMERGENCY_TIMEOUT) {
                 RCLCPP_WARN(ctx.logger,
-                    "[RTL] SOFT_LAND 비상 타임아웃 (%.0fs, AGL=%.2fm) → FORCE disarm",
+                    "[RTL] SOFT_LAND 비상 타임아웃 (%.0fs, AGL=%.2fm) → TOUCHDOWN_IDLE (Position 모드 전환)",
                     phase_elapsed, agl);
-                setPhase(RtlPhase::GROUND_DISARM);
+                soft_land_snapshot_ = buildSoftLandDebugString(ctx);
+                setPhase(RtlPhase::TOUCHDOWN_IDLE);
                 break;
             }
 
@@ -325,7 +370,9 @@ public:
         }
 
         case RtlPhase::TOUCHDOWN_IDLE: {
-            // GPS(POSITION) 모드 전환 → PX4 자체 착지 감지 + NORMAL DISARM
+            // POSCTL(Position) 모드 전환 → 조종기로 제어권 이양 (RC 필수)
+            // AUTO_LAND는 최저 0.6m/s로 45kg 기체에 착지 충격이 크므로 사용하지 않음
+            // TODO: RC 없는 환경 대응 — 펌웨어 수정 또는 AUTO_LAND 최저속도 조정 필요 (work-plan/037)
             bool px4_landed_td = ctx.land_detected.load();
 
             if (ctx.arming_state.load() == 1) {
@@ -333,16 +380,16 @@ public:
                 return TransitionResult::COMPLETE;
             }
 
-            // GPS 모드 전환 명령 (진입 후 3초간 매 틱 반복, 확실한 전환 보장)
+            // POSCTL(Position) 모드 전환 명령 (진입 후 3초간 매 틱 반복, 확실한 전환 보장)
             if (phase_elapsed < 3.0) {
-                // DO_SET_MODE: param1=1(base_mode), param2=3(POSCTL/GPS)
+                // DO_SET_MODE: param1=1(base_mode), param2=3(POSCTL/Position)
                 ctx.publishCommand(176, 1.0f, 3.0f, 0.0f);
             }
 
             // PX4 land_detected 감지 → NORMAL DISARM으로 GROUND_DISARM
             if (px4_landed_td) {
                 RCLCPP_INFO(ctx.logger,
-                    "[RTL] GPS모드 PX4 land_detected 확인 (%.1fs) → GROUND_DISARM (NORMAL)",
+                    "[RTL] Position모드 PX4 land_detected 확인 (%.1fs) → GROUND_DISARM (NORMAL)",
                     phase_elapsed);
                 ground_detected_ = true;
                 land_detected_by_px4_ = true;
@@ -361,7 +408,7 @@ public:
                 break;
             }
 
-            logPeriodic(ctx, 2.0, "[RTL] TOUCHDOWN_IDLE GPS모드 대기 (%.1fs, px4_landed=%d)",
+            logPeriodic(ctx, 2.0, "[RTL] TOUCHDOWN_IDLE Position모드 대기 (%.1fs, px4_landed=%d)",
                         phase_elapsed, (int)px4_landed_td);
             break;
         }
@@ -454,8 +501,8 @@ public:
         }
 
         case RtlPhase::TOUCHDOWN_IDLE: {
-            // GPS(POSITION) 모드 전환 완료 — OFFBOARD setpoint 발행 중단
-            // PX4가 자체 위치 유지 + 착지 감지 수행
+            // POSCTL(Position) 모드 전환 완료 — OFFBOARD setpoint 발행 중단
+            // 조종기로 제어권 이양, 조종사가 최종 착륙 수행
             return false;
         }
 
@@ -481,7 +528,7 @@ private:
         NAVIGATE_HOME,   // 홈으로 수평 이동
         DESCEND,         // 0.7m/s 하강 (→ 1.5m AGL)
         SOFT_LAND,       // 감속 착륙 (0.7→0.1 m/s)
-        TOUCHDOWN_IDLE,  // GPS모드 전환, PX4 자체 착지 감지 대기
+        TOUCHDOWN_IDLE,  // Position모드 전환, 조종기 제어권 이양
         GROUND_DISARM    // 착지 감지 + disarm
     };
 
@@ -529,6 +576,11 @@ private:
     float home_x_{0.0f}, home_y_{0.0f}, home_z_{0.0f};
     float flight_z_{0.0f};
     float rtl_yaw_{0.0f};  // 후진 비행용 yaw (홈 반대 방향)
+
+    // 편대 RTL 2단계 (Phase A: 오프셋 홈, Phase B: 실제 이륙 위치)
+    float actual_home_x_{0.0f}, actual_home_y_{0.0f};
+    bool formation_rtl_{false};
+    bool phase_a_complete_{false};
 
     // 3D 모션 프로파일 (NAVIGATE_HOME 페이즈)
     MotionProfile3D nav_profile_;
@@ -607,7 +659,10 @@ private:
             float dy = home_y_ - ctx.current_local_y.load();
             float dist = std::sqrt(dx * dx + dy * dy);
             char buf[80];
-            std::snprintf(buf, sizeof(buf), "HOME:%.0fm %.0f/%.0fs", dist, elapsed, nav_home_timeout_);
+            const char* label = formation_rtl_
+                ? (phase_a_complete_ ? "HOME:B" : "HOME:A")
+                : "HOME:";
+            std::snprintf(buf, sizeof(buf), "%s%.0fm %.0f/%.0fs", label, dist, elapsed, nav_home_timeout_);
             return buf;
         }
         case RtlPhase::DESCEND: {

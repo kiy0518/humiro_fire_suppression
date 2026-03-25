@@ -425,7 +425,12 @@ void ApplicationManager::initializeComponents() {
     status_overlay_->setTempThreshold(temp_threshold);
     std::cout << "  ✓ OSD 기체 ID: " << osd_drone_id
               << ", 기준온도: " << temp_threshold << "C" << std::endl;
-    
+
+    // 자동 조준/격발에도 동일한 기준 온도 적용
+    if (offboard_manager_) {
+        offboard_manager_->getContext().temp_threshold = static_cast<float>(temp_threshold);
+    }
+
     targeting_compositor_ = new TargetingFrameCompositor();
     targeting_compositor_->setLidarOrientation(LIDAR_ORIENTATION_OFFSET);
     targeting_compositor_->setTempThreshold(temp_threshold);
@@ -557,7 +562,7 @@ void ApplicationManager::initializeCustomMessage() {
             mavlink_port,  // 송신 포트: DRONE_ID 기반 (드론1=14550, 드론2=14560, 드론3=14570)
             "0.0.0.0",  // 바인드 주소: 모든 인터페이스 (외부 접근 가능)
             target_address,  // 대상 주소: QGC 또는 브로드캐스트 (변경 없음)
-            1,  // 시스템 ID
+            static_cast<uint8_t>(drone_id),  // 시스템 ID (DRONE_ID 기반)
             1   // 컴포넌트 ID
         );
         
@@ -767,8 +772,14 @@ void ApplicationManager::initializeCustomMessage() {
                 if (offboard_manager_) {
                     std::cout << "[FIRE_RETURN] ★ 60003 수신 → 무조건 RTL (drone_id="
                               << (int)drone_id_ << ")" << std::endl;
-                    offboard_manager_->abortMission();
-                    std::cout << "[FIRE_RETURN] ✓ abortMission() → RTL 전환 요청 (미션 스레드에서 자연 종료 대기)" << std::endl;
+                    // 편대 팔로워: triggerFormationRTL()로 오프셋 유지 복귀
+                    if (is_follower_ && formation_controller_) {
+                        formation_controller_->triggerFormationRTL();
+                        std::cout << "[FIRE_RETURN] ✓ triggerFormationRTL() → 편대 오프셋 유지 RTL" << std::endl;
+                    } else {
+                        offboard_manager_->abortMission();
+                        std::cout << "[FIRE_RETURN] ✓ abortMission() → RTL 전환 요청" << std::endl;
+                    }
                     // ★ finishMission() 호출 금지!
                     // abortMission()이 abort_requested_ 플래그를 설정하면,
                     // OffboardManager 타이머가 RTL handler로 전환 → LANDED → 미션 스레드 자연 종료

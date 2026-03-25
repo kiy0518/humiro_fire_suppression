@@ -558,6 +558,16 @@ void OffboardManager::gpsToLocalNED(double target_lat, double target_lon, float 
     local_z = -target_alt;
 }
 
+void OffboardManager::setFormationRtlOffset(float heading_rad, float cross_offset_m)
+{
+    ctx_.formation_rtl_heading_rad = heading_rad;
+    ctx_.formation_rtl_cross_offset_m = cross_offset_m;
+    ctx_.formation_rtl_offset_valid = true;
+    RCLCPP_INFO(node_->get_logger(),
+        "[FORMATION RTL] 오프셋 설정: heading=%.1f°, cross=%.1fm",
+        heading_rad * 180.0f / static_cast<float>(M_PI), cross_offset_m);
+}
+
 void OffboardManager::abortMission()
 {
     RCLCPP_WARN(node_->get_logger(), "[ABORT] Mission abort requested!");
@@ -897,9 +907,15 @@ void OffboardManager::advanceToNextHandler()
         transitionTo(rtl_handler_.get());
     } else if (current_handler_ == rtl_handler_.get()) {
         current_handler_ = nullptr;
-        mission_running_.store(false);  // heartbeat 중단 먼저
+
+        // PX4에 Position 모드 전환 명령 (heartbeat 중단 전에 전송!)
+        // 이렇게 하지 않으면 PX4가 OFFBOARD 모드로 남아 failsafe timeout 발생 → QGC 연결 끊김
+        publishVehicleCommand(176, 1.0f, 3.0f, 0.0f);  // DO_SET_MODE: base=1, POSCTL=3
+        RCLCPP_INFO(node_->get_logger(), "[RTL→LANDED] Position 모드 전환 명령 전송");
+
+        mission_running_.store(false);  // heartbeat 중단
         current_state_.store(MissionState::LANDED);
-        RCLCPP_INFO(node_->get_logger(), "[RTL→LANDED] 미션 완료! (heartbeat 중단됨, nav=%d, arm=%d)",
+        RCLCPP_INFO(node_->get_logger(), "[RTL→LANDED] 미션 완료! (nav=%d, arm=%d)",
                     nav_state_.load(), arming_state_.load());
     }
 }

@@ -97,6 +97,9 @@ public:
     using CommandCallback = std::function<void(uint8_t command, double lat, double lon)>;
     void setCommandCallback(CommandCallback cb) { command_callback_ = cb; }
 
+    // === 팔로워: 편대 RTL (오프셋 전달 + abortMission) ===
+    void triggerFormationRTL();
+
 private:
     // === 리더 기능 ===
     void initLeader();
@@ -118,6 +121,7 @@ private:
 
     // === 리더: SUPPRESS 전환 ===
     void triggerSuppressPhase();
+
     static std::string followerPhaseToString(FollowerPhase phase);
 
     // === 리더: LeaderAimPose 발행 (DISTANCE_ADJUST 완료 후) ===

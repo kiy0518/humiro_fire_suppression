@@ -3,7 +3,7 @@
 **목적**: Claude Code가 이 프로젝트에서 코드를 작성할 때 참고하는 가이드
 
 **버전**: v3.1 (2026-02-08)
-**최신 태그**: v0.26.14
+**최신 태그**: v0.26.15
 **총 코드량**: 12,000+ LOC
 
 **프로젝트 경로**: `/home/khadas/humiro_fire_suppression`
@@ -47,6 +47,8 @@
 | `028_OFFBOARD_HANDLER_REFACTORING.md` | OFFBOARD 핸들러 리팩토링 계획 |
 | `033_LANDING_DETECTION_IMPROVEMENT.md` | 착지 감지 및 DISARM 시퀀스 개선 (vehicle_land_detected 활용) |
 | `034_COORDINATE_SYSTEM_REVIEW.md` | 오프보드 모드 좌표계(절대/상대) 혼동 검토 — 버그 0건 |
+| `036_FORMATION_RTL_PARALLEL_LANE.md` | ★ 편대 RTL 복귀 (cross-track 평행 레인 + 이륙지점 착륙) |
+| `037_LANDING_MODE_RC_DEPENDENCY.md` | RTL 착륙 모드 RC 의존성 문제 및 향후 개선 |
 
 #### 통신 / 메시지
 | 파일 | 내용 |

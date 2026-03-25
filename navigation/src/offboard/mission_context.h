@@ -134,6 +134,10 @@ struct MissionContext {
 
     // === 편대 ===
     bool formation_mode{false};
+    // 편대 RTL: 복귀 시 cross-track 오프셋 유지 (평행 레인 복귀)
+    bool  formation_rtl_offset_valid{false};   // 편대 RTL 오프셋 유효 여부
+    float formation_rtl_heading_rad{0.0f};     // 고정 경로 heading (rad, NED)
+    float formation_rtl_cross_offset_m{0.0f};  // cross-track 오프셋 (m, 우측 양수)
     std::atomic<bool> formation_ready_to_rotate{false};
     std::atomic<bool> formation_ready_to_navigate{false};
     std::atomic<bool> continuous_update_mode{false};
@@ -155,6 +159,7 @@ struct MissionContext {
     ThermalData* thermal_data_ptr{nullptr};               // ApplicationManager의 thermal_data_ 포인터
     std::atomic<bool> thermal_tracking_auto{true};         // 자동 모드 (true=자동, false=수동)
     std::atomic<bool> thermal_tracking_active{false};      // 추적 활성 (수동 모드: GUI 버튼으로 제어)
+    float temp_threshold{50.0f};                           // GUI 열화상 기준 온도 (°C, settings.json)
 
     // === 자동 격발 (60001 FIRE_AUTO_AIM) ===
     std::atomic<bool> auto_fire_enabled{false};            // 60001 수신 → true
@@ -251,6 +256,10 @@ struct MissionContext {
         // 자동 격발 리셋
         auto_fire_enabled.store(false);
         auto_fire_request.store(false);
+        // 편대 RTL 리셋
+        formation_rtl_offset_valid = false;
+        formation_rtl_heading_rad = 0.0f;
+        formation_rtl_cross_offset_m = 0.0f;
         // Swarm 모드 리셋
         swarm_alignment_received.store(false);
         swarm_reposition_needed = false;

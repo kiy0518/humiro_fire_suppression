@@ -514,6 +514,13 @@ void FormationController::onLeaderPose(const humiro_msgs::msg::LeaderPose::Share
             lateral_mirrored_ = (cross * (double)offset_right_cm_ < 0.0);
         }
 
+        // RTL 오프셋 사전 설정 (소화탄 소진 등 어떤 경로로든 RTL 진입 시 편대 경로 유지)
+        if (offboard_mgr_) {
+            float cross_m = static_cast<float>(offset_right_cm_) / 100.0f;
+            if (lateral_mirrored_) cross_m = -cross_m;
+            offboard_mgr_->setFormationRtlOffset(fixed_heading_rad_, cross_m);
+        }
+
         std::cout << "[Formation] ★ 지연 heading 계산 (첫 LeaderPose): heading="
                   << (fixed_heading_rad_ * 180.0f / M_PI) << "°, leader_start=("
                   << leader_start_lat_ << "," << leader_start_lon_
@@ -590,11 +597,8 @@ void FormationController::onHeartbeat(const humiro_msgs::msg::FormationHeartbeat
             std::cout << "[FormationController] Heartbeat RTL 감지 → 소화탄 잔여, 독립 작전 유지 ("
                       << followerPhaseToString(follower_phase_) << ")" << std::endl;
         } else {
-            // RTL 명령을 놓침 → 커스텀 RTL
-            follower_phase_ = FollowerPhase::RTL;
-            if (offboard_mgr_) {
-                offboard_mgr_->abortMission();  // 커스텀 RTL (FC RTL 대신)
-            }
+            // RTL 명령을 놓침 → 커스텀 RTL (편대 오프셋 전달)
+            triggerFormationRTL();
             std::cout << "[FormationController] Heartbeat로 RTL phase 감지 → 커스텀 RTL" << std::endl;
         }
     }
@@ -667,6 +671,13 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
                     lateral_mirrored_ = (cross * (double)offset_right_cm_ < 0.0);
                 }
 
+                // RTL 오프셋 사전 설정 (소화탄 소진 등 어떤 경로로든 RTL 진입 시 편대 경로 유지)
+                if (offboard_mgr_) {
+                    float cross_m = static_cast<float>(offset_right_cm_) / 100.0f;
+                    if (lateral_mirrored_) cross_m = -cross_m;
+                    offboard_mgr_->setFormationRtlOffset(fixed_heading_rad_, cross_m);
+                }
+
                 std::cout << "[Formation] 고정 경로선: heading=" << (fixed_heading_rad_ * 180.0f / M_PI)
                           << "°, leader_start=(" << leader_start_lat_ << "," << leader_start_lon_
                           << "), 미러링=" << (lateral_mirrored_ ? "Y" : "N") << std::endl;
@@ -701,11 +712,8 @@ void FormationController::onFormationCommand(const humiro_msgs::msg::FormationCo
                 std::cout << "  → CMD_RTL 무시: 소화탄 잔여 → 독립 작전 유지 ("
                           << followerPhaseToString(follower_phase_) << ")" << std::endl;
             } else {
-                follower_phase_ = FollowerPhase::RTL;
-                if (offboard_mgr_) {
-                    offboard_mgr_->abortMission();  // 커스텀 RTL (FC RTL 대신)
-                    std::cout << "  → RTL: 커스텀 귀환 (abortMission)" << std::endl;
-                }
+                triggerFormationRTL();
+                std::cout << "  → RTL: 커스텀 귀환 (편대 오프셋 전달 + abortMission)" << std::endl;
             }
             break;
         }
@@ -918,6 +926,22 @@ void FormationController::triggerSuppressPhase() {
         if (idx + 1 < follower_ids.size()) {
             std::this_thread::sleep_for(500ms);
         }
+    }
+}
+
+// ============================================================================
+// 팔로워: 편대 RTL (오프셋 전달 + abortMission)
+// ============================================================================
+
+void FormationController::triggerFormationRTL() {
+    follower_phase_ = FollowerPhase::RTL;
+    if (offboard_mgr_) {
+        if (fixed_heading_set_) {
+            float cross_m = static_cast<float>(offset_right_cm_) / 100.0f;
+            if (lateral_mirrored_) cross_m = -cross_m;
+            offboard_mgr_->setFormationRtlOffset(fixed_heading_rad_, cross_m);
+        }
+        offboard_mgr_->abortMission();
     }
 }
 
