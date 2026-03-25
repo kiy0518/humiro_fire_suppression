@@ -162,6 +162,8 @@ public:
     float getCurrentLocalZ() const { return current_local_z_.load(); }
     float getCurrentVx() const { return actual_vx_.load(); }
     float getCurrentVy() const { return actual_vy_.load(); }
+    double getHomeLat() const { return home_lat_; }
+    double getHomeLon() const { return home_lon_; }
     float getCurrentVz() const { return actual_vz_.load(); }
     float getCurrentSpeed() const {
         float vx = actual_vx_.load(), vy = actual_vy_.load();

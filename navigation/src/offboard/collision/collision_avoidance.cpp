@@ -67,6 +67,10 @@ void CollisionAvoidance::positionBroadcastCallback() {
     msg.vz = offboard_mgr_->getCurrentVz();
     msg.mission_state = OffboardManager::getStateName(offboard_mgr_->getCurrentState());
 
+    // 홈 좌표 (충돌 방지 우선순위 계산용)
+    msg.home_latitude = offboard_mgr_->getHomeLat();
+    msg.home_longitude = offboard_mgr_->getHomeLon();
+
     // 안전 데이터 (편대 공유)
     msg.battery_remaining = offboard_mgr_->getBatteryRemaining();
     msg.gps_fix_type = offboard_mgr_->getGPSFixType();
@@ -91,6 +95,8 @@ void CollisionAvoidance::onDronePosition(
     state.vx = msg->vx;
     state.vy = msg->vy;
     state.vz = msg->vz;
+    state.home_latitude = msg->home_latitude;
+    state.home_longitude = msg->home_longitude;
     state.mission_state = msg->mission_state;
     state.last_update = std::chrono::steady_clock::now();
     state.valid = true;
@@ -112,6 +118,12 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
 
     // GPS 미수신 시 체크 불가
     if (me.latitude == 0.0 && me.longitude == 0.0) return CollisionAction::NONE;
+
+    // 내 홈 거리 계산
+    double home_lat = offboard_mgr_->getHomeLat();
+    double home_lon = offboard_mgr_->getHomeLon();
+    float my_home_dist = (home_lat == 0.0 && home_lon == 0.0) ? 9999.0f
+        : calculateHorizontalGPSDistance(me.latitude, me.longitude, home_lat, home_lon);
 
     auto now = std::chrono::steady_clock::now();
     CollisionAction worst_action = CollisionAction::NONE;
@@ -137,8 +149,15 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
             continue;
         }
 
+        // 상대 드론이 착륙 완료(시동 꺼짐)면 충돌 위험 없음 → 건너뛰기
+        if (other.mission_state == "LANDED" || other.mission_state == "IDLE") {
+            continue;
+        }
+
         // 고도 차이 체크 (사전 필터링)
-        if (hasAltitudeClearance(me.altitude, other.altitude)) continue;
+        // 단, 상대가 RTL(착륙 진행) 중이면 고도 분리만으로 통과 금지 (하향풍 위험)
+        bool other_is_landing = (other.mission_state == "RTL");
+        if (!other_is_landing && hasAltitudeClearance(me.altitude, other.altitude)) continue;
 
         // 수평 거리 계산
         float dist = calculateHorizontalGPSDistance(
@@ -148,16 +167,22 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
         bool i_approach = isIApproachingOther(me, other);
         bool other_approach = isIApproachingOther(other, me);
 
+        // 상대 홈 거리 계산 (상대 드론 자신의 홈 기준)
+        float other_home_dist = (other.home_latitude == 0.0 && other.home_longitude == 0.0) ? 9999.0f
+            : calculateHorizontalGPSDistance(other.latitude, other.longitude,
+                                              other.home_latitude, other.home_longitude);
+
         if (dist < DANGER_DISTANCE) {
-            // 위험 거리 → 행동 결정
-            CollisionAction action = determineAction(drone_id_, id, i_approach, other_approach);
+            // 위험 거리 → 행동 결정 (홈 거리 기반 우선순위)
+            CollisionAction action = determineAction(
+                drone_id_, id, i_approach, other_approach, my_home_dist, other_home_dist);
 
             if (action != CollisionAction::NONE) {
                 if (!collision_hold_.load()) {
                     const char* action_str = (action == CollisionAction::HOLD) ? "HOLD" : "EVADE_RIGHT";
                     RCLCPP_WARN(node_->get_logger(),
-                        "[CollisionAvoid] DANGER! drone %d at %.1fm → %s (my_id=%d)",
-                        id, dist, action_str, drone_id_);
+                        "[CollisionAvoid] DANGER! drone %d at %.1fm → %s (my_home=%.0fm, other_home=%.0fm)",
+                        id, dist, action_str, my_home_dist, other_home_dist);
                 }
 
                 // 더 심각한 액션 우선 (HOLD > EVADE)
@@ -175,10 +200,10 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
         }
 
         // 안전 거리 확보 확인 (현재 hold/evade 중인 위협 드론과의 거리)
-        // 히스테리시스: DANGER~SAFE 구간에서 아직 접근 중일 때만 유지
-        // 둘 다 멈추면 (접근 안 함) 해제하여 데드락 방지
+        // 히스테리시스: DANGER~SAFE 구간에서 기존 HOLD 유지 (접근 여부 무관)
+        // → SAFE_DISTANCE(25m) 초과해야만 해제
         if (collision_hold_.load() && current_threat_id_.load() == id && dist < SAFE_DISTANCE) {
-            if (worst_action == CollisionAction::NONE && (i_approach || other_approach)) {
+            if (worst_action == CollisionAction::NONE) {
                 worst_action = CollisionAction::HOLD;
                 threat_id = id;
             }
@@ -188,6 +213,11 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
     bool any_active = (worst_action != CollisionAction::NONE);
     collision_hold_.store(any_active);
     current_threat_id_.store(threat_id);
+
+    // 충돌 해제 시 히스테리시스 잠금도 해제
+    if (!any_active) {
+        locked_priority_holder_ = 0;
+    }
 
     // EVADE_RIGHT 시 회피 오프셋 계산
     if (worst_action == CollisionAction::EVADE_RIGHT) {
@@ -200,37 +230,47 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
     return worst_action;
 }
 
-// ===== 우선순위 기반 행동 결정 =====
-// 핵심 원칙: 높은 우선순위(낮은 ID)는 계속 진행, 낮은 우선순위(높은 ID)만 회피
-// 예외: 정면 충돌 시에만 높은 우선순위도 HOLD
+// ===== 홈 거리 기반 행동 결정 =====
+// 핵심 원칙:
+//   1. 홈에 가까운 기체가 진행권 (먼저 착륙)
+//   2. 거리 차이 5m 이내(GPS 노이즈)면 기존 결정 유지, 초회는 ID로 타이브레이크
+//   3. 데드락 방지: 높은 우선순위는 항상 NONE, 낮은 우선순위는 항상 EVADE_RIGHT
+//      → 접근 여부와 무관하게 우선순위만으로 결정 (HOLD 진동 방지)
 CollisionAction CollisionAvoidance::determineAction(
     uint8_t my_id, uint8_t other_id,
-    bool i_am_approaching, bool other_is_approaching) const
+    bool /*i_am_approaching*/, bool /*other_is_approaching*/,
+    float my_home_dist, float other_home_dist)
 {
-    bool i_am_higher_priority = (my_id < other_id);
+    // 우선순위 결정: 홈에 가까운 쪽이 진행
+    float diff = my_home_dist - other_home_dist;  // 음수 = 내가 더 가까움
 
-    // 규칙 1: 양쪽 모두 접근 중 (정면 충돌)
-    // → 높은 우선순위 HOLD(안전 정지), 낮은 우선순위 EVADE_RIGHT(비켜야 함)
-    if (i_am_approaching && other_is_approaching) {
-        return i_am_higher_priority ? CollisionAction::HOLD : CollisionAction::EVADE_RIGHT;
+    bool i_have_priority;
+    if (std::abs(diff) > HOME_DIST_HYSTERESIS) {
+        // 거리 차이가 충분히 큼 → 거리 기반 결정
+        i_have_priority = (diff < 0.0f);  // 내가 홈에 더 가까우면 진행권
+        // 히스테리시스 잠금 갱신
+        locked_priority_holder_ = i_have_priority ? my_id : other_id;
+    } else {
+        // 거리 차이 5m 이내 → GPS 노이즈 구간
+        if (locked_priority_holder_ != 0) {
+            // 기존 잠금 유지
+            i_have_priority = (locked_priority_holder_ == my_id);
+        } else {
+            // 초회: ID로 타이브레이크 (낮은 ID 우선)
+            i_have_priority = (my_id < other_id);
+            locked_priority_holder_ = i_have_priority ? my_id : other_id;
+        }
     }
 
-    // 규칙 2: 내가 혼자 접근 중 (추월/정지 드론 접근)
-    // → 높은 우선순위: 계속 진행 (상대가 비켜야 함)
-    // → 낮은 우선순위: 내가 비켜야 (EVADE_RIGHT)
-    if (i_am_approaching && !other_is_approaching) {
-        return i_am_higher_priority ? CollisionAction::NONE : CollisionAction::EVADE_RIGHT;
+    // 규칙 1: 내가 진행권 보유 → 계속 진행
+    if (i_have_priority) {
+        return CollisionAction::NONE;
     }
 
-    // 규칙 3: 상대방만 접근 중
-    // → 높은 우선순위: 계속 (상대가 회피 책임)
-    // → 낮은 우선순위: 비켜야 (상대가 높은 우선순위라 멈추지 않음)
-    if (!i_am_approaching && other_is_approaching) {
-        return i_am_higher_priority ? CollisionAction::NONE : CollisionAction::EVADE_RIGHT;
-    }
-
-    // 규칙 4: 둘 다 접근 안 함 → 계속
-    return CollisionAction::NONE;
+    // 규칙 2: 상대가 진행권 보유 → 내가 양보
+    // 접근 중이면 EVADE_RIGHT (RTL 필터에서 HOLD로 변환)
+    // 정지 중이면(상대만 접근) EVADE_RIGHT (RTL 필터에서 HOLD로 변환)
+    return CollisionAction::EVADE_RIGHT;
 }
 
 // ===== EVADE 오프셋 계산 (현재 비행 방향 직각 오른쪽) =====
