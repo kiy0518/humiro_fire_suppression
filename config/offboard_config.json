@@ -1,7 +1,7 @@
 {
   "takeoff_max_speed": 1,
   "takeoff_accel_tau": 1,
-  "updated_at": "2026-03-24 12:33:45",
+  "updated_at": "2026-03-25 18:24:20",
   "target_altitude": 2,
   "mission_mode": "formation",
   "nav_max_accel_xy": 3,
@@ -16,5 +16,8 @@
   "rangefinder_gps_switch_margin": 0.1,
   "deadzone_h_px": 33,
   "deadzone_v_px": 50,
-  "fire_pitch_tolerance_deg": 2.5
+  "fire_pitch_tolerance_deg": 2.5,
+  "collision_danger_dist": 15,
+  "collision_warning_dist": 20,
+  "collision_safe_dist": 25
 }

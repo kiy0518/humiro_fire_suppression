@@ -20,8 +20,8 @@ CollisionAvoidance::CollisionAvoidance(
         std::bind(&CollisionAvoidance::onDronePosition, this, std::placeholders::_1));
 
     RCLCPP_INFO(node_->get_logger(),
-        "[CollisionAvoid] Initialized for drone %d (DANGER=%.0fm, SAFE=%.0fm, EVADE=%.0fm)",
-        drone_id_, DANGER_DISTANCE, SAFE_DISTANCE, EVADE_OFFSET_M);
+        "[CollisionAvoid] Initialized for drone %d (DANGER=%.1fm, WARNING=%.1fm, SAFE=%.1fm)",
+        drone_id_, DANGER_DISTANCE_, WARNING_DISTANCE_, SAFE_DISTANCE_);
 }
 
 CollisionAvoidance::~CollisionAvoidance() {
@@ -128,6 +128,7 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
     auto now = std::chrono::steady_clock::now();
     CollisionAction worst_action = CollisionAction::NONE;
     uint8_t threat_id = 0;
+    bool warning_detected = false;
 
     std::lock_guard<std::mutex> lock(drones_mutex_);
     for (auto& [id, other] : other_drones_) {
@@ -172,7 +173,7 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
             : calculateHorizontalGPSDistance(other.latitude, other.longitude,
                                               other.home_latitude, other.home_longitude);
 
-        if (dist < DANGER_DISTANCE) {
+        if (dist < DANGER_DISTANCE_) {
             // 위험 거리 → 행동 결정 (홈 거리 기반 우선순위)
             CollisionAction action = determineAction(
                 drone_id_, id, i_approach, other_approach, my_home_dist, other_home_dist);
@@ -192,8 +193,9 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
                     threat_id = id;
                 }
             }
-        } else if (dist < WARNING_DISTANCE && (i_approach || other_approach)) {
+        } else if (dist < WARNING_DISTANCE_ && (i_approach || other_approach)) {
             // 경고 거리
+            warning_detected = true;
             RCLCPP_INFO_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                 "[CollisionAvoid] Warning: drone %d at %.1fm (me_approach=%d, other_approach=%d)",
                 id, dist, i_approach, other_approach);
@@ -201,8 +203,8 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
 
         // 안전 거리 확보 확인 (현재 hold/evade 중인 위협 드론과의 거리)
         // 히스테리시스: DANGER~SAFE 구간에서 기존 HOLD 유지 (접근 여부 무관)
-        // → SAFE_DISTANCE(25m) 초과해야만 해제
-        if (collision_hold_.load() && current_threat_id_.load() == id && dist < SAFE_DISTANCE) {
+        // → SAFE_DISTANCE_ 초과해야만 해제
+        if (collision_hold_.load() && current_threat_id_.load() == id && dist < SAFE_DISTANCE_) {
             if (worst_action == CollisionAction::NONE) {
                 worst_action = CollisionAction::HOLD;
                 threat_id = id;
@@ -212,6 +214,7 @@ CollisionAction CollisionAvoidance::checkAndUpdate() {
 
     bool any_active = (worst_action != CollisionAction::NONE);
     collision_hold_.store(any_active);
+    warning_active_.store(warning_detected && !any_active);
     current_threat_id_.store(threat_id);
 
     // 충돌 해제 시 히스테리시스 잠금도 해제

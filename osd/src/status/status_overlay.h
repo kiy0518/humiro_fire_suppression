@@ -137,6 +137,12 @@ public:
     void setRtlLandDebug(const std::string& debug);
 
     /**
+     * 충돌 방지 상태 설정
+     * @param status 0=NONE, 1=HOLD(위험정지), 2=WARNING(경고)
+     */
+    void setCollisionStatus(int status);
+
+    /**
      * QGC 커스텀 메시지 설정
      * @param message 메시지 텍스트
      * @param timeout_seconds 메시지 표시 시간 (초, 0이면 무제한)
@@ -209,6 +215,10 @@ private:
     // RTL 서브페이즈
     std::string rtl_sub_phase_;
     std::string rtl_land_debug_;   // 착지 감지 디버그 정보
+
+    // 충돌 방지 상태 (0=NONE, 1=HOLD, 2=WARNING)
+    int collision_status_{0};
+    std::chrono::steady_clock::time_point collision_clear_time_;  // HOLD→NONE 전환 시점
 
     // QGC 커스텀 메시지
     std::string custom_message_;

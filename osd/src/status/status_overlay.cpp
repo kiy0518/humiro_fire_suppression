@@ -99,6 +99,16 @@ void StatusOverlay::setRtlLandDebug(const std::string& debug) {
     rtl_land_debug_ = debug;
 }
 
+void StatusOverlay::setCollisionStatus(int status) {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    int prev = collision_status_;
+    collision_status_ = status;
+    // HOLD→NONE 전환 시 "충돌 해제" 표시를 위한 타이머
+    if (prev == 1 && status == 0) {
+        collision_clear_time_ = std::chrono::steady_clock::now();
+    }
+}
+
 void StatusOverlay::updateOffboardStatus(DroneStatus status) {
     std::lock_guard<std::mutex> lock(data_mutex_);
     
@@ -498,6 +508,7 @@ void StatusOverlay::draw(cv::Mat& frame) {
     // 5.5. 온도 → 상태바에서 제거 (핫스팟 마커 옆에 표시)
 
     int osd_badges_bottom = status_bar_height;  // 모든 뱃지의 최대 하단 Y 추적
+    int speed_badge_x = 0, speed_badge_y = 0, speed_badge_h = 0;  // 충돌 뱃지 위치 참조용
 
     // 6. 상태 표시 (비행모드 아래, 라운드 진회색 배경)
     std::string status_text = getStatusText(current_status_);
@@ -784,6 +795,9 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 int sb_w = total_w + pad * 2;
                 int sb_h = box_h;
 
+                speed_badge_x = sb_x;
+                speed_badge_y = sb_y;
+                speed_badge_h = sb_h;
                 if (sb_x + sb_w <= frame.cols && sb_y + sb_h <= frame.rows) {
                     std::vector<cv::Point> spts;
                     const int sstep = 15;
@@ -844,6 +858,68 @@ void StatusOverlay::draw(cv::Mat& frame) {
                 cv::putText(frame, hspd_str, cv::Point(spd_tx, text_y),
                             FONT_FACE, FONT_SCALE, hspd_color, FONT_THICKNESS, cv::LINE_AA);
             }
+        }
+    }
+
+    // 6.7. 충돌 방지 상태 (속도 뱃지 아래, 상시 표시)
+    if (speed_badge_x > 0) {
+        const int pad = 5;
+        const int r = 4;
+        cv::Scalar bg_color(50, 50, 50);
+        std::string col_text;
+        cv::Scalar col_color;
+
+        if (collision_status_ == 1) {
+            col_text = "COLLISION HOLD";
+            col_color = cv::Scalar(0, 0, 255);  // 빨간색
+        } else if (collision_status_ == 2) {
+            col_text = "COLLISION WARN";
+            col_color = cv::Scalar(0, 165, 255);  // 주황색
+        } else {
+            // HOLD 해제 직후 3초간 CLEAR 표시, 이후 SAFE
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - collision_clear_time_).count();
+            if (collision_clear_time_.time_since_epoch().count() > 0 && elapsed < 3000) {
+                col_text = "COLLISION CLEAR";
+                col_color = cv::Scalar(0, 200, 0);  // 초록색
+            } else {
+                col_text = "COLLISION SAFE";
+                col_color = cv::Scalar(128, 128, 128);  // 회색
+            }
+        }
+
+        const float COL_FONT_SCALE = FONT_SCALE * 0.85f;
+        int col_baseline = 0;
+        cv::Size col_size = cv::getTextSize(col_text, FONT_FACE,
+                                            COL_FONT_SCALE, FONT_THICKNESS, &col_baseline);
+        int col_box_x = speed_badge_x;
+        int col_box_y = speed_badge_y + speed_badge_h + 2;
+        int col_box_w = col_size.width + pad * 2;
+        int col_box_h = col_size.height + pad * 2;
+
+        if (col_box_x + col_box_w <= frame.cols && col_box_y + col_box_h <= frame.rows) {
+            std::vector<cv::Point> col_pts;
+            for (int a = 180; a <= 270; a += 15)
+                col_pts.emplace_back(col_box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                     col_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+            for (int a = 270; a <= 360; a += 15)
+                col_pts.emplace_back(col_box_x + col_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                     col_box_y + r + (int)(r * std::sin(a * M_PI / 180)));
+            for (int a = 0; a <= 90; a += 15)
+                col_pts.emplace_back(col_box_x + col_box_w - r + (int)(r * std::cos(a * M_PI / 180)),
+                                     col_box_y + col_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+            for (int a = 90; a <= 180; a += 15)
+                col_pts.emplace_back(col_box_x + r + (int)(r * std::cos(a * M_PI / 180)),
+                                     col_box_y + col_box_h - r + (int)(r * std::sin(a * M_PI / 180)));
+            std::vector<std::vector<cv::Point>> col_poly = {col_pts};
+            cv::fillPoly(frame, col_poly, bg_color, cv::LINE_AA);
+
+            int col_text_y = col_box_y + pad + col_size.height;
+            cv::putText(frame, col_text,
+                        cv::Point(col_box_x + pad, col_text_y),
+                        FONT_FACE, COL_FONT_SCALE,
+                        col_color, FONT_THICKNESS, cv::LINE_AA);
+            osd_badges_bottom = std::max(osd_badges_bottom, col_box_y + col_box_h);
         }
     }
 

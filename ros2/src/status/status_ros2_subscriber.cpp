@@ -56,6 +56,12 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node,
         "formation/current", 10,
         std::bind(&StatusROS2Subscriber::formationCallback, this, std::placeholders::_1));
     std::cout << "  [OK] ROS2 구독: formation/current" << std::endl;
+
+    // 충돌 방지 상태 구독 (/offboard/collision_status) - 커스텀 토픽
+    collision_status_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
+        "offboard/collision_status", 10,
+        std::bind(&StatusROS2Subscriber::collisionStatusCallback, this, std::placeholders::_1));
+    std::cout << "  [OK] ROS2 구독: offboard/collision_status" << std::endl;
 }
 
 StatusROS2Subscriber::~StatusROS2Subscriber() {
@@ -325,6 +331,11 @@ void StatusROS2Subscriber::ammunitionCallback(const std_msgs::msg::Int32::Shared
 void StatusROS2Subscriber::formationCallback(const std_msgs::msg::Int32::SharedPtr msg) {
     // 편대 OSD 표시 제거됨 (v0.18.1+)
     (void)msg;
+}
+
+void StatusROS2Subscriber::collisionStatusCallback(const std_msgs::msg::Int32::SharedPtr msg) {
+    if (!status_overlay_) return;
+    status_overlay_->setCollisionStatus(msg->data);
 }
 
 bool StatusROS2Subscriber::isFCConnected() const {

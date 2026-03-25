@@ -79,6 +79,9 @@ private:
     // 편대 정보 콜백 (커스텀 토픽)
     void formationCallback(const std_msgs::msg::Int32::SharedPtr msg);
 
+    // 충돌 방지 상태 콜백 (커스텀 토픽)
+    void collisionStatusCallback(const std_msgs::msg::Int32::SharedPtr msg);
+
     // PX4 nav_state를 모드 문자열로 변환
     std::string navStateToModeString(uint8_t nav_state);
 
@@ -93,6 +96,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr offboard_status_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr ammunition_sub_;
     rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr formation_sub_;
+    rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr collision_status_sub_;
 
     // 마지막 업데이트 시간 (디버깅용)
     std::chrono::steady_clock::time_point last_state_update_;

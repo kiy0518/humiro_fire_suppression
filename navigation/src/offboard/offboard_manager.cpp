@@ -49,6 +49,7 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node,
 
     // ========== OSD 상태 퍼블리셔 ==========
     offboard_status_pub_ = node_->create_publisher<std_msgs::msg::String>("offboard/status", 10);
+    collision_status_pub_ = node_->create_publisher<std_msgs::msg::Int32>("offboard/collision_status", 10);
 
     // ctx_ 명령 발행 콜백 설정 (FCBridgeClient를 통해 전송)
     ctx_.publishCommand = [this](uint16_t cmd, float p1, float p2, float p3) {
@@ -384,6 +385,21 @@ void OffboardManager::timerCallback()
         ctx_.hold_yaw = hold_yaw_;
         ctx_.evade_offset_n = evade_offset_n_;
         ctx_.evade_offset_e = evade_offset_e_;
+
+        // OSD 충돌 상태: 0=NONE, 1=HOLD(위험), 2=WARNING(경고)
+        osd_collision_status_ = 0;
+        if (active) {
+            osd_collision_status_ = 1;  // HOLD (위험 정지)
+        } else if (collision_avoidance_->isWarningActive()) {
+            osd_collision_status_ = 2;  // WARNING (경고)
+        }
+    }
+
+    // OSD 충돌 상태 발행 (항상, ARM 전에도 SAFE 표시)
+    {
+        auto col_msg = std_msgs::msg::Int32();
+        col_msg.data = osd_collision_status_;
+        collision_status_pub_->publish(col_msg);
     }
 
     // ========== 핸들러 모드 ==========
@@ -695,12 +711,18 @@ bool OffboardManager::updateMissionTarget(const GPSCoordinate& new_target, float
     ctx_.target_ned_x = target_ned_x_;
     ctx_.target_ned_y = target_ned_y_;
     ctx_.target_ned_z = target_ned_z_;
-    ctx_.target_yaw = target_yaw_;
     ctx_.target_lat = new_target.latitude;
     ctx_.target_lon = new_target.longitude;
 
-    if (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
-        state == MissionState::ARMING || state == MissionState::TAKEOFF) {
+    bool in_takeoff_seq = (state == MissionState::PREPARING || state == MissionState::OFFBOARD ||
+                           state == MissionState::ARMING || state == MissionState::TAKEOFF);
+
+    // 팔로워 이륙 시퀀스 중: 리더 yaw 무시, 자신의 초기 헤딩 유지
+    if (!(in_takeoff_seq && continuous_update_mode_.load())) {
+        ctx_.target_yaw = target_yaw_;
+    }
+
+    if (in_takeoff_seq) {
         // 이륙 시퀀스: 좌표만 저장
     } else if (collision_active) {
         // 충돌 중: 상태 변경 보류

@@ -273,6 +273,45 @@
                     </div>
                 </div>
             </div>
+            <!-- 충돌 방지 -->
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCollision">
+                        충돌 방지 (Collision)
+                    </button>
+                </h2>
+                <div id="collapseCollision" class="accordion-collapse collapse" data-bs-parent="#flightParamsAccordion">
+                    <div class="accordion-body py-2">
+                        <div class="row g-2">
+                            <div class="col-auto">
+                                <label class="form-label">위험 정지 거리</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="collision_danger_dist"
+                                           step="0.5" min="3" max="50" placeholder="10">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">경고 거리</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="collision_warning_dist"
+                                           step="0.5" min="5" max="60" placeholder="12.5">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                            <div class="col-auto">
+                                <label class="form-label">해제 안전 거리</label>
+                                <div class="input-group" style="width:150px">
+                                    <input type="number" class="form-control" id="collision_safe_dist"
+                                           step="0.5" min="8" max="80" placeholder="15">
+                                    <span class="input-group-text">m</span>
+                                </div>
+                            </div>
+                        </div>
+                        <small class="text-muted mt-1 d-block">위험 &lt; 경고 &lt; 안전 순서 유지 필요. 서비스 재시작 후 적용.</small>
+                    </div>
+                </div>
+            </div>
             <!-- 조준 데드존 -->
             <div class="accordion-item">
                 <h2 class="accordion-header">
@@ -560,7 +599,8 @@ const configFields = ['target_altitude',
     'nav_max_accel_xy', 'nav_max_speed_z',
     'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
     'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height', 'rangefinder_gps_switch_margin',
-    'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg'
+    'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg',
+    'collision_danger_dist', 'collision_warning_dist', 'collision_safe_dist'
 ];
 
 function loadConfig() {
@@ -685,7 +725,8 @@ document.getElementById('saveFlightParams').addEventListener('click', function()
         'nav_max_accel_xy', 'nav_max_speed_z',
         'adjust_approach_speed', 'adjust_target_wall_dist', 'adjust_retreat_dist',
         'rtl_descent_speed', 'rtl_soft_land_alt', 'rtl_landing_speed_min', 'rangefinder_mount_height', 'rangefinder_gps_switch_margin',
-        'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg'
+        'deadzone_h_px', 'deadzone_v_px', 'fire_pitch_tolerance_deg',
+        'collision_danger_dist', 'collision_warning_dist', 'collision_safe_dist'
     ];
     const data = {};
     flightFields.forEach(f => {

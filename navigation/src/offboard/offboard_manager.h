@@ -18,6 +18,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -234,6 +235,7 @@ private:
 
     // ========== OSD 상태 퍼블리셔 ==========
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr offboard_status_pub_;
+    rclcpp::Publisher<std_msgs::msg::Int32>::SharedPtr collision_status_pub_;
     std::string last_published_status_;
 
     // ========== FC Bridge 클라이언트 (로컬 UDP IPC) ==========
@@ -341,6 +343,7 @@ private:
     bool was_collision_active_{false};
     float hold_x_{0.0f}, hold_y_{0.0f}, hold_z_{0.0f}, hold_yaw_{0.0f};
     float evade_offset_n_{0.0f}, evade_offset_e_{0.0f};  // 우회 오프셋 (NED)
+    int osd_collision_status_{0};  // OSD 발행용: 0=SAFE, 1=HOLD, 2=WARNING
 
     // ========== 핸들러 아키텍처 (점진적 전환) ==========
     MissionContext ctx_;

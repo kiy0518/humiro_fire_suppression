@@ -40,10 +40,21 @@ public:
     void start();
     void stop();
 
+    // 거리 설정 (GUI offboard_config.json에서 로드)
+    void setDistances(float danger, float warning, float safe) {
+        DANGER_DISTANCE_ = danger;
+        WARNING_DISTANCE_ = warning;
+        SAFE_DISTANCE_ = safe;
+        RCLCPP_INFO(node_->get_logger(),
+            "[CollisionAvoid] Distances updated: DANGER=%.1fm, WARNING=%.1fm, SAFE=%.1fm",
+            danger, warning, safe);
+    }
+
     // timerCallback()에서 10Hz로 호출. CollisionAction 반환
     CollisionAction checkAndUpdate();
 
     bool isCollisionHold() const { return collision_hold_.load(); }
+    bool isWarningActive() const { return warning_active_.load(); }
     uint8_t getThreatId() const { return current_threat_id_.load(); }
 
     // EVADE_RIGHT 회피 오프셋 (NED, 경로 직각 오른쪽 5m)
@@ -92,6 +103,7 @@ private:
 
     // 충돌 상태
     std::atomic<bool> collision_hold_{false};
+    std::atomic<bool> warning_active_{false};
     std::atomic<uint8_t> current_threat_id_{0};
     std::atomic<float> evade_offset_n_{0.0f};
     std::atomic<float> evade_offset_e_{0.0f};
@@ -100,10 +112,10 @@ private:
     // locked_priority_holder_: 충돌 쌍에서 진행권을 가진 드론 ID (0=미결정)
     uint8_t locked_priority_holder_{0};
 
-    // 상수
-    static constexpr float WARNING_DISTANCE = 20.0f;     // 경고 → 감속 (m)
-    static constexpr float DANGER_DISTANCE = 15.0f;     // 위험 → HOLD (m)
-    static constexpr float SAFE_DISTANCE = 25.0f;       // 안전 → 재개 (m)
+    // 거리 설정 (GUI에서 변경 가능)
+    float WARNING_DISTANCE_ = 12.5f;     // 경고 → 감속 (m)
+    float DANGER_DISTANCE_ = 10.0f;      // 위험 → HOLD (m)
+    float SAFE_DISTANCE_ = 15.0f;        // 안전 → 재개 (m)
     static constexpr float ALTITUDE_CLEARANCE = 5.0f;   // 고도 차이 이상이면 안전 (m)
     static constexpr float APPROACH_SPEED_THRESHOLD = 0.1f;  // 접근 판정 임계 (m/s)
     static constexpr float EVADE_OFFSET_M = 5.0f;       // 회피 오프셋 (m)

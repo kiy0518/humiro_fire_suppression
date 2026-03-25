@@ -391,6 +391,11 @@ void ApplicationManager::initializeFormation() {
     // SITL 동일 홈 위치에서도 오감지 없음 (양쪽 정지 → NONE)
     if (ros2_node_ && offboard_manager_) {
         collision_avoidance_ = new CollisionAvoidance(ros2_node_, offboard_manager_, drone_id_);
+        // GUI offboard_config.json에서 거리 설정 로드
+        float ca_danger  = readFloatFromOffboardConfig("collision_danger_dist",  10.0f, 3.0f, 50.0f);
+        float ca_warning = readFloatFromOffboardConfig("collision_warning_dist", 12.5f, 5.0f, 60.0f);
+        float ca_safe    = readFloatFromOffboardConfig("collision_safe_dist",    15.0f, 8.0f, 80.0f);
+        collision_avoidance_->setDistances(ca_danger, ca_warning, ca_safe);
         offboard_manager_->setCollisionAvoidance(collision_avoidance_);
         collision_avoidance_->start();
         std::cout << "\n[충돌 방지] 활성화 (drone_id=" << (int)drone_id_
@@ -1747,6 +1752,14 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
     config.deadzone_h_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_h_px", 33.0f, 5.0f, 80.0f));
     config.deadzone_v_px = static_cast<int>(readFloatFromOffboardConfig("deadzone_v_px", 33.0f, 5.0f, 80.0f));
     config.fire_pitch_tolerance_deg = readFloatFromOffboardConfig("fire_pitch_tolerance_deg", 1.0f, 0.5f, 10.0f);
+
+    // 충돌 방지 거리 설정 (미션 시작마다 GUI 설정 재로드)
+    if (collision_avoidance_) {
+        float ca_danger  = readFloatFromOffboardConfig("collision_danger_dist",  10.0f, 3.0f, 50.0f);
+        float ca_warning = readFloatFromOffboardConfig("collision_warning_dist", 12.5f, 5.0f, 60.0f);
+        float ca_safe    = readFloatFromOffboardConfig("collision_safe_dist",    15.0f, 8.0f, 80.0f);
+        collision_avoidance_->setDistances(ca_danger, ca_warning, ca_safe);
+    }
 
     // 호버링 시간 (환경변수로 오버라이드 가능)
     const char* env_hover = std::getenv("MISSION_HOVER_DURATION");
