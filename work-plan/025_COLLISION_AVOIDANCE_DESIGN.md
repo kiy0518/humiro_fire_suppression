@@ -1010,3 +1010,91 @@ if (distance < EMERGENCY_DISTANCE) {  // 2.0m
 
 **작성자**: Claude Sonnet 4.5
 **검토 필요**: 우선순위 낮은 기체가 높은 기체로 접근 시나리오
+
+---
+
+## 13. 실제 구현 현황 (2026-03-25 업데이트)
+
+위 설계(v0.8.3)와 실제 구현은 차이가 있음. 아래가 현재 코드 상태.
+
+### 13.1 구현된 파일 구조
+
+```
+navigation/src/offboard/collision/
+  collision_avoidance.h       - CollisionAvoidance 클래스 + DroneState + CollisionAction enum
+  collision_avoidance.cpp     - 5Hz 위치 브로드캐스트 + 10Hz checkAndUpdate()
+```
+
+### 13.2 설계 대비 주요 변경점
+
+| 항목 | 초기 설계 (위 §1~12) | 실제 구현 |
+|------|----------------------|----------|
+| 통신 방식 | PX4 로컬 포지션 ROS2 토픽 구독 | humiro_msgs/DronePosition GPS 브로드캐스트 |
+| 거리 계산 | 로컬 NED 3D 거리 | GPS 수평 거리 (Haversine 근사) |
+| 접근 감지 | 3D 속도 벡터 투영 | 2D 수평 속도 벡터 투영 (NED vx/vy) |
+| 행동 타입 | STOP만 | HOLD(정지) + EVADE_RIGHT(회피) |
+| 모드 필터 | 모든 모드에서 동작 | **RTL에서만 적용** (다른 모드 NONE) |
+| RTL 정책 | 없음 | EVADE_RIGHT → HOLD 다운그레이드, SOFT_LAND 이후 NONE |
+| 클래스 이름 | CollisionAvoidanceManager | CollisionAvoidance |
+
+### 13.3 현재 거리 상수 (v0.26.16 기준)
+
+```cpp
+WARNING_DISTANCE  = 12.0m   // 경고 로그
+DANGER_DISTANCE   = 8.0m    // 행동 개시 (HOLD/EVADE)
+SAFE_DISTANCE     = 15.0m   // 행동 해제 (히스테리시스)
+ALTITUDE_CLEARANCE = 5.0m   // 고도 차이 이상 → 안전
+APPROACH_SPEED_THRESHOLD = 0.1m/s  // 접근 판정 임계값
+EVADE_OFFSET_M    = 5.0m    // 회피 오프셋 (현재 RTL에서 미사용)
+STALE_TIMEOUT_MS  = 2000    // 데이터 유효 시간
+```
+
+이전 값: WARNING=8m, DANGER=5m, SAFE=10m → 기체 프롭 2m+ 고려하여 확대 (2026-03-25)
+
+### 13.4 모드별 충돌 방지 필터링
+
+`offboard_manager.cpp` 타이머 콜백에서:
+
+```
+checkAndUpdate() → raw_action (항상 실행: 브로드캐스트/추적 유지)
+        |
+        v
+    MODE FILTER
+    ├─ RTL + NAV_HOME/DESCEND → EVADE_RIGHT → HOLD 다운그레이드
+    ├─ RTL + SOFT_LAND/이후  → NONE 강제 (착륙 간섭 금지)
+    └─ 기타 모드(NAVIGATE 등) → NONE 강제 (편대 비행 간섭 방지)
+        |
+        v
+    ctx_.collision_action = filtered_action
+```
+
+핵심 이유: 편대 비행 시 팔로워가 리더와 5m 오프셋으로 나란히 비행하므로,
+DANGER=8m이면 정상 비행 중에도 감지될 수 있음. RTL에서만 적용하여 오감지 방지.
+
+### 13.5 RTL HOLD 대응 (rtl_handler.h)
+
+- NAVIGATE_HOME: HOLD 중이면 도착 판정 차단 + 현 위치 고정
+- DESCEND: HOLD 중이면 하강 일시정지
+- HOLD 해제 시 nav_profile_ 재초기화 (현재 위치 기준)
+- SOFT_LAND 이후: 충돌 방지 비활성 (착륙 시퀀스 보호)
+
+### 13.6 편대 RTL 수렴 시나리오
+
+```
+D1(ID=1) 홈 도착 → DESCEND
+D3(ID=3) 홈 8m 이내 → HOLD (ID 3 > 1, 낮은 우선순위)
+D1 SOFT_LAND → 고도 차이 5m+ → D3 자동 CLEAR
+D3 HOLD 해제 → DESCEND → 착륙
+결과: 우선순위 기반 순차 착륙
+```
+
+### 13.7 RTL 중 60000 메시지 거부
+
+`application_manager.cpp`에서 RTL 상태일 때 FIRE_MISSION_START(60000) 수신 시 무시.
+착륙 중 새 미션 시작으로 인한 상태 불일치 방지.
+
+### 13.8 향후 확장
+
+- NAVIGATE 모드 충돌 방지: 편대 합류/이탈 시 발동 조건 세분화 필요
+- Manual 모드 충돌 방지: §11 설계 참고 (미구현)
+- 감지 거리 동적 조정: 비행 속도에 비례하여 DANGER 거리 확대

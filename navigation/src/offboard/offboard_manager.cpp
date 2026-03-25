@@ -318,7 +318,28 @@ void OffboardManager::timerCallback()
 
     // ========== 충돌 방지 (10Hz, ARM 이후) ==========
     if (collision_avoidance_ && arming_state_.load() == 2) {
-        auto action = collision_avoidance_->checkAndUpdate();
+        auto raw_action = collision_avoidance_->checkAndUpdate();
+
+        // === 모드별 충돌 방지 필터링 (현재 RTL에서만 적용) ===
+        // RTL 원칙: 높은 우선순위(낮은 ID)는 계속 진행, 낮은 우선순위만 HOLD
+        //   raw EVADE_RIGHT = 낮은 우선순위 → HOLD (대기)
+        //   raw HOLD = 높은 우선순위 정면충돌 → NONE (계속 진행, 먼저 착륙)
+        //   raw NONE = 위험 없음 → NONE
+        CollisionAction action = CollisionAction::NONE;
+        if (state == MissionState::RTL) {
+            const std::string& sub = ctx_.rtl_sub_phase;
+            if (sub == "SOFT_LAND" || sub == "TOUCHDOWN" || sub == "DISARMING") {
+                action = CollisionAction::NONE;  // 착륙 시퀀스 보호
+            } else {
+                // NAV_HOME, DESCEND: 낮은 우선순위(EVADE_RIGHT)만 HOLD
+                // 높은 우선순위(HOLD)는 NONE → 계속 진행하여 먼저 착륙
+                if (raw_action == CollisionAction::EVADE_RIGHT) {
+                    action = CollisionAction::HOLD;
+                }
+                // raw_action == HOLD || NONE → action = NONE (기본값)
+            }
+        }
+
         bool active = (action != CollisionAction::NONE);
 
         if (active && !was_collision_active_) {

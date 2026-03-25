@@ -33,6 +33,7 @@ public:
         home_z_ = ctx.start_local_z;  // 지상 NED z
         formation_rtl_ = false;
         phase_a_complete_ = false;
+        was_holding_ = false;
 
         if (ctx.formation_rtl_offset_valid &&
             std::fabs(ctx.formation_rtl_cross_offset_m) > 0.1f) {
@@ -154,6 +155,12 @@ public:
             float dx = home_x_ - ctx.current_local_x.load();
             float dy = home_y_ - ctx.current_local_y.load();
             float dist = std::sqrt(dx * dx + dy * dy);
+
+            // 충돌 방지: HOLD 중이면 도착 판정 차단
+            if (ctx.collision_action.load() != 0) {
+                logPeriodic(ctx, 5.0, "[RTL] NAVIGATE_HOME collision HOLD (dist=%.1fm)", dist);
+                break;
+            }
 
             // 도착 판정
             if (dist < HOME_ARRIVAL_DIST) {
@@ -462,6 +469,29 @@ public:
 
         switch (phase_) {
         case RtlPhase::NAVIGATE_HOME: {
+            // 충돌 방지: HOLD
+            int ca = ctx.collision_action.load();
+            if (ca == 1 /* HOLD */) {
+                sp.position = {ctx.hold_x, ctx.hold_y, ctx.hold_z};
+                sp.velocity = {NAN, NAN, NAN};
+                sp.yaw = ctx.hold_yaw;
+                sp.yawspeed = 0.0f;
+                was_holding_ = true;
+                return true;
+            }
+
+            // HOLD 해제 → 프로파일 현재 위치에서 재초기화
+            if (was_holding_) {
+                float cur_x = ctx.current_local_x.load();
+                float cur_y = ctx.current_local_y.load();
+                float cur_z = ctx.current_local_z.load();
+                nav_profile_.reset(cur_x, cur_y, cur_z,
+                                   ctx.flight_speed, ctx.nav_max_accel_xy,
+                                   ctx.nav_max_speed_z, RTL_MAX_AZ, 0.1f);
+                was_holding_ = false;
+                RCLCPP_INFO(ctx.logger, "[RTL] collision HOLD 해제 → 프로파일 재초기화");
+            }
+
             // === 수평 이동 (MotionProfile3D 적용) ===
             nav_profile_.update(home_x_, home_y_, flight_z_);
 
@@ -478,6 +508,16 @@ public:
         }
 
         case RtlPhase::DESCEND: {
+            // 충돌 방지: 하강 일시정지 (고도 유지)
+            int ca_d = ctx.collision_action.load();
+            if (ca_d == 1 /* HOLD */) {
+                sp.position = {ctx.hold_x, ctx.hold_y, ctx.hold_z};
+                sp.velocity = {NAN, NAN, NAN};
+                sp.yaw = ctx.hold_yaw;
+                sp.yawspeed = 0.0f;
+                return true;
+            }
+
             // 수직 하강, 수평 위치 홈 고정
             // Z: velocity-only 제어 → PX4 100Hz 속도 제어 (계단식 방지)
             sp.position = {home_x_, home_y_, NAN};    // Z position 비활성화
@@ -581,6 +621,9 @@ private:
     float actual_home_x_{0.0f}, actual_home_y_{0.0f};
     bool formation_rtl_{false};
     bool phase_a_complete_{false};
+
+    // 충돌 방지: HOLD 해제 시 프로파일 리셋용
+    bool was_holding_{false};
 
     // 3D 모션 프로파일 (NAVIGATE_HOME 페이즈)
     MotionProfile3D nav_profile_;

@@ -94,9 +94,9 @@ private:
     std::atomic<float> evade_offset_e_{0.0f};
 
     // 상수
-    static constexpr float WARNING_DISTANCE = 8.0f;     // 경고 (m)
-    static constexpr float DANGER_DISTANCE = 5.0f;      // 위험 → 행동 (m)
-    static constexpr float SAFE_DISTANCE = 10.0f;       // 안전 → 재개 (m)
+    static constexpr float WARNING_DISTANCE = 12.0f;     // 경고 (m)
+    static constexpr float DANGER_DISTANCE = 8.0f;      // 위험 → 행동 (m)
+    static constexpr float SAFE_DISTANCE = 15.0f;       // 안전 → 재개 (m)
     static constexpr float ALTITUDE_CLEARANCE = 5.0f;   // 고도 차이 이상이면 안전 (m)
     static constexpr float APPROACH_SPEED_THRESHOLD = 0.1f;  // 접근 판정 임계 (m/s)
     static constexpr float EVADE_OFFSET_M = 5.0f;       // 회피 오프셋 (m)

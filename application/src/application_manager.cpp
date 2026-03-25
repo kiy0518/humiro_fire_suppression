@@ -386,11 +386,15 @@ void ApplicationManager::initializeFormation() {
         std::cout << "  ✓ FormationController 초기화 완료 (role=" << role << ")" << std::endl;
     }
 
-    // ========== 충돌 방지 비활성화 (SITL 편대 테스트) ==========
-    // SITL 멀티 인스턴스는 동일 GPS 홈 위치 → 충돌 오감지 (거리 0m < DANGER 5m)
-    // TODO: FC 모드에서는 다시 활성화 필요
+    // ========== 충돌 방지 ==========
+    // SITL/FC 공통 활성화: 접근 감지 알고리즘이 정지 상태(속도 < 0.1m/s)를 무시하므로
+    // SITL 동일 홈 위치에서도 오감지 없음 (양쪽 정지 → NONE)
     if (ros2_node_ && offboard_manager_) {
-        std::cout << "\n[충돌 방지] 비활성화됨 (SITL 편대 오감지 방지)" << std::endl;
+        collision_avoidance_ = new CollisionAvoidance(ros2_node_, offboard_manager_, drone_id_);
+        offboard_manager_->setCollisionAvoidance(collision_avoidance_);
+        collision_avoidance_->start();
+        std::cout << "\n[충돌 방지] 활성화 (drone_id=" << (int)drone_id_
+                  << ", " << (is_sitl_mode_ ? "SITL" : "FC") << ")" << std::endl;
     }
 #endif
 }
@@ -1624,9 +1628,15 @@ void ApplicationManager::executeMission(const custom_message::FireMissionStart& 
         std::cout << "\n[미션 중복 체크] mission_running_=true" << std::endl;
         std::cout << "  - OffboardManager 상태: " << OffboardManager::getStateName(current_state) << std::endl;
 
-        // IDLE/ERROR/LANDED/RTL 상태면 이전 미션이 종료된 것으로 간주하고 리셋
+        // RTL 중이면 60000 무시 (착륙 완료까지 새 미션 불가)
+        if (current_state == MissionState::RTL) {
+            std::cout << "[미션 거부] RTL 착륙 중 — 60000 무시 (착륙 완료 후 재시도)" << std::endl;
+            return;
+        }
+
+        // IDLE/ERROR/LANDED 상태면 이전 미션이 종료된 것으로 간주하고 리셋
         if (current_state == MissionState::IDLE || current_state == MissionState::ERROR ||
-            current_state == MissionState::LANDED || current_state == MissionState::RTL) {
+            current_state == MissionState::LANDED) {
             std::cout << "  ★ 이전 미션 종료 상태 → 강제 리셋 후 재시도" << std::endl;
             finishMission(true);
             expected = false;
@@ -2130,8 +2140,12 @@ void ApplicationManager::executeSwarmMission(const custom_message::FireMissionSt
     bool expected = false;
     if (!mission_running_.compare_exchange_strong(expected, true)) {
         MissionState current_state = offboard_manager_->getCurrentState();
+        if (current_state == MissionState::RTL) {
+            std::cout << "[Swarm] RTL 착륙 중 — 미션 시작 거부" << std::endl;
+            return;
+        }
         if (current_state == MissionState::IDLE || current_state == MissionState::ERROR ||
-            current_state == MissionState::LANDED || current_state == MissionState::RTL) {
+            current_state == MissionState::LANDED) {
             finishMission(true);
             expected = false;
             if (!mission_running_.compare_exchange_strong(expected, true)) {
