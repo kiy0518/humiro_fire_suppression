@@ -48,7 +48,7 @@ OffboardManager::OffboardManager(rclcpp::Node::SharedPtr node,
     rtl_handler_ = std::make_unique<RtlHandler>();
 
     // ========== OSD 상태 퍼블리셔 ==========
-    offboard_status_pub_ = node_->create_publisher<std_msgs::msg::String>("/offboard/status", 10);
+    offboard_status_pub_ = node_->create_publisher<std_msgs::msg::String>("offboard/status", 10);
 
     // ctx_ 명령 발행 콜백 설정 (FCBridgeClient를 통해 전송)
     ctx_.publishCommand = [this](uint16_t cmd, float p1, float p2, float p3) {

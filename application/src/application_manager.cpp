@@ -228,7 +228,8 @@ void ApplicationManager::initializeROS2(int argc, char* argv[]) {
         is_follower_ = (role_str.find("Follower") != std::string::npos);
         std::string node_name = "humiro_fire_suppression_" + std::to_string(drone_id);
 
-        ros2_node_ = rclcpp::Node::make_shared(node_name);
+        std::string node_ns = "/drone" + std::to_string(drone_id);
+        ros2_node_ = rclcpp::Node::make_shared(node_name, node_ns);
         std::cout << "  ✓ ROS2 노드 생성: " << node_name << " (Domain 1, WiFi)" << std::endl;
 
         // FCBridgeClient 생성 (FC Bridge IPC, UDP loopback)

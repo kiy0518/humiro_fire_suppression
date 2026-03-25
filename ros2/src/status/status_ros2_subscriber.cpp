@@ -41,21 +41,21 @@ StatusROS2Subscriber::StatusROS2Subscriber(rclcpp::Node::SharedPtr node,
 
     // OFFBOARD 모드 상태 구독 (/offboard/status) - VIM4 커스텀 토픽
     offboard_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
-        "/offboard/status", 10,
+        "offboard/status", 10,
         std::bind(&StatusROS2Subscriber::offboardStatusCallback, this, std::placeholders::_1));
-    std::cout << "  [OK] ROS2 구독: /offboard/status" << std::endl;
+    std::cout << "  [OK] ROS2 구독: offboard/status (ns=" << node_->get_namespace() << ")" << std::endl;
 
     // 소화탄 갯수 구독 (/ammunition/current) - 커스텀 토픽
     ammunition_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
-        "/ammunition/current", 10,
+        "ammunition/current", 10,
         std::bind(&StatusROS2Subscriber::ammunitionCallback, this, std::placeholders::_1));
-    std::cout << "  [OK] ROS2 구독: /ammunition/current" << std::endl;
+    std::cout << "  [OK] ROS2 구독: ammunition/current" << std::endl;
 
     // 편대 정보 구독 (/formation/current) - 커스텀 토픽
     formation_sub_ = node_->create_subscription<std_msgs::msg::Int32>(
-        "/formation/current", 10,
+        "formation/current", 10,
         std::bind(&StatusROS2Subscriber::formationCallback, this, std::placeholders::_1));
-    std::cout << "  [OK] ROS2 구독: /formation/current" << std::endl;
+    std::cout << "  [OK] ROS2 구독: formation/current" << std::endl;
 }
 
 StatusROS2Subscriber::~StatusROS2Subscriber() {

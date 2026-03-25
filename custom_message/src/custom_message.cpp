@@ -899,6 +899,17 @@ private:
         }
     }
 
+    // target_system 필터링: 자기 system_id와 일치하거나 0(브로드캐스트)이면 true
+    bool isTargetedToMe(uint8_t target_system, int msg_id) {
+        if (target_system == 0 || target_system == system_id_) {
+            return true;
+        }
+        std::cout << "[CustomMessage] target_system 불일치 -> 무시 (target="
+                  << static_cast<int>(target_system) << ", my_id="
+                  << static_cast<int>(system_id_) << ", msg_id=" << msg_id << ")" << std::endl;
+        return false;
+    }
+
     void parseFireMissionStart(const uint8_t* payload, size_t len) {
         if (len < sizeof(FireMissionStart)) {
             std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -910,6 +921,7 @@ private:
 
         FireMissionStart start;
         memcpy(&start, payload, sizeof(FireMissionStart));
+        if (!isTargetedToMe(start.target_system, 60000)) return;
 
         {
             std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -939,6 +951,7 @@ private:
 
         uint8_t target_system = payload[0];
         uint8_t target_component = payload[1];
+        if (!isTargetedToMe(target_system, 60001)) return;
 
         std::cout << "[CustomMessage] ★★★ 60001 자동조준 명령 수신 완료! ★★★" << std::endl;
         std::cout << "[CustomMessage]   target_system=" << static_cast<int>(target_system)
@@ -968,6 +981,7 @@ private:
 
         uint8_t target_system = payload[0];
         uint8_t target_component = payload[1];
+        if (!isTargetedToMe(target_system, 60002)) return;
 
         std::cout << "[CustomMessage] ★★★ 60002 발사 명령 수신 완료! ★★★" << std::endl;
         std::cout << "[CustomMessage]   target_system=" << static_cast<int>(target_system)
@@ -997,6 +1011,7 @@ private:
 
         uint8_t target_system = payload[0];
         uint8_t target_component = payload[1];
+        if (!isTargetedToMe(target_system, 60003)) return;
 
         std::cout << "[CustomMessage] ★★★ 60003 복귀 명령 수신 완료! ★★★" << std::endl;
         std::cout << "[CustomMessage]   target_system=" << static_cast<int>(target_system)
